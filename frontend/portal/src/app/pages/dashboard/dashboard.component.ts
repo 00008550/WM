@@ -1,7 +1,9 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { WorkforceApi, LivePresence, PunchRow } from '../../core/api/workforce.api';
 import { RealtimeService, PunchEvent } from '../../core/realtime/realtime.service';
+import { IconComponent } from '../../core/ui/icon.component';
 
 interface FeedEntry {
   key: string;
@@ -14,91 +16,159 @@ interface FeedEntry {
 
 @Component({
   selector: 'wm-dashboard',
-  imports: [DatePipe],
+  imports: [DatePipe, FormsModule, IconComponent],
   template: `
     <div class="p-8 max-w-6xl">
-      <header class="flex items-baseline justify-between">
+      <header class="flex items-baseline justify-between rise" style="--i: 0">
         <div>
-          <h1 class="font-display text-3xl font-bold tracking-tight">Operations</h1>
-          <p class="text-muted text-sm mt-1">{{ now | date: 'EEEE, d MMMM y' }}</p>
+          <h1 class="font-display text-2xl font-bold tracking-tight">Operations</h1>
+          <p class="text-muted text-sm mt-0.5">{{ now | date: 'EEEE, d MMMM y' }}</p>
         </div>
-        <div class="text-xs font-mono text-muted">refreshed {{ lastRefresh() | date: 'HH:mm:ss' }}</div>
+        <div class="text-[11px] font-mono text-muted" aria-live="polite">
+          refreshed {{ lastRefresh() | date: 'HH:mm:ss' }}
+        </div>
       </header>
 
-      <!-- KPI band -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-px mt-8 bg-line border border-line rounded-lg overflow-hidden">
-        <div class="bg-surface p-6 relative">
-          <div class="absolute top-6 right-6 w-2.5 h-2.5 rounded-full bg-pulse"
+      <!-- KPI band: divided, not boxed -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 mt-8 border-y border-line divide-y sm:divide-y-0 sm:divide-x divide-line rise" style="--i: 1">
+        <div class="py-6 sm:pr-8 relative">
+          <div class="absolute top-6 right-2 w-2 h-2 rounded-full bg-pulse"
                [class.animate-pulse-ring]="(presence()?.presentCount ?? 0) > 0"></div>
-          <div class="text-xs uppercase tracking-widest text-muted font-medium">On site now</div>
-          <div class="num text-5xl font-medium mt-3 text-pulse">{{ presence()?.presentCount ?? '—' }}</div>
-          <div class="text-xs text-muted mt-2 font-mono">of {{ presence()?.activeEmployees ?? '—' }} active employees</div>
+          <div class="text-[11px] uppercase tracking-[0.18em] text-muted font-medium">On site now</div>
+          @if (loading()) {
+            <div class="skeleton h-12 w-24 mt-3"></div>
+          } @else {
+            <div class="num text-5xl font-medium mt-2 text-pulse">{{ shownPresent() }}</div>
+            <div class="text-[11px] text-muted mt-1.5 font-mono">of {{ presence()?.activeEmployees }} active employees</div>
+          }
         </div>
-        <div class="bg-surface p-6">
-          <div class="text-xs uppercase tracking-widest text-muted font-medium">Presence rate</div>
-          <div class="num text-5xl font-medium mt-3">{{ presenceRate() }}<span class="text-2xl text-muted">%</span></div>
-          <div class="mt-3 h-1 bg-raised rounded-full overflow-hidden">
-            <div class="h-full bg-pulse transition-all duration-700" [style.width.%]="presenceRate()"></div>
-          </div>
+        <div class="py-6 sm:px-8">
+          <div class="text-[11px] uppercase tracking-[0.18em] text-muted font-medium">Presence rate</div>
+          @if (loading()) {
+            <div class="skeleton h-12 w-20 mt-3"></div>
+          } @else {
+            <div class="num text-5xl font-medium mt-2">{{ presenceRate() }}<span class="text-2xl text-muted">%</span></div>
+            <div class="mt-2.5 h-px bg-line relative overflow-visible">
+              <div class="absolute inset-y-[-1px] left-0 bg-pulse transition-all duration-700 ease-spring" [style.width.%]="presenceRate()"></div>
+            </div>
+          }
         </div>
-        <div class="bg-surface p-6">
-          <div class="text-xs uppercase tracking-widest text-muted font-medium">Punches today</div>
-          <div class="num text-5xl font-medium mt-3">{{ punchesToday() }}</div>
-          <div class="text-xs text-muted mt-2 font-mono">across all sites &amp; devices</div>
+        <div class="py-6 sm:pl-8">
+          <div class="text-[11px] uppercase tracking-[0.18em] text-muted font-medium">Punches today</div>
+          @if (loading()) {
+            <div class="skeleton h-12 w-16 mt-3"></div>
+          } @else {
+            <div class="num text-5xl font-medium mt-2">{{ shownPunches() }}</div>
+            <div class="text-[11px] text-muted mt-1.5 font-mono">all sites, all devices</div>
+          }
         </div>
       </div>
 
-      <div class="grid lg:grid-cols-[1fr_340px] gap-6 mt-6 items-start">
+      <div class="grid lg:grid-cols-[1fr_360px] gap-10 mt-10 items-start">
         <!-- who's in -->
-        <section class="border border-line rounded-lg bg-surface">
-          <h2 class="px-5 py-3.5 border-b border-line font-display font-bold text-sm tracking-wide">
-            Currently clocked in
-          </h2>
-          <div class="divide-y divide-line/60 max-h-[420px] overflow-y-auto">
-            @for (person of presence()?.present ?? []; track person.employeeId) {
-              <div class="px-5 py-3 flex items-center gap-4 hover:bg-raised/40 transition-colors">
-                <div class="w-8 h-8 rounded-full bg-raised border border-line grid place-items-center
-                            font-display font-bold text-xs text-pulse">
-                  {{ initials(person.employeeName) }}
+        <section class="rise" style="--i: 2">
+          <div class="flex items-baseline justify-between border-b border-line pb-3">
+            <h2 class="font-display font-bold text-sm tracking-wide">Currently clocked in</h2>
+            <span class="num text-[11px] text-muted">{{ presence()?.presentCount ?? 0 }} people</span>
+          </div>
+          <div class="divide-y divide-line/50 max-h-[430px] overflow-y-auto">
+            @if (loading()) {
+              @for (i of [0, 1, 2, 3, 4]; track i) {
+                <div class="py-3 flex items-center gap-4">
+                  <div class="skeleton w-8 h-8 rounded-full"></div>
+                  <div class="flex-1 space-y-1.5">
+                    <div class="skeleton h-3.5 w-40"></div>
+                    <div class="skeleton h-3 w-24"></div>
+                  </div>
                 </div>
-                <div class="min-w-0 flex-1">
-                  <div class="text-sm truncate">{{ person.employeeName }}</div>
-                  <div class="text-xs text-muted truncate">{{ person.jobTitle ?? '—' }}</div>
+              }
+            } @else {
+              @for (person of presence()?.present ?? []; track person.employeeId) {
+                <div class="py-2.5 pr-2 flex items-center gap-4 group">
+                  <div class="w-8 h-8 rounded-full grid place-items-center font-display font-bold text-[11px] shrink-0
+                              border transition-colors duration-150"
+                       [style.border-color]="hue(person.employeeName, 0.45)"
+                       [style.color]="hue(person.employeeName, 1)">
+                    {{ initials(person.employeeName) }}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm truncate">{{ person.employeeName }}</div>
+                    <div class="text-xs text-muted truncate">{{ person.jobTitle ?? '—' }}</div>
+                  </div>
+                  <div class="num text-[11px] text-muted">in {{ person.since | date: 'HH:mm' }}</div>
                 </div>
-                <div class="num text-xs text-muted">in {{ person.since | date: 'HH:mm' }}</div>
-              </div>
-            } @empty {
-              <div class="px-5 py-10 text-center text-muted text-sm">Nobody is clocked in right now.</div>
+              } @empty {
+                <div class="py-12 text-center">
+                  <p class="text-muted text-sm">Nobody is clocked in right now.</p>
+                  <p class="text-muted/60 text-xs mt-1">Punches appear here the moment they happen.</p>
+                </div>
+              }
             }
           </div>
         </section>
 
-        <!-- the pulse column: live punch feed -->
-        <section class="border border-line rounded-lg bg-surface">
-          <h2 class="px-5 py-3.5 border-b border-line font-display font-bold text-sm tracking-wide
-                     flex items-center justify-between">
-            Live feed
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-pulse animate-pulse-ring"></span>
-          </h2>
-          <div class="divide-y divide-line/60 max-h-[420px] overflow-y-auto">
-            @for (entry of feed(); track entry.key) {
-              <div class="px-5 py-2.5 flex items-center gap-3 text-sm"
-                   [class.animate-ticker-in]="entry.fresh">
-                <span class="num text-xs text-muted w-14">{{ entry.time | date: 'HH:mm:ss' }}</span>
-                <span class="font-mono text-[10px] px-1.5 py-0.5 rounded border"
-                      [class]="entry.direction === 'In'
-                        ? 'text-pulse border-pulse/40 bg-pulse/10'
-                        : 'text-coral border-coral/40 bg-coral/10'">
-                  {{ entry.direction === 'In' ? 'IN' : 'OUT' }}
-                </span>
-                <span class="truncate flex-1">{{ entry.name }}</span>
-                <span class="num text-[10px] text-muted">{{ entry.code }}</span>
-              </div>
-            } @empty {
-              <div class="px-5 py-10 text-center text-muted text-sm">Waiting for punches…</div>
+        <!-- pulse column -->
+        <div class="space-y-8 rise" style="--i: 3">
+          <!-- quick punch -->
+          <section class="border border-line rounded-lg bg-surface p-4">
+            <h2 class="font-display font-bold text-sm tracking-wide">Quick punch</h2>
+            <form class="mt-3 flex gap-2" (submit)="$event.preventDefault()">
+              <label class="sr-only" for="punch-code">Employee code</label>
+              <input id="punch-code" name="employeeCode" [(ngModel)]="punchCode" spellcheck="false"
+                     placeholder="E1004" autocomplete="off"
+                     class="num min-w-0 flex-1 bg-raised border border-line rounded-md px-3 py-2 text-sm
+                            placeholder:text-muted/40 transition-colors duration-150 focus:border-pulse/60" />
+              <button type="submit" (click)="punch('In')" [disabled]="punchBusy() || !punchCode"
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-md bg-pulse text-ink font-display font-bold text-xs
+                             transition-transform duration-100 active:scale-[0.97] disabled:opacity-40">
+                <wm-icon name="arrow-in" [size]="14" /> IN
+              </button>
+              <button type="button" (click)="punch('Out')" [disabled]="punchBusy() || !punchCode"
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-md border border-coral/50 text-coral font-display font-bold text-xs
+                             transition-all duration-100 hover:bg-coral/10 active:scale-[0.97] disabled:opacity-40">
+                <wm-icon name="arrow-out" [size]="14" /> OUT
+              </button>
+            </form>
+            @if (punchError()) {
+              <p class="mt-2 text-coral text-xs" role="alert">{{ punchError() }}</p>
             }
-          </div>
-        </section>
+          </section>
+
+          <!-- live feed -->
+          <section>
+            <div class="flex items-center justify-between border-b border-line pb-3">
+              <h2 class="font-display font-bold text-sm tracking-wide">Live feed</h2>
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-pulse animate-pulse-ring"></span>
+            </div>
+            <div class="divide-y divide-line/50 max-h-[330px] overflow-y-auto" aria-live="polite">
+              @if (loading()) {
+                @for (i of [0, 1, 2, 3]; track i) {
+                  <div class="py-2.5 flex items-center gap-3">
+                    <div class="skeleton h-3 w-12"></div>
+                    <div class="skeleton h-4 w-8"></div>
+                    <div class="skeleton h-3 flex-1"></div>
+                  </div>
+                }
+              } @else {
+                @for (entry of feed(); track entry.key) {
+                  <div class="py-2 flex items-center gap-2.5 text-sm" [class.animate-ticker-in]="entry.fresh">
+                    <span class="num text-[10px] text-muted w-12 shrink-0">{{ entry.time | date: 'HH:mm:ss' }}</span>
+                    <span class="font-mono text-[9px] px-1.5 py-0.5 rounded-sm border shrink-0"
+                          [class]="entry.direction === 'In'
+                            ? 'text-pulse border-pulse/40 bg-pulse/10'
+                            : 'text-coral border-coral/40 bg-coral/10'">
+                      {{ entry.direction === 'In' ? 'IN' : 'OUT' }}
+                    </span>
+                    <span class="truncate flex-1 min-w-0">{{ entry.name }}</span>
+                    <span class="num text-[10px] text-muted/70 shrink-0">{{ entry.code }}</span>
+                  </div>
+                } @empty {
+                  <div class="py-10 text-center text-muted text-sm">Waiting for punches…</div>
+                }
+              }
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   `,
@@ -109,13 +179,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private pollHandle: ReturnType<typeof setInterval> | null = null;
 
   readonly now = new Date();
+  readonly loading = signal(true);
   readonly presence = signal<LivePresence | null>(null);
   readonly feed = signal<FeedEntry[]>([]);
   readonly punchesToday = signal(0);
   readonly lastRefresh = signal(new Date());
 
+  // count-up display values so KPIs animate to their target
+  readonly shownPresent = signal(0);
+  readonly shownPunches = signal(0);
+
+  punchCode = '';
+  readonly punchBusy = signal(false);
+  readonly punchError = signal<string | null>(null);
+
   constructor() {
-    // Live path: a punch arrives over SignalR → prepend to feed, refresh KPIs.
     effect(() => {
       const event = this.realtime.lastPunch();
       if (event) this.onLivePunch(event);
@@ -124,7 +202,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.reload();
-    this.pollHandle = setInterval(() => this.reload(), 30_000); // fallback while realtime is down
+    this.pollHandle = setInterval(() => this.reload(), 30_000);
   }
 
   ngOnDestroy(): void {
@@ -141,16 +219,57 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase();
   }
 
+  /** Deterministic per-person hue for avatars — colorful without being random. */
+  hue(name: string, alpha: number): string {
+    let hash = 0;
+    for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+    return `hsl(${((hash % 360) + 360) % 360} 55% 62% / ${alpha})`;
+  }
+
+  punch(direction: 'In' | 'Out'): void {
+    if (!this.punchCode || this.punchBusy()) return;
+    this.punchBusy.set(true);
+    this.punchError.set(null);
+    this.api.recordPunch(this.punchCode.trim().toUpperCase(), direction).subscribe({
+      next: () => {
+        this.punchBusy.set(false);
+        this.punchCode = '';
+      },
+      error: err => {
+        this.punchBusy.set(false);
+        this.punchError.set(err?.error?.detail ?? 'Punch failed — check the employee code.');
+      },
+    });
+  }
+
   private reload(): void {
     this.api.livePresence().subscribe(p => {
       this.presence.set(p);
       this.lastRefresh.set(new Date());
+      this.countUp(this.shownPresent, p.presentCount);
     });
     this.api.recentPunches(30).subscribe(punches => {
       const today = new Date().toDateString();
-      this.punchesToday.set(punches.filter(p => new Date(p.timestamp).toDateString() === today).length);
+      const count = punches.filter(p => new Date(p.timestamp).toDateString() === today).length;
       this.feed.set(punches.map(p => this.toEntry(p)));
+      this.loading.set(false);
+      this.countUp(this.shownPunches, count);
+      this.punchesToday.set(count);
     });
+  }
+
+  private countUp(target: typeof this.shownPresent, to: number): void {
+    const from = target();
+    if (from === to) return;
+    const start = performance.now();
+    const duration = 600;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - k, 3);
+      target.set(Math.round(from + (to - from) * eased));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   private onLivePunch(event: PunchEvent): void {
@@ -165,14 +284,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
       },
       ...entries.slice(0, 29),
     ]);
+    this.countUp(this.shownPunches, this.punchesToday() + 1);
     this.punchesToday.update(n => n + 1);
-    this.api.livePresence().subscribe(p => this.presence.set(p));
+    this.api.livePresence().subscribe(p => {
+      this.presence.set(p);
+      this.countUp(this.shownPresent, p.presentCount);
+    });
   }
 
   private toEntry(punch: PunchRow): FeedEntry {
     return {
       key: punch.id,
-      name: punch.employeeCode, // recent-punch endpoint is code-only; live events carry names
+      name: punch.employeeName,
       code: punch.employeeCode,
       time: punch.timestamp,
       direction: punch.direction === 0 ? 'In' : 'Out',

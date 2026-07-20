@@ -21,9 +21,14 @@ module.exports = {
         body: ['"IBM Plex Sans"', 'sans-serif'],
         mono: ['"IBM Plex Mono"', 'monospace'],
       },
+      transitionTimingFunction: {
+        spring: 'cubic-bezier(0.16, 1, 0.3, 1)',
+      },
       animation: {
         'pulse-ring': 'pulse-ring 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite',
         'ticker-in': 'ticker-in 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+        rise: 'rise 480ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        shimmer: 'shimmer 1.6s linear infinite',
       },
       keyframes: {
         'pulse-ring': {
@@ -34,6 +39,14 @@ module.exports = {
         'ticker-in': {
           from: { opacity: '0', transform: 'translateY(-8px) scale(0.98)' },
           to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        rise: {
+          from: { opacity: '0', transform: 'translateY(14px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        shimmer: {
+          from: { backgroundPosition: '200% 0' },
+          to: { backgroundPosition: '-200% 0' },
         },
       },
     },
