@@ -3,10 +3,13 @@
 **Workforce Management Platform — .NET 9 + Angular rebuild of TLW**
 *v2.0 — 2026-07-20 (supersedes the TlwNext draft)*
 
-> This document is the single source of truth for what WM must eventually do. It is
-> derived from a second, deeper scan of the legacy TLW source (`E:\Tlw\Source`, ~315
-> projects) so that **no capability is silently dropped**. Section 13 is the full
-> TLW → WM coverage matrix — check things off there as they get built.
+> This document describes the **target architecture** for WM.
+>
+> For **what the legacy product actually does**, read **[`TLW-INVENTORY.md`](./TLW-INVENTORY.md)** —
+> an exhaustive, measured inventory (317 projects, 59 services, 247 entities, ~230 screens,
+> 67 reports, ~70 notification types). It is the source of truth for scope; this document is
+> the source of truth for design. Section 13 here is the coverage matrix, section 14 the
+> roadmap rebased on the measured scope.
 
 ---
 
@@ -358,27 +361,56 @@ Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentio
 
 ---
 
-## 14. Roadmap (revised, device-free)
+## 14. Roadmap (v3 — rebased on the measured legacy scope)
 
-| Phase | Delivers | Status |
-|---|---|---|
-| **0 — Foundations** | Solution skeleton, Docker infra, Identity (JWT/refresh/lockout), app shell, design tokens | ✅ done |
-| **1 — People & Time core** | People, punch pipeline (Kafka), live dashboard, timesheets | ✅ done (expand: contracts, custom fields, corrections) |
-| **2 — Rules & Scheduling** | Calculation engine, accruals/counters, planning board, absence + holidays | ▢ next |
-| **3 — Documents & Notifications** | Documents module + e-sign + object storage; Notifications hub (in-app + email) | ▢ |
-| **4 — Platform economics** | Licensing service + activation, plugin admin UI, first 2 real payroll plugins, first connector | ▢ |
-| **5 — Reporting, Expenses, Safety** | Reporting engine, Expenses, mustering/fire roll-call, Admin (audit browser, localization) | ▢ |
-| **6 — Mobile & polish** | Flutter app (punch, rota, absences, my-documents+sign, push), 2FA/SSO, a11y & perf hardening | ▢ |
+> **Read `TLW-INVENTORY.md` first.** An exhaustive scan of the legacy product (317 projects,
+> 59 services, 247 entities, ~230 screens, 67 reports, ~70 notification types, ~150 fields on
+> the Daily Template alone) showed the earlier estimate was badly wrong. WM today is
+> roughly **3–5%** of the legacy functional surface. This roadmap is rebased on that reality.
 
-Rough total to a sellable v1: **8–12 months**. Old TLW keeps running; a `TlwLegacyConnectorPlugin` reading the existing DB can bridge data during migration.
+### Sequencing principle
+Order by **dependency, not visibility**. Everything commercially valuable — timesheets,
+payroll export, absence balances, scheduling compliance — sits on the **rules/calculation
+engine**. It is the deepest, least glamorous piece and it has to come first. The pretty
+boards are cheap once the engine underneath is right.
+
+### Leverage principle
+Legacy grew **44 payroll plugins, 17 report plugins and per-vendor screens** because
+everything customer-specific became code. WM must ship a **generic export builder**, a
+**report designer**, and **rules as configurable data** so new customers are configuration.
+This single decision is worth more than any individual feature.
+
+| Phase | Delivers | Est. | Status |
+|---|---|---|---|
+| **0 — Foundations** | Solution skeleton, Docker infra, Identity, app shell, design system | — | ✅ done |
+| **1 — People, Time & Users** | People, punch pipeline (Kafka), live dashboard, timesheets, users + employee linking + self-service | — | ✅ done |
+| **1b — Core depth** | Employee contracts, custom fields, positions/qualifications, corrections, period locking, employee groups & population groups | 4–6 wks | ▢ next |
+| **2 — Rules engine** ⭐ | Daily templates (shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift), weekly models, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay | **10–16 wks** | ▢ |
+| **3 — Absence & Accruals** | Absence types, requests + multi-level approval (absence managers per employee/department), blocked dates, holidays, entitlements, accruals incl. length-of-service, recaps | 8–10 wks | ▢ |
+| **4 — Notifications & Documents** | Notification hub (in-app + email + SMS, 4 manager-assignment roles, ~70 typed notifications, templates, per-user preferences), Documents + categories + expiry, e-signature, object storage | 8–10 wks | ▢ |
+| **5 — Scheduling** | Rotas, planning board, auto-planning, roster calendar, schedule requests, thresholds, timetables | 8–12 wks | ▢ |
+| **6 — Reporting & payroll economics** | Report engine + **designer**, scheduled delivery with recipient scoping, favourites; **generic payroll export builder** + 2 pilot formats; licensing service; plugin admin | 10–14 wks | ▢ |
+| **7 — Expenses & Field service** | Expenses + mileage (full cancel-request workflow), activities/job costing, scheduled activities, job sheets, clients, travel tracking | 10–12 wks | ▢ |
+| **8 — Access, Safety & Visitors** | Logical access control (groups, calendars, doors, cards), mustering & fire roll-call, guard screen, visitors + pre-registration + deliveries | 8–10 wks | ▢ |
+| **9 — Mobile & enterprise** | Flutter app (punch, rota, absence, documents + sign, push), 2FA, SSO, localisation, audit browser, page-level permissions & data scopes | 8–12 wks | ▢ |
+
+**Realistic total for the retained scope: ~18–30 months** (one developer at the low end of parallelism; ~15–24 months with a small team). Explicitly **excluded**: devices (dropped), EPOS/catering (~25 screens), student registration (~12 screens), vehicle/ANPR (~5 screens).
+
+### Three honest options
+1. **Parity** — accept the multi-year timeline above.
+2. **Defensible core** (recommended) — Phases 1b–6 only: time, rules, absence, notifications/documents, scheduling, reporting + payroll. That is a genuinely sellable T&A product in roughly **12–18 months**, with everything else added on demand.
+3. **Customer-led** — instrument which features your actual customers use and build only those. Legacy has ~230 screens; a typical customer touches a fraction.
+
+Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
 
 ---
 
 ## 15. Open Decisions
 
-1. **Object storage** for dev — MinIO (recommended, S3-compatible) vs. local disk.
-2. **Which two payroll plugins** to port first (pick two real customer formats).
-3. **First connector** to build (RotaGeek? SageHR?).
-4. **Email provider** for dev/prod (SMTP vs. SendGrid) for the Notifications hub.
-5. **Tip management / job sheets** — own modules or Admin sub-features? (depends whether hospitality/job-costing is a target vertical).
-6. **DevExpress reporting** — start QuestPDF/ClosedXML; add only if designer-grade reports are required.
+1. **Scope option** — parity vs. defensible core vs. customer-led (see above). **This is the decision that shapes everything else.**
+2. **Multi-tenancy migration** — legacy is **database-per-customer** with shared services iterating all DBs; WM plans tenant-id columns. Confirm the target and the migration path.
+3. **Generic export builder vs. per-customer plugins** — recommended: builder first, plugins only for genuinely exotic formats.
+4. **Object storage** for dev — MinIO (recommended, S3-compatible) vs. local disk.
+5. **Email/SMS providers** for the Notifications hub.
+6. **Report designer** — build one, or accept DevExpress licensing.
+7. **Which legacy features are actually used** — the highest-value question; ideally answered with data from live customers before committing to Phases 5–9.
