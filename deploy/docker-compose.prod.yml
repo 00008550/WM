@@ -1,0 +1,141 @@
+name: wm
+
+# WM production stack — one file, one customer, one server.
+#
+#   cp .env.example .env        # set secrets first
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Linux host with Docker (or Podman) is the target. No IIS, no SQL Server,
+# no Windows licence required — see docs/ARCHITECTURE.md section 13A.
+#
+# Only the portal is exposed to the network. The API, worker, database and
+# brokers stay on the internal network.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wm}
+      POSTGRES_USER: ${POSTGRES_USER:-wm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-wm}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  kafka:
+    image: apache/kafka:3.8.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:19092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Bounded retention is mandatory on an unattended server.
+      # Default 400 days / 20GB — sized to the longest recalculation window.
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_RETENTION_HOURS:-9600}
+      KAFKA_LOG_RETENTION_BYTES: ${KAFKA_RETENTION_BYTES:-21474836480}
+      KAFKA_LOG_SEGMENT_BYTES: 268435456
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  wm-api:
+    image: ${WM_REGISTRY:-wm}/wm-api:${WM_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: src/Api/WM.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-wm};Username=${POSTGRES_USER:-wm};Password=${POSTGRES_PASSWORD}"
+      Jwt__Issuer: wm-api
+      Jwt__Audience: wm-clients
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env (32+ chars)}
+      # Initial administrator password for a fresh install. No default on purpose.
+      Bootstrap__AdminPassword: ${WM_ADMIN_PASSWORD:?set WM_ADMIN_PASSWORD in .env (12+ chars)}
+      Kafka__BootstrapServers: kafka:19092
+      Redis__ConnectionString: redis:6379
+      # Same-origin via the portal proxy, so no CORS origins needed.
+      Cors__Origins__0: ${PUBLIC_URL:-http://localhost}
+    # Brokers are not a hard dependency: the API starts and serves even if
+    # Kafka or RabbitMQ are still coming up.
+
+  wm-worker:
+    image: ${WM_REGISTRY:-wm}/wm-worker:${WM_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: src/Worker/WM.Worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    environment:
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: ${RABBITMQ_USER:-wm}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      Kafka__BootstrapServers: kafka:19092
+    volumes:
+      # Drop a plugin here and restart the worker — no image rebuild.
+      - ./plugins:/app/plugins:ro
+      - wm-exports:/app/exports
+
+  wm-portal:
+    image: ${WM_REGISTRY:-wm}/wm-portal:${WM_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: frontend/portal/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - wm-api
+    ports:
+      - "${PUBLIC_PORT:-80}:8080"
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  kafka-data:
+  wm-exports:
