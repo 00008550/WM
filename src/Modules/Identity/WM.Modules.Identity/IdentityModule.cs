@@ -31,6 +31,7 @@ public sealed class IdentityModule : IModule
         services.AddScoped<TokenService>();
         services.AddScoped<AuthService>();
         services.AddScoped<IdentitySeeder>();
+        services.AddScoped<UserManagementService>();
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -69,7 +70,11 @@ public sealed class IdentityModule : IModule
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
     }
 
-    public void MapEndpoints(IEndpointRouteBuilder endpoints) => AuthEndpoints.Map(endpoints);
+    public void MapEndpoints(IEndpointRouteBuilder endpoints)
+    {
+        AuthEndpoints.Map(endpoints);
+        UserEndpoints.Map(endpoints);
+    }
 }
 
 internal sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
@@ -84,6 +89,9 @@ internal sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentU
             ? id : null;
 
     public string? UserName => Principal?.Identity?.Name;
+
+    public Guid? EmployeeId =>
+        Guid.TryParse(Principal?.FindFirst(WmClaims.EmployeeId)?.Value, out var id) ? id : null;
 
     public bool IsAuthenticated => Principal?.Identity?.IsAuthenticated ?? false;
 

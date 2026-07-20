@@ -52,6 +52,29 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         @case ('chevron-right') {
           <path d="M9.5 6l6 6-6 6" />
         }
+        @case ('users') {
+          <circle cx="8.5" cy="8" r="3.25" />
+          <path d="M2.5 20c.6-3.2 3-5 6-5s5.4 1.8 6 5" />
+          <path d="M16 5.2a3.25 3.25 0 0 1 0 5.6" />
+          <path d="M18 15.2c1.8.6 3 2.2 3.4 4.3" />
+        }
+        @case ('clock') {
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 7.5V12l3 2" />
+        }
+        @case ('key') {
+          <circle cx="8" cy="15" r="4" />
+          <path d="M10.8 12.2l8-8" />
+          <path d="M16 4.8l2.5 2.5M14 6.8l2.5 2.5" />
+        }
+        @case ('plus') {
+          <path d="M12 5v14M5 12h14" />
+        }
+        @case ('link') {
+          <path d="M9.5 14.5l5-5" />
+          <path d="M8 11l-2.5 2.5a3.5 3.5 0 0 0 5 5L13 16" />
+          <path d="M16 13l2.5-2.5a3.5 3.5 0 0 0-5-5L11 8" />
+        }
       }
     </svg>
   `,

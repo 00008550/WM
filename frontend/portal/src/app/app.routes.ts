@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/auth/auth.guard';
+import { authGuard, permissionGuard } from './core/auth/auth.guard';
 
 export const routes: Routes = [
   {
@@ -14,11 +14,23 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       {
         path: 'dashboard',
+        canActivate: [permissionGuard({ permission: 'attendance.view' })],
         loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent),
       },
       {
         path: 'employees',
+        canActivate: [permissionGuard({ permission: 'employees.view' })],
         loadComponent: () => import('./pages/employees/employees.component').then(m => m.EmployeesComponent),
+      },
+      {
+        path: 'me',
+        canActivate: [permissionGuard({ requireEmployee: true })],
+        loadComponent: () => import('./pages/self-service/self-service.component').then(m => m.SelfServiceComponent),
+      },
+      {
+        path: 'users',
+        canActivate: [permissionGuard({ permission: 'users.manage' })],
+        loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
       },
     ],
   },

@@ -9,6 +9,7 @@ export interface AuthResponse {
   accessTokenExpiresAt: string;
   refreshToken: string;
   displayName: string;
+  employeeId: string | null;
   permissions: string[];
 }
 
@@ -24,7 +25,10 @@ export class AuthService {
   private readonly accessToken = signal<string | null>(null);
   readonly displayName = signal<string>('');
   readonly permissions = signal<ReadonlySet<string>>(new Set());
+  readonly employeeId = signal<string | null>(null);
   readonly isAuthenticated = computed(() => this.accessToken() !== null);
+  /** True when this user is linked to an employee → gets the self-service surface. */
+  readonly isEmployeeLinked = computed(() => this.employeeId() !== null);
 
   token(): string | null {
     return this.accessToken();
@@ -32,6 +36,14 @@ export class AuthService {
 
   hasPermission(permission: string): boolean {
     return this.permissions().has(permission);
+  }
+
+  /** Where this user should land after login, based on what they can access. */
+  landingRoute(): string {
+    if (this.hasPermission('attendance.view')) return '/dashboard';
+    if (this.isEmployeeLinked()) return '/me';
+    if (this.hasPermission('users.manage')) return '/users';
+    return '/me';
   }
 
   async login(userName: string, password: string): Promise<void> {
@@ -75,6 +87,7 @@ export class AuthService {
     localStorage.removeItem(REFRESH_KEY);
     this.accessToken.set(null);
     this.permissions.set(new Set());
+    this.employeeId.set(null);
     await this.router.navigateByUrl('/login');
   }
 
@@ -82,6 +95,7 @@ export class AuthService {
     this.accessToken.set(response.accessToken);
     this.displayName.set(response.displayName);
     this.permissions.set(new Set(response.permissions));
+    this.employeeId.set(response.employeeId);
     localStorage.setItem(REFRESH_KEY, response.refreshToken);
   }
 }

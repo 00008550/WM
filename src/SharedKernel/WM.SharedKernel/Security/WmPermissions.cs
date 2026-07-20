@@ -18,6 +18,9 @@ public static class WmPermissions
     public const string PunchesRecord = "punches.record";
     public const string TimesheetsEdit = "timesheets.edit";
 
+    // Self-service — every employee-linked user has this; scoped to their own record only.
+    public const string SelfService = "selfservice.access";
+
     // Administration
     public const string UsersManage = "users.manage";
     public const string RolesManage = "roles.manage";
@@ -28,6 +31,7 @@ public static class WmPermissions
     [
         EmployeesView, EmployeesManage, SitesManage,
         AttendanceView, PunchesRecord, TimesheetsEdit,
+        SelfService,
         UsersManage, RolesManage, LicenseView, PluginsManage,
     ];
 }

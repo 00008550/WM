@@ -80,7 +80,7 @@ export class LoginComponent {
     this.error.set(null);
     try {
       await this.auth.login(this.userName, this.password);
-      await this.router.navigateByUrl('/dashboard');
+      await this.router.navigateByUrl(this.auth.landingRoute());
     } catch {
       this.error.set('Sign-in failed. Check your credentials.');
     } finally {

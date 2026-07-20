@@ -55,8 +55,40 @@ public sealed class TimeAttendanceModule : IModule
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
         }).RequireAuthorization(WmPermissions.AttendanceView);
+
+        // Self-service: everything below is scoped to the caller's OWN linked employee.
+        var me = endpoints.MapGroup("/api/me").WithTags("Self-service")
+            .RequireAuthorization(WmPermissions.SelfService);
+
+        me.MapGet("/punches", async (ICurrentUser user, PunchService service, int take = 20, CancellationToken ct = default) =>
+            user.EmployeeId is { } employeeId
+                ? Results.Ok(await service.GetRecentForEmployeeAsync(employeeId, take, ct))
+                : NotLinked());
+
+        me.MapGet("/timesheet", async (ICurrentUser user, DateOnly? from, DateOnly? to, PunchService service, CancellationToken ct) =>
+        {
+            if (user.EmployeeId is not { } employeeId) return NotLinked();
+            var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var start = from ?? end.AddDays(-6);
+            return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
+        });
+
+        me.MapPost("/punch", async (SelfPunchRequest request, ICurrentUser user, PunchService service, CancellationToken ct) =>
+        {
+            if (user.EmployeeId is not { } employeeId) return NotLinked();
+            var result = await service.RecordForEmployeeAsync(
+                employeeId, request.Direction, PunchSource.Web, request.Latitude, request.Longitude, user.UserId, ct);
+            return result.Match(
+                punch => Results.Created($"/api/punches/{punch.Id}", punch),
+                error => Results.Problem(error, statusCode: StatusCodes.Status400BadRequest));
+        });
+
+        static IResult NotLinked() =>
+            Results.Problem("This account is not linked to an employee.", statusCode: StatusCodes.Status409Conflict);
     }
 }
+
+public sealed record SelfPunchRequest(PunchDirection Direction, double? Latitude = null, double? Longitude = null);
 
 public sealed record RecordPunchRequest(
     string EmployeeCode,

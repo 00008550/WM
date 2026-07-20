@@ -28,13 +28,23 @@ public sealed class IdentitySeeder(
         var managerRole = new Role
         {
             Name = "Manager",
-            Description = "Team management: people, attendance, timesheets.",
+            Description = "Team management: people, attendance, timesheets (scoped to their team).",
             IsSystem = true,
             Permissions = new[]
                 {
                     WmPermissions.EmployeesView, WmPermissions.AttendanceView,
                     WmPermissions.PunchesRecord, WmPermissions.TimesheetsEdit,
+                    WmPermissions.SelfService,
                 }
+                .Select(p => new RolePermission { Permission = p }).ToList(),
+        };
+
+        var employeeRole = new Role
+        {
+            Name = "Employee",
+            Description = "Self-service on their own record only.",
+            IsSystem = true,
+            Permissions = new[] { WmPermissions.SelfService }
                 .Select(p => new RolePermission { Permission = p }).ToList(),
         };
 
@@ -47,7 +57,7 @@ public sealed class IdentitySeeder(
         admin.PasswordHash = hasher.HashPassword(admin, "Admin!234");
         admin.Roles.Add(new UserRole { UserId = admin.Id, RoleId = adminRole.Id, Role = adminRole });
 
-        db.Roles.AddRange(adminRole, managerRole);
+        db.Roles.AddRange(adminRole, managerRole, employeeRole);
         db.Users.Add(admin);
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Seeded identity: admin / Admin!234 (development only — change immediately)");

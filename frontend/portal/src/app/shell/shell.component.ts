@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth/auth.service';
 import { RealtimeService } from '../core/realtime/realtime.service';
@@ -17,7 +17,7 @@ import { IconComponent } from '../core/ui/icon.component';
         </div>
 
         <nav class="flex-1 py-4 px-2.5 space-y-0.5">
-          @for (item of nav; track item.path) {
+          @for (item of nav(); track item.path) {
             <a [routerLink]="item.path" routerLinkActive="!text-text !bg-raised nav-active"
                class="relative flex items-center gap-3 px-3 py-2 rounded-md text-muted text-sm
                       transition-colors duration-150 hover:text-text hover:bg-raised/60">
@@ -77,10 +77,20 @@ export class ShellComponent {
 
   readonly dark = signal(document.documentElement.dataset['theme'] !== 'light');
 
-  readonly nav = [
-    { path: '/dashboard', label: 'Dashboard', icon: 'pulse' },
-    { path: '/employees', label: 'Employees', icon: 'people' },
-  ];
+  // Nav reflects what this user may actually do — an employee-only account sees
+  // just "My time"; a manager/admin sees the operations views.
+  readonly nav = computed(() => {
+    const items: { path: string; label: string; icon: string }[] = [];
+    if (this.auth.hasPermission('attendance.view'))
+      items.push({ path: '/dashboard', label: 'Dashboard', icon: 'pulse' });
+    if (this.auth.hasPermission('employees.view'))
+      items.push({ path: '/employees', label: 'Employees', icon: 'people' });
+    if (this.auth.isEmployeeLinked())
+      items.push({ path: '/me', label: 'My time', icon: 'clock' });
+    if (this.auth.hasPermission('users.manage'))
+      items.push({ path: '/users', label: 'Users', icon: 'users' });
+    return items;
+  });
 
   constructor() {
     void this.realtime.connect();
