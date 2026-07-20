@@ -1,8 +1,15 @@
 name: wm
 
+# WM default stack. One `docker compose up -d` gives a complete installation.
+# Deployed per customer on their own server (see docs/ARCHITECTURE.md section 13A).
+#
+# Sizing note: Kafka ~1GB RAM, RabbitMQ ~200MB, Postgres/Redis modest.
+# Baseline target server: 8 cores / 32GB / SSD.
+
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: wm
       POSTGRES_USER: wm
@@ -19,20 +26,37 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: wm
       RABBITMQ_DEFAULT_PASS: wm_dev_password
     ports:
       - "5672:5672"
       - "15672:15672" # management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
 
   kafka:
     image: apache/kafka:3.8.0
+    restart: unless-stopped
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -46,8 +70,27 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Bounded retention is a HARD REQUIREMENT on an unattended customer server:
+      # an unbounded log will eventually fill the disk and take the site down.
+      # Default 400 days / 20GB — sized to cover the longest realistic
+      # recalculation window for wm.punches. Tune per site by employee count.
+      KAFKA_LOG_RETENTION_HOURS: 9600
+      KAFKA_LOG_RETENTION_BYTES: 21474836480
+      KAFKA_LOG_SEGMENT_BYTES: 268435456
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
     ports:
       - "9092:9092"
+    volumes:
+      # Keep the log off the OS disk so a runaway topic cannot take down the host.
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
 volumes:
   postgres-data:
+  redis-data:
+  rabbitmq-data:
+  kafka-data:
