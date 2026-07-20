@@ -13,6 +13,7 @@ public sealed record AuthResponse(
     DateTimeOffset AccessTokenExpiresAt,
     string RefreshToken,
     string DisplayName,
+    Guid? EmployeeId,
     string[] Permissions);
 
 internal static class AuthEndpoints
@@ -47,6 +48,7 @@ internal static class AuthEndpoints
         {
             user.UserId,
             user.UserName,
+            user.EmployeeId,
             Permissions = user.Permissions.Order().ToArray(),
         })).RequireAuthorization();
     }
@@ -56,5 +58,6 @@ internal static class AuthEndpoints
         result.Tokens.AccessTokenExpiresAt,
         result.Tokens.RefreshToken,
         result.User!.DisplayName,
+        result.User.EmployeeId,
         AuthService.PermissionsOf(result.User).Order().ToArray());
 }

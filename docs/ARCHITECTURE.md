@@ -151,6 +151,43 @@ Legend: ✅ built · ▢ planned.
 
 ---
 
+## 4A. Users, Access & Self-Service
+
+This is how TLW is actually *used*: a person signs in as a **user account**, and what they can do depends on their **user type** and whether that user is **linked to an employee record**. WM reproduces this exactly (TLW: `Logic/Users`, `Logic/UserProviders`, `Logic/Security/AccessControl`).
+
+### The user ↔ employee link
+- A **User** (login, credentials, roles) optionally carries an **`EmployeeId`** linking it to one **Employee** (people record). WM's `Identity.User` already has this field. (TLW: `User.EmployeeId`, `UserFromEmployeeIdProvider`, `GetUserByEmployeeId`, `UpdateUserNameFromEmployee`.)
+- **Not every employee has a login** (shop-floor staff may only badge in), and **not every user is an employee** (a head-office admin need not be). The link is optional and one-to-one.
+- Creating a user *from* an employee pre-fills name/email and sets the link (TLW `UpdateUserNameFromEmployee`).
+
+### User types (built-in roles) — TLW `BuiltinRoles`
+| Type | Sees / does |
+|---|---|
+| **Administrator** | Everything: users, settings, all employees, licensing, plugins. |
+| **Manager** | Scoped to the employees/departments they manage (row-level scope on the site hierarchy). Approves absences/timesheets, views team dashboards. TLW: `ManagedDepartmentsAuthorizer`, `ManagedRelatedEmployeeRecordsAuthorizer`, `RoleBasedEmployeeFilterService`. |
+| **Employee** | **Self-service on their own linked record only**: their timesheet, punches, absence requests, documents to sign, expenses. Cannot see other employees. |
+
+Custom roles (bundles of fine-grained permissions) layer on top of these — an Administrator can define e.g. a "Payroll Officer" role.
+
+### Self-service (`/api/me/*`)
+An employee-linked user with limited permissions gets a **self-service surface** scoped to *their own* employee id (never an arbitrary one — the id comes from their token, not the request):
+- `GET /api/me` — profile + linked employee summary + permissions.
+- `GET /api/me/timesheet` — **their own** timesheet.
+- `GET /api/me/punches` — their own recent punches; `POST /api/me/punch` — punch themselves in/out (geofenced on mobile).
+- Later: `/api/me/absences`, `/api/me/documents` (view + e-sign), `/api/me/expenses`.
+
+This is what makes WM "usable as TLW": create an employee, create a user linked to that employee with the Employee role, and that person logs in to a self-service portal showing only their data. Managers get the team view; admins get everything. The **web UI and Flutter app share these same `/api/me/*` endpoints.**
+
+### User management (`/api/users/*`, permission `users.manage`)
+Admin CRUD: list/search users, create (optionally linked to an employee, with roles), edit roles/active state/employee link, reset password, deactivate. **User action logging** (TLW `UserActionLogsService`) feeds the audit stream. Password reset and invite emails go through the Notifications hub (§9).
+
+### Access enforcement
+- **Roles → permissions → policies** (already live in WM) for *what actions* a user may perform.
+- **Row-level scope** for *which records* — a Manager's queries are filtered to their managed departments/employees; an Employee's to their own id. Implemented as EF Core query filters keyed on scope claims (successor to TLW `RoleBasedEmployeeFilterService` + `SiteItemPermission` + `FormAccess`).
+- **2FA** (TOTP + email code — TLW `TwoFactorAuthenticationService`/`TwoFactorEmailCodeSender`) at sign-in for privileged users.
+
+---
+
 ## 5. Licensing
 
 - **License = signed JSON document** (ECDSA P-256; WM already implements this). Fields: customer, edition, **feature flags** (`scheduling`, `absence`, `documents`, `expenses`, `visitors`, `plugin:payroll.*`…), **limits** (max employees, max sites, max users), validity window, grace period.
@@ -302,8 +339,14 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | Integration services (RotaGeek, SageHR, …) | Connector plugins | ◐ SDK contract built; connectors planned |
 | Licensing / WebLicenseManager | Licensing (lib + service) | ◐ lib+CLI built; service/portal planned |
 | Audit trail | Admin + `wm.audit` | ◐ topic designed; store+browser planned |
+| Users / user management (`Logic/Users`) | Identity (user mgmt) | ▢ planned (building now) |
+| User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ◐ field exists; UI/self-service building now |
+| Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ▢ building now |
+| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; Manager scoping planned |
+| Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ▢ planned |
+| User action logging (`UserActionLogsService`) | Admin + `wm.audit` | ▢ planned |
 | SSO | Identity | ▢ planned (local JWT live) |
-| 2FA | Identity | ▢ planned |
+| 2FA (`TwoFactorAuthenticationService`) | Identity | ▢ planned |
 | Localization (multi-language) | Admin + i18n | ▢ planned |
 | Tip management / job sheets | Admin (or small modules) | ▢ planned |
 | **Device comms (Suprema/SyFace/Salto/ANPR/thermal/fingerprint)** | — | ⏹ **dropped by decision (phone-only)** |

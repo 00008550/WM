@@ -28,6 +28,7 @@ IModule[] modules =
 foreach (var module in modules)
     module.RegisterServices(builder.Services, builder.Configuration);
 
+builder.Services.AddScoped<WM.Api.Infrastructure.DemoUserSeeder>();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -75,6 +76,7 @@ if (app.Environment.IsDevelopment())
     await services.GetRequiredService<IdentitySeeder>().SeedAsync();
     await services.GetRequiredService<PeopleSeeder>().SeedAsync();
     await services.GetRequiredService<PunchSeeder>().SeedAsync();
+    await services.GetRequiredService<DemoUserSeeder>().SeedAsync(); // links users to employees
 }
 
 app.Run();

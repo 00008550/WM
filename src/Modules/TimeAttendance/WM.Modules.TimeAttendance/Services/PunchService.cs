@@ -61,6 +61,34 @@ public sealed class PunchService(
         return new PunchResult(punch, null);
     }
 
+    /// <summary>Self-service punch: caller supplies only their employee id (from their token).</summary>
+    public async Task<PunchResult> RecordForEmployeeAsync(
+        Guid employeeId, PunchDirection direction, PunchSource source,
+        double? latitude, double? longitude, Guid? recordedBy, CancellationToken ct)
+    {
+        var employee = await employees.FindByIdAsync(employeeId, ct);
+        if (employee is null)
+            return new PunchResult(null, "Your employee record could not be found.");
+
+        return await RecordAsync(new RecordPunchRequest(
+            employee.Code, direction, source, Latitude: latitude, Longitude: longitude), recordedBy, ct);
+    }
+
+    public async Task<IReadOnlyList<RecentPunchEntry>> GetRecentForEmployeeAsync(
+        Guid employeeId, int take, CancellationToken ct)
+    {
+        var employee = await employees.FindByIdAsync(employeeId, ct);
+        var name = employee?.FullName ?? "";
+        return await db.Punches.AsNoTracking()
+            .Where(p => p.EmployeeId == employeeId)
+            .OrderByDescending(p => p.Timestamp)
+            .Take(Math.Clamp(take, 1, 200))
+            .Select(p => new RecentPunchEntry(
+                p.Id, p.EmployeeId, p.EmployeeCode, name,
+                p.Timestamp, p.Direction, p.Source, p.DeviceId))
+            .ToListAsync(ct);
+    }
+
     public sealed record RecentPunchEntry(
         Guid Id, Guid EmployeeId, string EmployeeCode, string EmployeeName,
         DateTimeOffset Timestamp, PunchDirection Direction, PunchSource Source, string? DeviceId);

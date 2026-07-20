@@ -42,6 +42,8 @@ public sealed class TokenService(IOptions<JwtOptions> options)
         };
         claims.AddRange(user.Roles.Select(r => new Claim(ClaimTypes.Role, r.Role.Name)));
         claims.AddRange(permissions.Select(p => new Claim(WmPermissions.ClaimType, p)));
+        if (user.EmployeeId is { } employeeId)
+            claims.Add(new Claim(WmClaims.EmployeeId, employeeId.ToString()));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SigningKey));
         var jwt = new JwtSecurityToken(

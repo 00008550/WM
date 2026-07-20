@@ -94,6 +94,16 @@ public sealed class PeopleModule : IModule
         sites.MapGet("/", async (PeopleDbContext db, CancellationToken ct) =>
             Results.Ok(await db.Sites.AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct)))
             .RequireAuthorization(WmPermissions.EmployeesView);
+
+        // Self-service: the signed-in user's OWN employee record. Id comes from the
+        // token claim, never the request — an employee can only ever see themselves.
+        endpoints.MapGet("/api/me/employee", async (ICurrentUser user, PeopleDbContext db, CancellationToken ct) =>
+        {
+            if (user.EmployeeId is not { } employeeId)
+                return Results.NotFound(new { message = "This account is not linked to an employee." });
+            var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId, ct);
+            return employee is null ? Results.NotFound() : Results.Ok(employee);
+        }).RequireAuthorization(WmPermissions.SelfService).WithTags("Self-service");
     }
 }
 
