@@ -33,7 +33,7 @@ import { AuthService } from '../../core/auth/auth.service';
 
       <!-- form panel -->
       <div class="flex items-center justify-center p-8">
-        <form class="w-full max-w-sm" (ngSubmit)="submit()">
+        <form class="w-full max-w-sm rise" (ngSubmit)="submit()">
           <div class="lg:hidden font-display text-2xl font-bold mb-10">WM<span class="text-pulse">.</span></div>
           <h2 class="font-display text-2xl font-bold tracking-tight">Sign in</h2>
           <p class="mt-1 text-muted text-sm">Operations console access</p>

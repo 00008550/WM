@@ -38,11 +38,8 @@ public sealed class TimeAttendanceModule : IModule
                 error => Results.Problem(error, statusCode: StatusCodes.Status400BadRequest));
         }).RequireAuthorization(WmPermissions.PunchesRecord);
 
-        punches.MapGet("/recent", async (TimeAttendanceDbContext db, int take = 50, CancellationToken ct = default) =>
-            Results.Ok(await db.Punches.AsNoTracking()
-                .OrderByDescending(p => p.Timestamp)
-                .Take(Math.Clamp(take, 1, 200))
-                .ToListAsync(ct)))
+        punches.MapGet("/recent", async (PunchService service, int take = 50, CancellationToken ct = default) =>
+            Results.Ok(await service.GetRecentAsync(take, ct)))
             .RequireAuthorization(WmPermissions.AttendanceView);
 
         var attendance = endpoints.MapGroup("/api/attendance").WithTags("Attendance");

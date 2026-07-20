@@ -61,6 +61,26 @@ public sealed class PunchService(
         return new PunchResult(punch, null);
     }
 
+    public sealed record RecentPunchEntry(
+        Guid Id, Guid EmployeeId, string EmployeeCode, string EmployeeName,
+        DateTimeOffset Timestamp, PunchDirection Direction, PunchSource Source, string? DeviceId);
+
+    public async Task<IReadOnlyList<RecentPunchEntry>> GetRecentAsync(int take, CancellationToken ct)
+    {
+        var punches = await db.Punches.AsNoTracking()
+            .OrderByDescending(p => p.Timestamp)
+            .Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(ct);
+
+        var names = (await employees.ListActiveAsync(ct)).ToDictionary(e => e.Id, e => e.FullName);
+        return punches
+            .Select(p => new RecentPunchEntry(
+                p.Id, p.EmployeeId, p.EmployeeCode,
+                names.GetValueOrDefault(p.EmployeeId, p.EmployeeCode),
+                p.Timestamp, p.Direction, p.Source, p.DeviceId))
+            .ToList();
+    }
+
     /// <summary>Everyone whose latest punch today is an In (i.e. currently clocked in).</summary>
     public async Task<LivePresence> GetLivePresenceAsync(CancellationToken ct)
     {

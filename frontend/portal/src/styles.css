@@ -63,6 +63,25 @@ body {
   background: rgb(var(--wm-pulse) / 0.25);
 }
 
+/* entrance cascade: apply .rise to items with --i set for a waterfall reveal */
+.rise {
+  animation: rise 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* skeleton shimmer placeholders */
+.skeleton {
+  border-radius: 4px;
+  background: linear-gradient(
+    100deg,
+    rgb(var(--wm-raised)) 40%,
+    rgb(var(--wm-line) / 0.55) 50%,
+    rgb(var(--wm-raised)) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
 /* hairline scrollbars, control-room style */
 * {
   scrollbar-width: thin;

@@ -47,7 +47,9 @@ export interface LivePresence {
 
 export interface PunchRow {
   id: string;
+  employeeId: string;
   employeeCode: string;
+  employeeName: string;
   timestamp: string;
   direction: number; // 0 In, 1 Out
   source: number;
