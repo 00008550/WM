@@ -230,6 +230,56 @@ Frontend plugins that need real screens: Angular lazy remote modules via Native 
 
 ---
 
+## 7A. Why each broker earns its place
+
+The test applied to each: *what does this do that Postgres alone would do badly?* If a component can't answer that, it shouldn't ship.
+
+### RabbitMQ (via MassTransit) — work that must survive and retry
+
+Every job that is slow, fails for external reasons, or must not be lost:
+
+| Job | Why not just a DB table |
+|---|---|
+| Payroll export run | Minutes long, plugin-hosted, must retry on transient failure without blocking a request |
+| Report generation & scheduled delivery | Same; plus fan-out to many recipients |
+| **Notification dispatch** (~70 types × email/SMS/push) | External SMTP/SMS providers fail constantly; needs backoff, DLQ, and per-message retry state |
+| Connector sync runs | Third-party APIs rate-limit and time out |
+| Recalculation jobs | Large, long-running, cancellable |
+
+What we'd otherwise rebuild by hand: retry with exponential backoff, dead-letter queues, scheduled redelivery, concurrency limits, and **sagas** for multi-step workflows (payroll close = lock period → calculate → export → notify, with compensation if a step fails). MassTransit gives all of that plus a **transactional outbox**, so a database commit and its message can never diverge. Hand-rolling this on Postgres is a known multi-week detour that ends in a worse version of MassTransit.
+
+### Kafka — the replayable event log *(this is the load-bearing one)*
+
+The justification is **Phase 2, the rules engine**, and it is not theoretical — it is legacy's single biggest operational pain.
+
+In legacy, changing a daily template meant *recalculating history*: `HorioService` recalculates the previous day for every employee nightly, and there is an entire `Reprocessor` project for re-running swipes. That work mutates data in place, which makes it slow, hard to verify, and frightening to run.
+
+With an append-only log:
+
+- `wm.punches` is the **immutable record of what happened**. Calculation output is a *projection* of it.
+- Changing a rule becomes: *replay punches for the affected employees/period through the new rule version and rebuild the projection.* No in-place mutation, no guesswork.
+- Recalculating three months for one site is a bounded, resumable, verifiable operation — and you can diff old vs. new output before committing to it.
+- Partitioned by site, so replay for one customer site doesn't touch others.
+
+That capability is worth a container on its own. The other topics ride along for free:
+
+| Topic | Consumers |
+|---|---|
+| `wm.punches` | rules engine, live dashboard, **replay/recalculation** |
+| `wm.clockings` | rules output → dashboards, connectors, reporting |
+| `wm.audit` | append-only, hash-chained audit store |
+| `wm.notifications` | notification hub decides recipients + channels |
+| `wm.integration` | public event feed for connectors (`employee.created`, `absence.approved`…) |
+
+**Retention policy is a hard requirement, not a default** (see §13A): `wm.punches` sized to cover the longest realistic recalculation window (suggest 12–18 months for a typical site), everything else far shorter.
+
+### What we deliberately do *not* use them for
+- **Not** for request/response — that is plain HTTP.
+- **Not** as a database — Postgres remains the system of record; Kafka is the event log.
+- **Not** as a hard dependency — a broker outage degrades background work; it never breaks the UI.
+
+---
+
 ## 8. Domain Modules
 
 Each module: `Domain` / `Application` / `Infrastructure` (EF) / `Endpoints`, own schema, event-based comms.
@@ -433,19 +483,39 @@ Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the exist
 
 **Decision (2026-07-20):** WM is deployed **on the customer's own server**, with a **database per customer**, matching legacy. Rationale: customers want their data to stay with them, and it makes migration from legacy far simpler (no data merging).
 
-### Consequence: the infrastructure stack must shrink
+### The full stack ships by default *(revised 2026-07-20)*
 
-The earlier plan assumed shared cloud infrastructure and specified **RabbitMQ *and* Kafka**. Running Postgres + Redis + RabbitMQ + Kafka + API + Worker on every customer's server is heavy to install and — more importantly — heavy to *support* across many sites where we have no direct access. Kafka in particular (JVM, disk/retention management, tuning) is hard to justify for a single-site customer with a few hundred employees.
+An earlier draft proposed stripping RabbitMQ and Kafka out of the default profile on operational-risk grounds. **That was over-cautious and is reversed.** With Docker Compose the customer runs one file and gets the whole stack; the marginal cost of two more containers on a 32 GB server is noise (~1 GB for Kafka in KRaft mode, ~200 MB for RabbitMQ), and maintaining *two* supported topologies costs more engineering and test effort than running one well.
 
-**Deployment profiles** (the `IEventStreamProducer` abstraction already in the codebase makes this a configuration choice, not a rewrite):
+**Default stack, shipped as a single `docker compose up -d`:**
 
-| Profile | Stack | For |
-|---|---|---|
-| **Standard** *(default)* | Postgres + Redis + API + Worker. Events via **transactional outbox in Postgres** + in-process dispatch + SignalR. Jobs via a Postgres-backed queue. | Most on-prem customers |
-| **Enterprise** | + **RabbitMQ** for durable jobs/retries at scale; **Kafka** only where event replay across multiple sites genuinely earns its keep | Large / multi-site customers |
-| **Cloud** *(future)* | Full stack, shared infrastructure | If a hosted offering is ever added |
+```
+postgres · redis · rabbitmq · kafka · wm-api · wm-worker   (+ minio if object storage is local)
+```
 
-Design rule: **no module may depend on Kafka or RabbitMQ being present.** Everything goes through the SharedKernel abstractions so the Standard profile is a complete, supported product.
+More importantly, both brokers have **specific jobs that Postgres does not do as well** — see §7A. Kafka in particular is load-bearing for the Phase-2 rules engine, not decoration.
+
+### Where the real operational risk lives
+
+The risk was never "too many containers" — it is **unattended long-run behaviour on a server we cannot reach**. These are requirements, not optional polish:
+
+| Risk | Mitigation (must ship with v1) |
+|---|---|
+| Kafka disk growth fills the volume | **Bounded retention** on every topic (size *and* time), sized from employee count; volume separate from the OS disk |
+| Consumer lag / stuck consumer group | Lag exported to health endpoint; alert surfaced in the Admin health dashboard |
+| Broker briefly down → user-facing errors | **Graceful degradation** — publish failures never fail a user request (already implemented: `KafkaEventStreamProducer` logs and continues); jobs queue and retry |
+| Startup ordering after a customer reboot | Compose health checks + dependency ordering; API tolerates brokers arriving late |
+| Customer IT upgrades/blocks a component | Version pinning in compose; documented firewall/port requirements |
+
+### Keeping the broker-agnostic abstraction anyway
+
+The `IEventStreamProducer` / MassTransit abstractions stay — **but the justification changes**. Not for deployment flexibility, for three cheaper reasons:
+
+1. **Dev and CI speed** — unit and integration tests run without brokers; the inner loop stays fast.
+2. **Graceful degradation** — the app must keep serving when a broker blips, which requires the seam to exist regardless.
+3. **Insurance** — the one genuine adoption blocker below.
+
+**Open risk to verify with real customers:** legacy runs on **Windows Server + IIS + SQL Server**, and some IT policies do not permit a container runtime. If a meaningful number of sites cannot run Docker, we need a no-container install path — and *that* is when the reduced stack becomes relevant again. Worth confirming before v1, because it changes packaging, not architecture.
 
 ### Consequence: rollout tooling is a first-class deliverable
 
