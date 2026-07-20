@@ -391,9 +391,27 @@ This single decision is worth more than any individual feature.
 | **4 — Notifications & Documents** | Notification hub (in-app + email + SMS, 4 manager-assignment roles, ~70 typed notifications, templates, per-user preferences), Documents + categories + expiry, e-signature, object storage | 8–10 wks | ▢ |
 | **5 — Scheduling** | Rotas, planning board, auto-planning, roster calendar, schedule requests, thresholds, timetables | 8–12 wks | ▢ |
 | **6 — Semantic layer, Assistant & payroll** | Semantic model, **AI assistant** (§16), ~6–10 core reports, saved/versioned report definitions, scheduled delivery; **generic payroll export builder** + 2 pilot formats; licensing service + packaging | 10–12 wks | ▢ |
+| **6b — Emergency & Safety** ⭐ | Emergency trigger, live broadcast, live roll call, self-mark-safe, muster points, fire marshals, incident report (§17) | **3–4 wks** | ▢ *(cheap — reuses live presence; strong differentiator)* |
 | **7 — Expenses & Field service** | Expenses + mileage (full cancel-request workflow), activities/job costing, scheduled activities, job sheets, clients, travel tracking | 10–12 wks | ▢ |
-| **8 — Access control, Safety & Visitors** | Logical access control (groups, calendars, doors, cards), mustering & fire roll-call, guard screen, visitors + pre-registration + deliveries | 8–10 wks | ▢ |
-| **9 — Mobile & enterprise** | Flutter app (punch, rota, absence, documents + sign, push), 2FA, SSO, localisation, audit browser | 8–12 wks | ▢ |
+| **8 — Visitors** | Pre-registration, invitations, check-in/out, host notices, deliveries, auto sign-out | 4–5 wks | ▢ |
+| **9 — Mobile & enterprise** | Flutter app (punch, rota, absence, documents + sign, **mark-safe**, push), 2FA, SSO, localisation, audit browser | 8–12 wks | ▢ |
+
+**Running workstream (not a phase):** on-prem rollout tooling — versioned migrations, self-updating installer with rollback, version/health reporting, per-customer backup/restore (§13A).
+
+### Customer feature usage (2026-07-20, from the field)
+Ranked by what customers actually use — this is what justifies the phase order:
+
+| Feature | Usage | Phase |
+|---|---|---|
+| Time & attendance | **all customers, most use all of it** | ✅ 1 / 1c |
+| Daily templates | heavily used | 2 |
+| Reporting (simple → advanced) | **all customers** | 6 (assistant + core reports) |
+| Absences | all *(some still on the "legacy absences" variant — needs clarification)* | 3 |
+| Accruals | widely used | 3 |
+| Planning module | widely used | 5 |
+| Expenses | used | 7 |
+| Emergency / fire marshal | **reframed as software-only — new capability** | 6b |
+| Physical access control | ⏹ dropped (no devices) | — |
 
 **Chosen scope (2026-07-20): defensible core** — phases 1b → 6, roughly **12–18 months**, producing a sellable T&A product that is *better* than legacy (AI assistant instead of a report designer, configuration instead of 44 plugins). Phases 7–9 follow on demand.
 
@@ -408,6 +426,37 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
 6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
 
 Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
+
+---
+
+## 13A. Deployment model — on-prem, database per customer
+
+**Decision (2026-07-20):** WM is deployed **on the customer's own server**, with a **database per customer**, matching legacy. Rationale: customers want their data to stay with them, and it makes migration from legacy far simpler (no data merging).
+
+### Consequence: the infrastructure stack must shrink
+
+The earlier plan assumed shared cloud infrastructure and specified **RabbitMQ *and* Kafka**. Running Postgres + Redis + RabbitMQ + Kafka + API + Worker on every customer's server is heavy to install and — more importantly — heavy to *support* across many sites where we have no direct access. Kafka in particular (JVM, disk/retention management, tuning) is hard to justify for a single-site customer with a few hundred employees.
+
+**Deployment profiles** (the `IEventStreamProducer` abstraction already in the codebase makes this a configuration choice, not a rewrite):
+
+| Profile | Stack | For |
+|---|---|---|
+| **Standard** *(default)* | Postgres + Redis + API + Worker. Events via **transactional outbox in Postgres** + in-process dispatch + SignalR. Jobs via a Postgres-backed queue. | Most on-prem customers |
+| **Enterprise** | + **RabbitMQ** for durable jobs/retries at scale; **Kafka** only where event replay across multiple sites genuinely earns its keep | Large / multi-site customers |
+| **Cloud** *(future)* | Full stack, shared infrastructure | If a hosted offering is ever added |
+
+Design rule: **no module may depend on Kafka or RabbitMQ being present.** Everything goes through the SharedKernel abstractions so the Standard profile is a complete, supported product.
+
+### Consequence: rollout tooling is a first-class deliverable
+
+Legacy needed `AutoSiteUpdater`, `AutoScriptExecutor`, WinSCP and a pile of batch scripts to push versions to N servers. WM needs an equivalent from early on, or upgrades become the bottleneck:
+
+- **Versioned EF Core migrations** applied automatically on startup (already the case in dev).
+- **Self-updating installer / container bundle** per customer, with rollback.
+- **Version + health reporting** back to the vendor (which customer is on which build, are services healthy).
+- Per-customer **backup/restore** and **licence status** surfaced in Admin.
+
+This is added to the roadmap as a running workstream rather than a phase.
 
 ---
 
@@ -429,8 +478,8 @@ Every retained legacy functional area maps to exactly one module. Checked area-b
 | 10 | **Notifications** | hub: ~70 typed notifications, templates, per-user preferences, channels (in-app/email/SMS/push), **4 manager-assignment roles** | ▢ |
 | 11 | **Expenses** | claims, mileage + periods, types/rates/categories, vehicle types, cancel-request workflow | ▢ |
 | 12 | **Activities** | work-activity hierarchy, clients, scheduled activities, support members, job sheets, travel tracking, job costing | ▢ *(was missing entirely)* |
-| 13 | **AccessControl** | logical AC: groups, calendars, periods, doors, buildings, cards + printing + expiry, presence panel, AC events | ▢ *(hardware dropped)* |
-| 14 | **Safety** | mustering, muster points, fire marshals, fire reports, emergency events, guard screen | ▢ |
+| 13 | ~~AccessControl~~ | physical access control (doors, readers, cards) | ⏹ **dropped — device-dependent.** Locations/zones retained in People for presence & mustering |
+| 14 | **Emergency & Safety** ⭐ | software-only emergency: trigger, live broadcast, **live roll call**, self-mark-safe, muster points, fire marshals, incident report + archive (§17) | ▢ *(high value, low cost — builds on existing live presence)* |
 | 15 | **Visitors** | pre-registration, invitations, check-in/out, host notices, deliveries, auto sign-out | ▢ |
 | 16 | **Reporting** | core reports, saved/versioned definitions, scheduled delivery with recipient scoping, favourites, export builder | ▢ |
 | 17 | **Assistant** ⭐ | semantic layer + AI agent: ad-hoc questions, report authoring, in-app help | ▢ *(replaces report designer + 17 report plugins)* |
@@ -482,15 +531,22 @@ Anything payroll-adjacent or statutory must be a saved definition or a hand-buil
 
 ### 16.3 Model strategy (provider-agnostic)
 
-`IAssistantModel` abstraction from day one. Three deployment tiers:
+**The property that makes this tractable on customer hardware: the model never sees customer data.**
+It receives the *semantic model* (entity/field/measure names the caller may see) and the *question*, and returns a query spec. Rows are fetched afterwards, locally, by our executor. So employee records **never leave the customer's server**, even when the model itself is remote.
 
-| Tier | Model | For |
-|---|---|---|
-| **Default / on-prem** | Small open-weight (Gemma 4 12B class, or small Qwen) via **Ollama**, JSON-schema constrained decoding | Customers with no outbound internet; free at the token level |
-| **On-prem, higher quality** | Mid-size Qwen 3.5 (Apache 2.0) or GLM 5.1 (MIT) via **vLLM** on a GPU | Larger on-prem customers |
-| **Cloud** | Hosted API (Claude / OpenAI / Gemini) | Customers who permit egress and want best quality |
+Residual exposure to be honest about: the question text can contain a person's name ("show me Elena's absences"), and the schema reveals structure. That is a very different risk class from shipping data rows to a third party — but it is not zero, hence the strict tier below.
 
-Licence preference **Apache 2.0 / MIT** for anything shipped. The assistant is a **licensed feature with usage metering** — unlike every other feature it has real marginal cost per customer.
+Legacy's servers are **Windows Server + IIS + SQL Server with no GPU**. WM must not require customers to buy hardware to adopt it.
+
+| Tier | Model | Hardware | Data leaving site |
+|---|---|---|---|
+| **Managed** *(default)* | Hosted API (Claude / OpenAI / Gemini) | **None** — no server change | Question + schema only |
+| **Strict / air-gapped** | Small open-weight (Gemma 4 12B class or small Qwen) via **Ollama**, CPU-only, schema-constrained decoding | Existing server, +8–16 GB RAM. ~5–15 s per query — acceptable for report *authoring*, not for chat | **Nothing** |
+| **Local fast** | Mid-size Qwen 3.5 (Apache 2.0) or GLM 5.1 (MIT) via **vLLM** | One modest GPU | **Nothing** |
+
+`IAssistantModel` abstracts all three; the tier is a per-customer configuration. Licence preference **Apache 2.0 / MIT** for anything shipped on-prem. The assistant is a **licensed feature with usage metering** — unlike every other feature it carries real marginal cost.
+
+**Baseline server target** (Standard profile + Strict assistant): 8 cores, 32 GB RAM, SSD — comfortably within what legacy sites already run.
 
 ### 16.4 Why this is viable with a small model
 The task is narrow (workforce data), the output is **schema-constrained** (the model cannot emit invalid structure), and every spec is **deterministically validated** before execution — invalid specs are rejected and retried rather than guessed at. Reliability comes from the harness, not from model size.
@@ -500,13 +556,42 @@ The assistant is a **multiplier on a well-modelled domain, not a shortcut past b
 
 ---
 
+## 17. Emergency & Safety — software-only, better than legacy
+
+Legacy needed an **Adam Fire Link hardware device** to trigger a fire report. Without devices we can do this *better* in software, and it costs little because the **live presence pipeline already exists**.
+
+### Flow
+1. **Trigger** — an authorised user (or any employee, for a panic alert) raises an emergency from web or mobile: *fire, evacuation, medical, security, lockdown,* or *drill*.
+2. **Broadcast** — every connected user sees it instantly (SignalR, already built), plus push to mobile and email/SMS to fire marshals and managers.
+3. **Live roll call** — derived automatically from attendance data:
+   | Status | Derived from |
+   |---|---|
+   | **Presumed on site** | signed in and not signed out |
+   | **Safe** | employee self-marked from their phone, or a marshal marked them accounted for |
+   | **Unaccounted** | presumed on site, not yet marked safe ← *the list that matters* |
+   | **Not on site** | never signed in today |
+4. **Marshal dashboard** — per muster point: counts and names, updating live as people mark themselves safe. Fire marshals are assigned to muster points (legacy `FireMarshalMusterPoint`, `EmployeeMusterPoint`).
+5. **Stand down** → immutable **incident report**: who was on site, who was accounted for and when, who was never located, full timeline. Archived (legacy `EmergencyEventsArchive`).
+
+### Why this is a differentiator
+- **Zero hardware** — works at any site from day one.
+- Turns attendance data into a **life-safety** capability, which is a far stronger sell than "we log hours".
+- Self-mark-safe from a phone is something legacy could not do at all.
+- Drill mode lets customers rehearse and produces a compliance record.
+
+**Caveat to state plainly to customers:** the roll call is only as accurate as the attendance data. Someone who forgot to sign out appears as unaccounted. That is the safe direction to fail (over-report rather than under-report), but it must be documented, and drills will expose sites with sloppy punching — which is itself useful.
+
+---
+
 ## 15. Open Decisions
 
-1. ~~Scope option~~ — **decided: defensible core** (phases 1b–6).
-2. **Multi-tenancy migration** — legacy is **database-per-customer** with shared services iterating all DBs; WM plans tenant-id columns. Confirm the target and the migration path. *(Still open — affects Phase 1b.)*
+1. ~~Scope option~~ — **decided: defensible core** (phases 1b–6, plus 6b).
+2. ~~Multi-tenancy~~ — **decided: database per customer, deployed on the customer's own server** (§13A). Consequence: infrastructure profiles, and rollout tooling becomes a deliverable.
 3. ~~Export builder vs. plugins~~ — **decided: generic builder**, plugins only for exotic formats.
-4. **Object storage** for dev — MinIO (recommended, S3-compatible) vs. local disk.
-5. **Email/SMS providers** for the Notifications hub.
-6. ~~Report designer~~ — **decided: AI assistant + saved definitions** instead (§16).
-7. **Which legacy features are actually used** — still the highest-value question; would let us trim phases 7–9 hard.
-8. **Assistant hardware floor** — what GPU/RAM can we assume for on-prem customers? Determines the default model size.
+4. ~~Report designer~~ — **decided: AI assistant + saved definitions** (§16).
+5. ~~Assistant hardware floor~~ — **decided: must not require new hardware.** Managed API default; CPU-only strict tier for air-gapped sites; GPU optional (§16.3).
+6. ~~Physical access control~~ — **dropped** (device-dependent); emergency/mustering reframed as software-only (§17).
+7. **Object storage** — MinIO (recommended, S3-compatible, runs on-prem) vs. plain filesystem. On-prem favours filesystem simplicity; MinIO favours a future cloud move.
+8. **Email/SMS providers** — on-prem customers usually have their own SMTP relay; SMS needs a provider account per customer or a vendor-brokered one.
+9. **"Legacy absences"** — some customers reportedly use an older absence variant. Need to identify what that is in the legacy code before building Phase 3, or we may model the wrong thing.
+10. **Which of phases 7–9 to actually build** — usage data suggests expenses yes, visitors low priority. Revisit before Phase 7.
