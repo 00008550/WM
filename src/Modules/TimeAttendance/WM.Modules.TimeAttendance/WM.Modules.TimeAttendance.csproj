@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.7" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\SharedKernel\WM.SharedKernel\WM.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\People\WM.Modules.People\WM.Modules.People.csproj" />
+  </ItemGroup>
+</Project>

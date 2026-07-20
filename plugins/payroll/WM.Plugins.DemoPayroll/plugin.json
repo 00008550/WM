@@ -1,0 +1,9 @@
+{
+  "id": "payroll.demo",
+  "name": "Demo Payroll Export",
+  "version": "1.0.0",
+  "type": "payroll-export",
+  "entryAssembly": "WM.Plugins.DemoPayroll.dll",
+  "requiredLicenseFeature": "plugin:payroll.demo",
+  "description": "Reference CSV payroll export plugin used as the template for customer plugins."
+}

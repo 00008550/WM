@@ -1,0 +1,79 @@
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Control Room tokens ─────────────────────────────────────────────
+   Dark-first. Channels as space-separated RGB so Tailwind can compose
+   alpha. Light theme is an override block, not a second system. */
+:root {
+  --wm-ink: 9 12 18;        /* page background */
+  --wm-surface: 15 19 28;   /* panels */
+  --wm-raised: 22 28 40;    /* cards, popovers */
+  --wm-line: 42 51 69;      /* hairlines */
+  --wm-text: 226 232 240;
+  --wm-muted: 130 142 162;
+  --wm-pulse: 54 226 180;   /* electric mint */
+  --wm-amber: 245 184 73;
+  --wm-coral: 244 113 116;
+}
+
+:root[data-theme='light'] {
+  --wm-ink: 240 242 246;
+  --wm-surface: 252 253 254;
+  --wm-raised: 255 255 255;
+  --wm-line: 219 224 233;
+  --wm-text: 24 30 42;
+  --wm-muted: 100 110 128;
+  --wm-pulse: 13 166 128;
+  --wm-amber: 183 121 10;
+  --wm-coral: 208 58 62;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink text-text font-body antialiased;
+  font-size: 14px;
+}
+
+/* data is the hero: every numeral is tabular mono */
+.num {
+  @apply font-mono tabular-nums;
+}
+
+/* focus ring that matches the accent, keyboard-first */
+:focus-visible {
+  outline: 2px solid rgb(var(--wm-pulse) / 0.8);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: rgb(var(--wm-pulse) / 0.25);
+}
+
+/* hairline scrollbars, control-room style */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--wm-line)) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
