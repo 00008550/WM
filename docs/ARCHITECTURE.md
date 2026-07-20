@@ -3,10 +3,13 @@
 **Workforce Management Platform — .NET 9 + Angular rebuild of TLW**
 *v2.0 — 2026-07-20 (supersedes the TlwNext draft)*
 
-> This document is the single source of truth for what WM must eventually do. It is
-> derived from a second, deeper scan of the legacy TLW source (`E:\Tlw\Source`, ~315
-> projects) so that **no capability is silently dropped**. Section 13 is the full
-> TLW → WM coverage matrix — check things off there as they get built.
+> This document describes the **target architecture** for WM.
+>
+> For **what the legacy product actually does**, read **[`TLW-INVENTORY.md`](./TLW-INVENTORY.md)** —
+> an exhaustive, measured inventory (317 projects, 59 services, 247 entities, ~230 screens,
+> 67 reports, ~70 notification types). It is the source of truth for scope; this document is
+> the source of truth for design. Section 13 here is the coverage matrix, section 14 the
+> roadmap rebased on the measured scope.
 
 ---
 
@@ -358,27 +361,237 @@ Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentio
 
 ---
 
-## 14. Roadmap (revised, device-free)
+## 14. Roadmap (v3 — rebased on the measured legacy scope)
 
-| Phase | Delivers | Status |
+> **Read `TLW-INVENTORY.md` first.** An exhaustive scan of the legacy product (317 projects,
+> 59 services, 247 entities, ~230 screens, 67 reports, ~70 notification types, ~150 fields on
+> the Daily Template alone) showed the earlier estimate was badly wrong. WM today is
+> roughly **3–5%** of the legacy functional surface. This roadmap is rebased on that reality.
+
+### Sequencing principle
+Order by **dependency, not visibility**. Everything commercially valuable — timesheets,
+payroll export, absence balances, scheduling compliance — sits on the **rules/calculation
+engine**. It is the deepest, least glamorous piece and it has to come first. The pretty
+boards are cheap once the engine underneath is right.
+
+### Leverage principle
+Legacy grew **44 payroll plugins, 17 report plugins and per-vendor screens** because
+everything customer-specific became code. WM must ship a **generic export builder**, a
+**report designer**, and **rules as configurable data** so new customers are configuration.
+This single decision is worth more than any individual feature.
+
+| Phase | Delivers | Est. | Status |
+|---|---|---|---|
+| **0 — Foundations** | Solution skeleton, Docker infra, Identity, app shell, design system | — | ✅ done |
+| **1 — People, Time & Users** | People, punch pipeline (Kafka), live dashboard, timesheets, users + employee linking + self-service | — | ✅ done |
+| **1b — Access model** ⭐ | **Security groups**, page/function permissions, **data access scope + diagnostics screen**, access-right exclusions, admin group. *Moved early: every later query depends on scope being right.* | 4–6 wks | ▢ **next** |
+| **1c — Core depth** | Employee contracts, custom fields, positions & qualifications, corrections, period locking, employee/population groups | 4–5 wks | ▢ |
+| **2 — Rules engine** ⭐ | Daily templates (shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift), weekly models, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay, **safe rules expression language** (replaces legacy per-template custom SQL) | **10–16 wks** | ▢ |
+| **3 — Absence & Accruals** | Absence types, requests + multi-level approval (absence managers per employee/department), blocked dates, holidays, entitlements, accruals incl. length-of-service, recaps | 8–10 wks | ▢ |
+| **4 — Notifications & Documents** | Notification hub (in-app + email + SMS, 4 manager-assignment roles, ~70 typed notifications, templates, per-user preferences), Documents + categories + expiry, e-signature, object storage | 8–10 wks | ▢ |
+| **5 — Scheduling** | Rotas, planning board, auto-planning, roster calendar, schedule requests, thresholds, timetables | 8–12 wks | ▢ |
+| **6 — Semantic layer, Assistant & payroll** | Semantic model, **AI assistant** (§16), ~6–10 core reports, saved/versioned report definitions, scheduled delivery; **generic payroll export builder** + 2 pilot formats; licensing service + packaging | 10–12 wks | ▢ |
+| **6b — Emergency & Safety** ⭐ | Emergency trigger, live broadcast, live roll call, self-mark-safe, muster points, fire marshals, incident report (§17) | **3–4 wks** | ▢ *(cheap — reuses live presence; strong differentiator)* |
+| **7 — Expenses & Field service** | Expenses + mileage (full cancel-request workflow), activities/job costing, scheduled activities, job sheets, clients, travel tracking | 10–12 wks | ▢ |
+| **8 — Visitors** | Pre-registration, invitations, check-in/out, host notices, deliveries, auto sign-out | 4–5 wks | ▢ |
+| **9 — Mobile & enterprise** | Flutter app (punch, rota, absence, documents + sign, **mark-safe**, push), 2FA, SSO, localisation, audit browser | 8–12 wks | ▢ |
+
+**Running workstream (not a phase):** on-prem rollout tooling — versioned migrations, self-updating installer with rollback, version/health reporting, per-customer backup/restore (§13A).
+
+### Customer feature usage (2026-07-20, from the field)
+Ranked by what customers actually use — this is what justifies the phase order:
+
+| Feature | Usage | Phase |
 |---|---|---|
-| **0 — Foundations** | Solution skeleton, Docker infra, Identity (JWT/refresh/lockout), app shell, design tokens | ✅ done |
-| **1 — People & Time core** | People, punch pipeline (Kafka), live dashboard, timesheets | ✅ done (expand: contracts, custom fields, corrections) |
-| **2 — Rules & Scheduling** | Calculation engine, accruals/counters, planning board, absence + holidays | ▢ next |
-| **3 — Documents & Notifications** | Documents module + e-sign + object storage; Notifications hub (in-app + email) | ▢ |
-| **4 — Platform economics** | Licensing service + activation, plugin admin UI, first 2 real payroll plugins, first connector | ▢ |
-| **5 — Reporting, Expenses, Safety** | Reporting engine, Expenses, mustering/fire roll-call, Admin (audit browser, localization) | ▢ |
-| **6 — Mobile & polish** | Flutter app (punch, rota, absences, my-documents+sign, push), 2FA/SSO, a11y & perf hardening | ▢ |
+| Time & attendance | **all customers, most use all of it** | ✅ 1 / 1c |
+| Daily templates | heavily used | 2 |
+| Reporting (simple → advanced) | **all customers** | 6 (assistant + core reports) |
+| Absences | all *(some still on the "legacy absences" variant — needs clarification)* | 3 |
+| Accruals | widely used | 3 |
+| Planning module | widely used | 5 |
+| Expenses | used | 7 |
+| Emergency / fire marshal | **reframed as software-only — new capability** | 6b |
+| Physical access control | ⏹ dropped (no devices) | — |
 
-Rough total to a sellable v1: **8–12 months**. Old TLW keeps running; a `TlwLegacyConnectorPlugin` reading the existing DB can bridge data during migration.
+**Chosen scope (2026-07-20): defensible core** — phases 1b → 6, roughly **12–18 months**, producing a sellable T&A product that is *better* than legacy (AI assistant instead of a report designer, configuration instead of 44 plugins). Phases 7–9 follow on demand.
+
+Explicitly **excluded**: devices (phone-only), EPOS/catering, student registration, vehicle/ANPR.
+
+### Confirmed decisions (2026-07-20)
+1. **AI assistant replaces the reporting stack** — no 67-report port, no designer, no 17 report plugins. See §16.
+2. **Free/open-weight model by default**, provider-agnostic, on-prem-safe; hosted API optional. Assistant is a metered licensed feature.
+3. **Everything is a licensable feature** so packaging/pricing is configuration, not code.
+4. **EF Core everywhere** — no Dapper. Optimise measured hot paths only (compiled queries, projections, `FromSql` as a last resort); never split the stack pre-emptively.
+5. **Security groups + data access scope** adopted from legacy (richer than flat roles) and **moved to the front** of the queue.
+6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
+
+Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
+
+---
+
+## 13A. Deployment model — on-prem, database per customer
+
+**Decision (2026-07-20):** WM is deployed **on the customer's own server**, with a **database per customer**, matching legacy. Rationale: customers want their data to stay with them, and it makes migration from legacy far simpler (no data merging).
+
+### Consequence: the infrastructure stack must shrink
+
+The earlier plan assumed shared cloud infrastructure and specified **RabbitMQ *and* Kafka**. Running Postgres + Redis + RabbitMQ + Kafka + API + Worker on every customer's server is heavy to install and — more importantly — heavy to *support* across many sites where we have no direct access. Kafka in particular (JVM, disk/retention management, tuning) is hard to justify for a single-site customer with a few hundred employees.
+
+**Deployment profiles** (the `IEventStreamProducer` abstraction already in the codebase makes this a configuration choice, not a rewrite):
+
+| Profile | Stack | For |
+|---|---|---|
+| **Standard** *(default)* | Postgres + Redis + API + Worker. Events via **transactional outbox in Postgres** + in-process dispatch + SignalR. Jobs via a Postgres-backed queue. | Most on-prem customers |
+| **Enterprise** | + **RabbitMQ** for durable jobs/retries at scale; **Kafka** only where event replay across multiple sites genuinely earns its keep | Large / multi-site customers |
+| **Cloud** *(future)* | Full stack, shared infrastructure | If a hosted offering is ever added |
+
+Design rule: **no module may depend on Kafka or RabbitMQ being present.** Everything goes through the SharedKernel abstractions so the Standard profile is a complete, supported product.
+
+### Consequence: rollout tooling is a first-class deliverable
+
+Legacy needed `AutoSiteUpdater`, `AutoScriptExecutor`, WinSCP and a pile of batch scripts to push versions to N servers. WM needs an equivalent from early on, or upgrades become the bottleneck:
+
+- **Versioned EF Core migrations** applied automatically on startup (already the case in dev).
+- **Self-updating installer / container bundle** per customer, with rollback.
+- **Version + health reporting** back to the vendor (which customer is on which build, are services healthy).
+- Per-customer **backup/restore** and **licence status** surfaced in Admin.
+
+This is added to the roadmap as a running workstream rather than a phase.
+
+---
+
+## 14A. Module inventory (double-checked against `TLW-INVENTORY.md` §3)
+
+Every retained legacy functional area maps to exactly one module. Checked area-by-area so nothing falls between modules.
+
+| # | Module | Covers (legacy area) | Status |
+|---|---|---|---|
+| 1 | **Identity** | users, roles, login, 2FA, SSO, self-service surface | ✅ built |
+| 2 | **Access** ⭐ | **security groups**, page/function permissions, **data access scope + diagnostics**, access-right exclusions | ▢ **next — foundational** |
+| 3 | **People** | employees, org (sites/departments), contracts, hourly rates, custom fields, contact & emergency info, groups, population groups, cost centres, positions | ◐ basics built |
+| 4 | **HR** | appraisals, disciplinaries, objectives, remunerations, certificates, **qualifications + expiry**, onboarding, fixed-term & probation, leavers, anniversaries | ▢ *(split from People: different sensitivity + permissions)* |
+| 5 | **TimeAttendance** | punches, clockings, pauses, corrections, manual timesheets, daily browser, geolocation, QR punch, period locking | ◐ core built |
+| 6 | **Rules** ⭐ | daily/weekly templates, shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay | ▢ **deepest piece** |
+| 7 | **Scheduling** | rotas, planning board, auto-planning, roster calendar, schedule requests, thresholds, timetables | ▢ |
+| 8 | **Absence** | absence types, requests + approvals, blocked dates, holidays, school holidays, entitlements, accruals (+ length-of-service), recaps | ▢ |
+| 9 | **Documents** | company/employee documents, categories, onboarding packs, expiry, **e-signature**, virus scan | ▢ |
+| 10 | **Notifications** | hub: ~70 typed notifications, templates, per-user preferences, channels (in-app/email/SMS/push), **4 manager-assignment roles** | ▢ |
+| 11 | **Expenses** | claims, mileage + periods, types/rates/categories, vehicle types, cancel-request workflow | ▢ |
+| 12 | **Activities** | work-activity hierarchy, clients, scheduled activities, support members, job sheets, travel tracking, job costing | ▢ *(was missing entirely)* |
+| 13 | ~~AccessControl~~ | physical access control (doors, readers, cards) | ⏹ **dropped — device-dependent.** Locations/zones retained in People for presence & mustering |
+| 14 | **Emergency & Safety** ⭐ | software-only emergency: trigger, live broadcast, **live roll call**, self-mark-safe, muster points, fire marshals, incident report + archive (§17) | ▢ *(high value, low cost — builds on existing live presence)* |
+| 15 | **Visitors** | pre-registration, invitations, check-in/out, host notices, deliveries, auto sign-out | ▢ |
+| 16 | **Reporting** | core reports, saved/versioned definitions, scheduled delivery with recipient scoping, favourites, export builder | ▢ |
+| 17 | **Assistant** ⭐ | semantic layer + AI agent: ad-hoc questions, report authoring, in-app help | ▢ *(replaces report designer + 17 report plugins)* |
+| 18 | **Integrations** | connector host + settings, legacy-DB bridge connector | ▢ |
+| 19 | **Admin** | settings/software options, **localization** (multi-culture + custom keys), audit browser, user action logs, licence status, plugin management, health | ▢ |
+
+Cross-cutting (SharedKernel, not modules): audit event emission, multi-tenancy, outbox, event stream contracts.
+
+**Excluded by decision:** devices/biometrics (phone-only), EPOS/catering (~25 screens), student registration (~12), vehicle/ANPR (~5).
+
+---
+
+## 16. AI Assistant — architecture & decision record
+
+**Decision:** replace the legacy report designer, 67 static reports and 17 report plugins with a **semantic layer + AI assistant**, keeping only ~6–10 hand-built core reports.
+
+### 16.1 The permission boundary (non-negotiable)
+
+The model **never touches data**. It emits a **query specification** (validated JSON) against a curated semantic model. That spec is executed by the normal data layer, through the **same Access-module scope filters as any other request**.
+
+```
+user question
+     ↓
+[semantic model: entities, fields, measures, relationships the user may see]
+     ↓
+LLM  →  QuerySpec (JSON, schema-constrained decoding)
+     ↓
+[validator: schema + field allow-list + scope check]   ← rejects anything out of bounds
+     ↓
+[query executor: EF Core + Access data-scope filters]  ← same path as the rest of the app
+     ↓
+results → rendered table/chart, optionally saved as a report definition
+```
+
+Rules:
+- **No raw SQL from the model, ever.** A crafted employee name or document must never become a query. Treat all model output as untrusted input.
+- The semantic model presented to the LLM is **already filtered** to what the caller may see — an employee-role user's assistant cannot even describe other employees' fields.
+- Every assistant query is **audited** (prompt, spec, rows returned) to `wm.audit`.
+- Assistant results carry the same **row-level scope** as the UI. Scope is enforced in the executor, never in the prompt.
+
+### 16.2 Authoring vs. execution (determinism)
+
+| Mode | Behaviour |
+|---|---|
+| **Ad-hoc question** | Model → spec → results. Fine for exploration; results are not guaranteed reproducible. |
+| **Saved report** | Model *authors* a definition; once saved it is **versioned and deterministic** — the engine executes it identically every time, no model involved. |
+
+Anything payroll-adjacent or statutory must be a saved definition or a hand-built core report. An assistant that returns a slightly different number each run is unacceptable there.
+
+### 16.3 Model strategy (provider-agnostic)
+
+**The property that makes this tractable on customer hardware: the model never sees customer data.**
+It receives the *semantic model* (entity/field/measure names the caller may see) and the *question*, and returns a query spec. Rows are fetched afterwards, locally, by our executor. So employee records **never leave the customer's server**, even when the model itself is remote.
+
+Residual exposure to be honest about: the question text can contain a person's name ("show me Elena's absences"), and the schema reveals structure. That is a very different risk class from shipping data rows to a third party — but it is not zero, hence the strict tier below.
+
+Legacy's servers are **Windows Server + IIS + SQL Server with no GPU**. WM must not require customers to buy hardware to adopt it.
+
+| Tier | Model | Hardware | Data leaving site |
+|---|---|---|---|
+| **Managed** *(default)* | Hosted API (Claude / OpenAI / Gemini) | **None** — no server change | Question + schema only |
+| **Strict / air-gapped** | Small open-weight (Gemma 4 12B class or small Qwen) via **Ollama**, CPU-only, schema-constrained decoding | Existing server, +8–16 GB RAM. ~5–15 s per query — acceptable for report *authoring*, not for chat | **Nothing** |
+| **Local fast** | Mid-size Qwen 3.5 (Apache 2.0) or GLM 5.1 (MIT) via **vLLM** | One modest GPU | **Nothing** |
+
+`IAssistantModel` abstracts all three; the tier is a per-customer configuration. Licence preference **Apache 2.0 / MIT** for anything shipped on-prem. The assistant is a **licensed feature with usage metering** — unlike every other feature it carries real marginal cost.
+
+**Baseline server target** (Standard profile + Strict assistant): 8 cores, 32 GB RAM, SSD — comfortably within what legacy sites already run.
+
+### 16.4 Why this is viable with a small model
+The task is narrow (workforce data), the output is **schema-constrained** (the model cannot emit invalid structure), and every spec is **deterministically validated** before execution — invalid specs are rejected and retried rather than guessed at. Reliability comes from the harness, not from model size.
+
+### 16.5 Sequencing constraint
+The assistant is a **multiplier on a well-modelled domain, not a shortcut past building one**. Pointed at a half-finished schema it will be confidently wrong. It therefore lands *after* Rules, Absence, Scheduling — never before.
+
+---
+
+## 17. Emergency & Safety — software-only, better than legacy
+
+Legacy needed an **Adam Fire Link hardware device** to trigger a fire report. Without devices we can do this *better* in software, and it costs little because the **live presence pipeline already exists**.
+
+### Flow
+1. **Trigger** — an authorised user (or any employee, for a panic alert) raises an emergency from web or mobile: *fire, evacuation, medical, security, lockdown,* or *drill*.
+2. **Broadcast** — every connected user sees it instantly (SignalR, already built), plus push to mobile and email/SMS to fire marshals and managers.
+3. **Live roll call** — derived automatically from attendance data:
+   | Status | Derived from |
+   |---|---|
+   | **Presumed on site** | signed in and not signed out |
+   | **Safe** | employee self-marked from their phone, or a marshal marked them accounted for |
+   | **Unaccounted** | presumed on site, not yet marked safe ← *the list that matters* |
+   | **Not on site** | never signed in today |
+4. **Marshal dashboard** — per muster point: counts and names, updating live as people mark themselves safe. Fire marshals are assigned to muster points (legacy `FireMarshalMusterPoint`, `EmployeeMusterPoint`).
+5. **Stand down** → immutable **incident report**: who was on site, who was accounted for and when, who was never located, full timeline. Archived (legacy `EmergencyEventsArchive`).
+
+### Why this is a differentiator
+- **Zero hardware** — works at any site from day one.
+- Turns attendance data into a **life-safety** capability, which is a far stronger sell than "we log hours".
+- Self-mark-safe from a phone is something legacy could not do at all.
+- Drill mode lets customers rehearse and produces a compliance record.
+
+**Caveat to state plainly to customers:** the roll call is only as accurate as the attendance data. Someone who forgot to sign out appears as unaccounted. That is the safe direction to fail (over-report rather than under-report), but it must be documented, and drills will expose sites with sloppy punching — which is itself useful.
 
 ---
 
 ## 15. Open Decisions
 
-1. **Object storage** for dev — MinIO (recommended, S3-compatible) vs. local disk.
-2. **Which two payroll plugins** to port first (pick two real customer formats).
-3. **First connector** to build (RotaGeek? SageHR?).
-4. **Email provider** for dev/prod (SMTP vs. SendGrid) for the Notifications hub.
-5. **Tip management / job sheets** — own modules or Admin sub-features? (depends whether hospitality/job-costing is a target vertical).
-6. **DevExpress reporting** — start QuestPDF/ClosedXML; add only if designer-grade reports are required.
+1. ~~Scope option~~ — **decided: defensible core** (phases 1b–6, plus 6b).
+2. ~~Multi-tenancy~~ — **decided: database per customer, deployed on the customer's own server** (§13A). Consequence: infrastructure profiles, and rollout tooling becomes a deliverable.
+3. ~~Export builder vs. plugins~~ — **decided: generic builder**, plugins only for exotic formats.
+4. ~~Report designer~~ — **decided: AI assistant + saved definitions** (§16).
+5. ~~Assistant hardware floor~~ — **decided: must not require new hardware.** Managed API default; CPU-only strict tier for air-gapped sites; GPU optional (§16.3).
+6. ~~Physical access control~~ — **dropped** (device-dependent); emergency/mustering reframed as software-only (§17).
+7. **Object storage** — MinIO (recommended, S3-compatible, runs on-prem) vs. plain filesystem. On-prem favours filesystem simplicity; MinIO favours a future cloud move.
+8. **Email/SMS providers** — on-prem customers usually have their own SMTP relay; SMS needs a provider account per customer or a vendor-brokered one.
+9. **"Legacy absences"** — some customers reportedly use an older absence variant. Need to identify what that is in the legacy code before building Phase 3, or we may model the wrong thing.
+10. **Which of phases 7–9 to actually build** — usage data suggests expenses yes, visitors low priority. Revisit before Phase 7.
