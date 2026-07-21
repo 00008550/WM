@@ -55,27 +55,38 @@ without people to record, accounts to sign in with, and rights to control them.
    Employee groups · Population groups · Cost centres
    Personnel setup · Leavers · Anniversaries
 
-◆ Work Rules                                                     [module]
-   ── Templates
-      Daily templates · Periodic templates · Weekly models
-      Master daily model assignment · Calendar day models · Day types
+  Work Rules — base                            [required by Time & Attendance]
+      Daily templates · Day types · Calendar day models
+      Master daily model assignment
       Shift matching · Split shifts · Multi-shift
-   ── Breaks & rounding
       Break rules · Rounding rules · Global schedule thresholds
-   ── Pay
-      Pay categories · Tariffs · Hourly rates · Cost centre allocation
-      Pay periods
-   ── Balances
+      Pay categories · Pay periods
+      Corrections & time adjustments
+      Exception setup · Blocked exception rules · Muted exceptions
+
+      Not optional: Daily Browser cannot render without these. Its controller
+      pulls in HoursCalculation, ClockingPauses and Scores, and
+      DailyBrowserClocking directly carries ClockingCorrection,
+      ClockingShiftCorrection, ClockingPause and ScoresAbnormality. A punch
+      with no template to match, no pay category to classify into and no way
+      to correct it is not a usable attendance product.
+
+◆ Work Rules — Periodic & weekly                                 [module]
+      Periodic templates · Weekly models
+      Weekly/periodic band & hour counters
+
+◆ Work Rules — Balances                                          [module]
       Counters · Weekly counters · Flexi balance · Flexi balance tracking
-      Balance reset · Contract hours limits
-   ── Absence & leave
+      Balance reset · Contract hours limits · Debit/credit rules
+
+◆ Work Rules — Absence & leave                                   [module]
       Absences · Predefined absences · Absence allocation
       Absence authorisation · Absence managers setup
       Accruals · Accrual adjustments · Length-of-service bonus
       Holidays · School holidays · Recaps
-   ── Adjustments
-      Time adjustments · Corrections · Exception setup
-      Blocked exception rules
+
+◆ Work Rules — Costing                                           [module]
+      Tariffs · Hourly rates · Cost centre allocation
 
 ◆ Scheduling                                                     [module]
    Planning board · Planning control · Auto-planning
@@ -196,16 +207,27 @@ tries to sell them apart, which is the expensive moment to find out.
 So each module **declares what it requires**, and the declaration does three jobs:
 
 ```
-timeattendance      requires: —
-workrules           requires: timeattendance
-scheduling          requires: workrules
-absencerequests     requires: workrules.absence
-payrollexport       requires: workrules
-activities          requires: timeattendance
-expenses            requires: —
-documents           requires: —
-insight             requires: —
+timeattendance         requires: workrules.base      always together
+workrules.base         requires: —                   the calculation core
+workrules.periodic     requires: workrules.base
+workrules.balances     requires: workrules.base
+workrules.absence      requires: workrules.base
+workrules.costing      requires: workrules.base
+scheduling             requires: workrules.base
+absencerequests        requires: workrules.absence
+payrollexport          requires: workrules.base
+activities             requires: timeattendance
+hr                     requires: —
+expenses               requires: —
+documents              requires: —
+visitors               requires: —
+emergency              requires: timeattendance      roll call reads presence
+insight                requires: —
 ```
+
+**`workrules.base` and `timeattendance` are effectively one purchase.** They are kept
+as separate ids because the *screens* live in different branches and groups grant
+rights per screen — not because either is useful alone.
 
 1. **Licence validation** refuses an incoherent combination (Scheduling without Work
    Rules) at issue time rather than at the customer's site.
@@ -268,12 +290,17 @@ tabs can be added later without changing the group shape.
    together; the declaration exists so bundling is deliberate and licence validation
    can refuse an incoherent combination.
 
+7. **Work Rules has a required base.** Daily templates, pay categories, breaks,
+   rounding, corrections/adjustments and exceptions ship whenever Time & Attendance
+   does — verified in the code, not assumed. Periodic/weekly, Balances, Absence & leave
+   and Costing are the genuinely optional sections.
+8. **`My` sub-items inherit their module's licence.** "My expenses" appears only with
+   Expenses; "My time" and "My profile" are always present.
+
 ## 5. Still open
 
-- **Section boundaries inside Work Rules.** The six sections above (Templates, Breaks &
-  rounding, Pay, Balances, Absence & leave, Adjustments) are my split. If customers
-  actually buy along different lines, these should follow the money rather than my
-  sense of tidiness.
-- **`My` self-service and licensing.** Currently always present, but "My expenses" is
-  meaningless without the Expenses module. Most likely each `My` sub-item inherits its
-  module's licence, with "My time" and "My profile" always available.
+- **Whether the four optional Work Rules sections are the right seams.** Balances and
+  Absence & leave are clearly separable. Periodic/weekly and Costing are less obvious —
+  if customers never buy attendance without costing, Costing belongs in the base.
+- **Screen count per section**, which drives the build estimate. The base alone is
+  ~15 screens and is the deepest part of the product.
