@@ -370,12 +370,13 @@ apply to. One table, no new joins, but payroll can refuse a student and attendan
 still include one. Adding it now costs a column; adding it after Work Rules and Payroll
 are built means revisiting both.
 
+9. **`PersonType` is adopted** — `Employee · Contractor · Student · Teacher` on the
+   people record, with modules declaring which types they apply to. Goes in before
+   People is finished, so payroll can refuse a student while attendance includes one.
+10. **Periodic/weekly and Costing stay optional sections.** Only the Work Rules base
+    ships with Time & Attendance.
+
 ## 7. Still open
 
-- **Whether Periodic/weekly and Costing are really optional.** Balances and Absence are
-  clearly separable. If customers never buy attendance without costing, Costing belongs
-  in the base.
-- **Screen count per section**, which drives the build estimate. The Work Rules base
-  alone is ~15 screens and is the deepest part of the product.
-- **Person type** — the recommendation above needs a yes or no before People is
-  finished.
+- **Screen count per section**, which drives the build estimate. Not urgent: the Work
+  Rules base is the first thing to build regardless, and it is ~15 screens.
