@@ -1,5 +1,6 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
 import * as signalR from '@microsoft/signalr';
+import { Observable, Subject } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../auth/auth.service';
 
@@ -21,7 +22,19 @@ export class RealtimeService {
   private connection: signalR.HubConnection | null = null;
 
   readonly connected = signal(false);
-  readonly lastPunch = signal<PunchEvent | null>(null);
+
+  private readonly punches = new Subject<PunchEvent>();
+
+  /**
+   * Stream of punches as they happen.
+   *
+   * Deliberately an Observable rather than a signal: this is a sequence of
+   * events, not a piece of state. Exposing it as a signal invites consumers to
+   * read it inside an `effect`, and if that effect also writes a signal it
+   * reads, the effect re-triggers itself forever — which previously locked up
+   * the browser (and the machine) on the first punch.
+   */
+  readonly punches$: Observable<PunchEvent> = this.punches.asObservable();
 
   async connect(): Promise<void> {
     if (this.connection) return;
@@ -34,7 +47,7 @@ export class RealtimeService {
       .build();
 
     this.connection.on('punchRecorded', (event: PunchEvent) =>
-      this.zone.run(() => this.lastPunch.set(event)));
+      this.zone.run(() => this.punches.next(event)));
 
     this.connection.onreconnected(() => this.zone.run(() => this.connected.set(true)));
     this.connection.onclose(() => this.zone.run(() => this.connected.set(false)));

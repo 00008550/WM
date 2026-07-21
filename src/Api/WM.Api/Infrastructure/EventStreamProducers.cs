@@ -41,12 +41,21 @@ public sealed class KafkaEventStreamProducer : IEventStreamProducer, IDisposable
             return Task.CompletedTask;
 
         var payload = JsonSerializer.Serialize(@event);
-        // Fire-and-forget with error callback: a broker outage must never fail the user's request.
-        _producer.Produce(topic, new Message<string, string> { Key = key, Value = payload }, report =>
+        // Fire-and-forget with error callback: a broker outage must never fail the
+        // user's request. Produce still throws synchronously when librdkafka's local
+        // queue is full (unreachable or slow broker), so it must be guarded too.
+        try
         {
-            if (report.Error.IsError)
-                _logger.LogWarning("Kafka publish to {Topic} failed: {Reason}", topic, report.Error.Reason);
-        });
+            _producer.Produce(topic, new Message<string, string> { Key = key, Value = payload }, report =>
+            {
+                if (report.Error.IsError)
+                    _logger.LogWarning("Kafka publish to {Topic} failed: {Reason}", topic, report.Error.Reason);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Kafka publish to {Topic} was dropped", topic);
+        }
         return Task.CompletedTask;
     }
 
@@ -61,16 +70,52 @@ public sealed class KafkaEventStreamProducer : IEventStreamProducer, IDisposable
 /// Decorator: every event goes to Kafka (durable stream for workers/connectors)
 /// and to SignalR (instant UI update). Consumers that need guaranteed delivery
 /// read Kafka; the UI channel is best-effort by design.
+///
+/// Both legs are non-blocking and non-throwing. Once a punch is persisted the
+/// user's request must succeed — fan-out is a side effect, never a dependency.
 /// </summary>
 public sealed class BroadcastingEventStreamProducer(
     KafkaEventStreamProducer kafka,
-    IHubContext<AttendanceHub> hub) : IEventStreamProducer
+    IHubContext<AttendanceHub> hub,
+    ILogger<BroadcastingEventStreamProducer> logger) : IEventStreamProducer
 {
+    /// <summary>
+    /// Upper bound on the realtime leg. <c>SendAsync</c> awaits delivery to every
+    /// connected client, so a single stalled browser socket would otherwise hang
+    /// the request that triggered it.
+    /// </summary>
+    private static readonly TimeSpan BroadcastTimeout = TimeSpan.FromSeconds(2);
+
     public async Task PublishAsync<TEvent>(string topic, string key, TEvent @event, CancellationToken ct = default)
         where TEvent : class
     {
-        await kafka.PublishAsync(topic, key, @event, ct);
-        if (topic == EventTopics.Punches)
-            await hub.Clients.All.SendAsync("punchRecorded", @event, ct);
+        try
+        {
+            await kafka.PublishAsync(topic, key, @event, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Event stream publish to {Topic} failed; continuing", topic);
+        }
+
+        if (topic != EventTopics.Punches)
+            return;
+
+        try
+        {
+            // Not linked to the request token: the caller's response may already have
+            // been sent, and cancelling the broadcast for that reason is not useful.
+            using var cts = new CancellationTokenSource(BroadcastTimeout);
+            await hub.Clients.All.SendAsync("punchRecorded", @event, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning("Realtime broadcast timed out after {Timeout}s; clients will refresh on poll",
+                BroadcastTimeout.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Realtime broadcast failed; clients will refresh on poll");
+        }
     }
 }

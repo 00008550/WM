@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
 using WM.SharedKernel.Common;
@@ -61,12 +62,21 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
     public async Task<UserMutationResult> CreateAsync(CreateUserRequest request, CancellationToken ct)
     {
         var userName = request.UserName.Trim();
+        var email = request.Email.Trim();
+
         if (userName.Length < 3)
             return UserMutationResult.Fail("Username must be at least 3 characters.");
         if (request.Password.Length < 8)
             return UserMutationResult.Fail("Password must be at least 8 characters.");
-        if (await db.Users.AnyAsync(u => u.UserName == userName, ct))
+        if (email.Length == 0)
+            return UserMutationResult.Fail("Email is required.");
+
+        // Case-insensitive: 'admin' and 'Admin' must not both exist, or you get two
+        // accounts that look identical to a human.
+        if (await db.Users.AnyAsync(u => u.UserName.ToLower() == userName.ToLower(), ct))
             return UserMutationResult.Fail($"Username '{userName}' is already taken.");
+        if (await db.Users.AnyAsync(u => u.Email.ToLower() == email.ToLower(), ct))
+            return UserMutationResult.Fail($"Email '{email}' is already in use.");
         if (request.EmployeeId is { } eid && await db.Users.AnyAsync(u => u.EmployeeId == eid, ct))
             return UserMutationResult.Fail("That employee is already linked to another user.");
 
@@ -77,7 +87,7 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
         var user = new User
         {
             UserName = userName,
-            Email = request.Email.Trim(),
+            Email = email,
             DisplayName = request.DisplayName.Trim(),
             EmployeeId = request.EmployeeId,
         };
@@ -85,8 +95,28 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
         user.Roles = roles.Select(r => new UserRole { UserId = user.Id, RoleId = r.Id, Role = r }).ToList();
 
         db.Users.Add(user);
-        await db.SaveChangesAsync(ct);
-        return UserMutationResult.Ok(user.Id);
+        return await SaveGuardingUniquenessAsync(user.Id, ct);
+    }
+
+    /// <summary>
+    /// Saves and converts a unique-index violation into a readable message. The
+    /// checks above race with concurrent requests, so the database constraint is
+    /// the real guarantee — this stops it surfacing as a 500.
+    /// </summary>
+    private async Task<UserMutationResult> SaveGuardingUniquenessAsync(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return UserMutationResult.Ok(id);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" } pg)
+        {
+            var field = pg.ConstraintName?.Contains("Email", StringComparison.OrdinalIgnoreCase) == true
+                ? "email"
+                : "username";
+            return UserMutationResult.Fail($"That {field} is already in use.");
+        }
     }
 
     public async Task<UserMutationResult> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken ct)
@@ -94,6 +124,12 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
         var user = await db.Users.Include(u => u.Roles).FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user is null)
             return UserMutationResult.Fail("User not found.");
+
+        var email = request.Email.Trim();
+        if (email.Length == 0)
+            return UserMutationResult.Fail("Email is required.");
+        if (await db.Users.AnyAsync(u => u.Email.ToLower() == email.ToLower() && u.Id != id, ct))
+            return UserMutationResult.Fail($"Email '{email}' is already in use.");
         if (request.EmployeeId is { } eid && await db.Users.AnyAsync(u => u.EmployeeId == eid && u.Id != id, ct))
             return UserMutationResult.Fail("That employee is already linked to another user.");
 
@@ -102,15 +138,14 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
             return UserMutationResult.Fail("One or more roles do not exist.");
 
         user.DisplayName = request.DisplayName.Trim();
-        user.Email = request.Email.Trim();
+        user.Email = email;
         user.IsActive = request.IsActive;
         user.EmployeeId = request.EmployeeId;
         user.Roles.Clear();
         user.Roles.AddRange(roles.Select(r => new UserRole { UserId = user.Id, RoleId = r.Id }));
         user.UpdatedAt = DateTimeOffset.UtcNow;
 
-        await db.SaveChangesAsync(ct);
-        return UserMutationResult.Ok(user.Id);
+        return await SaveGuardingUniquenessAsync(user.Id, ct);
     }
 
     public async Task<UserMutationResult> ResetPasswordAsync(Guid id, string newPassword, CancellationToken ct)

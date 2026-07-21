@@ -1,7 +1,21 @@
 # DEVELOPMENT infrastructure only — the API, worker and portal run on the host
 # (dotnet run / ng serve) for hot reload and debugging.
 #
-# For the shipped full-container stack see docker-compose.prod.yml.
+#   docker compose up -d        full stack, matching production
+#
+# Kafka and RabbitMQ run in development too, deliberately: the punch flow
+# publishes to Kafka, so leaving it out of dev would mean never exercising the
+# path we actually ship. Dev/prod parity is what caught the startup bugs found
+# while containerising.
+#
+# Container memory is bounded below and WSL2 is capped in ~/.wslconfig. Without
+# that cap WSL2 takes most of the machine's RAM and never returns it, which is
+# what makes a 16GB dev box freeze — not the brokers themselves.
+#
+# If you genuinely need the RAM back for a while:
+#   docker compose stop kafka rabbitmq
+# The app degrades gracefully — IEventStreamProducer no-ops without Kafka and no
+# request ever fails because a broker is missing.
 #
 # The project name is deliberately different from prod so the two never share
 # volumes: they initialise Postgres with different passwords, and a shared
@@ -42,6 +56,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     restart: unless-stopped
+    mem_limit: 400m
     environment:
       RABBITMQ_DEFAULT_USER: wm
       RABBITMQ_DEFAULT_PASS: wm_dev_password
@@ -59,7 +74,10 @@ services:
   kafka:
     image: apache/kafka:3.8.0
     restart: unless-stopped
+    mem_limit: 1g
     environment:
+      # Dev heap. Production leaves this to the image default.
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
@@ -72,13 +90,11 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      # Bounded retention is a HARD REQUIREMENT on an unattended customer server:
-      # an unbounded log will eventually fill the disk and take the site down.
-      # Default 400 days / 20GB — sized to cover the longest realistic
-      # recalculation window for wm.punches. Tune per site by employee count.
-      KAFKA_LOG_RETENTION_HOURS: 9600
-      KAFKA_LOG_RETENTION_BYTES: 21474836480
-      KAFKA_LOG_SEGMENT_BYTES: 268435456
+      # Dev retention is deliberately tiny — 2 days / 512MB. The long
+      # recalculation window (400 days / 20GB) belongs in prod, not on a laptop.
+      KAFKA_LOG_RETENTION_HOURS: 48
+      KAFKA_LOG_RETENTION_BYTES: 536870912
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
     ports:
       - "9092:9092"
