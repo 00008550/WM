@@ -6,9 +6,9 @@ Three jobs in one structure:
 
 1. **Navigation** — how people find things.
 2. **Permission unit** — a group grants none / read / edit per screen.
-3. **Licensing unit** — a **branch is a licensable module**, so a customer can be
-   shipped only what they need. This is a hard requirement, and it is why the tree
-   follows business capability rather than convenience.
+3. **Licensing unit** — a customer is shipped **selected branches and sections**, so
+   the product can be tailored to what they actually need. This is a hard
+   requirement, and it is why the tree follows business capability, not convenience.
 
 ---
 
@@ -35,22 +35,27 @@ surface. That is corrected here.
 
 ## 1. The tree
 
-`◆` = licensable module. `[core]` = always shipped.
+`◆` = licensable module, sold whole or by section. `[foundation]` = not sellable,
+because the application cannot run without it.
+
+**There is no "core product".** Every capability is sellable, including Time &
+Attendance. What is not sellable is the platform: you cannot have a workforce system
+without people to record, accounts to sign in with, and rights to control them.
 
 ```
-◆ Time & Attendance                                              [core]
+◆ Time & Attendance                                            [module]
    Daily browser · Presence panel · Clockings & corrections
    Manual timesheets · Exceptions (scores) · Transaction report
    Geolocation tracking · QR punching · Virtual terminal
    Period locking
 
-◆ Personnel                                                      [core]
+  Personnel                                                      [foundation]
    Employees · Employee contracts · Contract assignment
    Positions & qualifications · Custom fields · Emergency contacts
    Employee groups · Population groups · Cost centres
    Personnel setup · Leavers · Anniversaries
 
-◆ Work Rules                                                     [core]
+◆ Work Rules                                                     [module]
    ── Templates
       Daily templates · Periodic templates · Weekly models
       Master daily model assignment · Calendar day models · Day types
@@ -108,7 +113,7 @@ surface. That is corrected here.
    Visitor activities · Pre-registration & invitations
    Check-in/out · Deliveries · Visitor settings
 
-◆ Insight                                                        [core]
+◆ Insight                                                        [module]
    Assistant ⭐ · Core reports · Saved reports
    Report scheduling & delivery · Favourites
    (replaces 136 report controllers)
@@ -120,19 +125,19 @@ surface. That is corrected here.
 ◆ Integrations                                                   [module]
    Connector settings · Sync history · Legacy TLW bridge
 
-◆ Notification Setup                                             [core]
+◆ Notification Setup                                             [module]
    Notification types · Templates · Recipients & manager roles
    Email settings · Attendance notifications · Report notifications
 
-◆ System Setup                                                   [core]
+  System Setup                                                   [foundation]
    Options · Calculation settings · Localisation · Custom localisation
    Navigation & display settings · Data retention
 
-◆ Security                                                       [core]
+  Security                                                       [foundation]
    Users · Groups · Access diagnostics · User action log
    Two-factor · SSO settings
 
-◆ Maintenance                                                    [core]
+  Maintenance                                                    [foundation]
    System health · Version & rollout · Backup/restore
    Licence status & features · Plugins · Audit browser
 
@@ -154,30 +159,41 @@ EPOS/catering (~48 controllers) · Student registration (~27) · Physical access
 
 ## 2. Licensing
 
-**A branch is a licensable module.** A licence enables branches, and the navigation,
-the API and the group editor all respect it — an unlicensed branch is absent, not
-merely hidden.
+**Two levels, matching TLW: pick a branch, then pick the sections within it.** A
+customer buying Work Rules need not take every section of it, so the licence is a set
+of selected branches and sections rather than a flat product tier.
 
 ```
 Licence
- ├─ features:  ["timeattendance", "personnel", "workrules", "scheduling",
- │              "documents", "activities", "expenses", "insight.assistant", ...]
- └─ limits:    maxEmployees, maxSites, maxUsers
+ ├─ modules:
+ │    timeattendance                       whole branch
+ │    workrules.templates                  one section
+ │    workrules.balances
+ │    workrules.absence
+ │    documents.*                          branch plus every section
+ │    insight.assistant                    metered — real per-token cost
+ └─ limits:  maxEmployees · maxSites · maxUsers
 ```
 
-Consequences worth stating now, because they constrain how modules are built:
+An unlicensed branch or section is **absent, not hidden**: missing from navigation,
+refused by the API, and **not offered in the group editor**, so an admin cannot grant
+rights to something the customer has not bought.
 
-- **`[core]` branches ship with every licence** — a workforce product without time,
-  people, work rules, reporting, security and setup is not a product.
-- **Module boundaries must be real.** If Scheduling is licensable, nothing in a core
-  branch may hard-depend on Scheduling types. This is already the module rule in
-  `ARCHITECTURE.md`; licensing makes it enforceable rather than aspirational.
-- **The assistant is separately licensable** (`insight.assistant`) because unlike every
-  other feature it carries per-token cost.
-- **Sub-features exist where the split is commercially real** — e.g. `documents.esign`
-  separate from `documents`.
-- **Group editors only offer licensed screens**, so an admin cannot grant rights to a
-  module the customer has not bought.
+Foundation branches — Personnel, System Setup, Security, Maintenance — are always
+present and carry no licence flag. They are not a "free tier"; they are the platform,
+and there is no coherent product without employees to record, accounts to sign in with,
+and rights to control them. **Everything else is sellable, including Time & Attendance.**
+
+Consequences that constrain how modules are built:
+
+- **Module boundaries must be real.** If Scheduling is licensable, nothing outside it
+  may hard-depend on Scheduling types. Cross-module access stays on contracts and
+  events. This was already the module rule; licensing makes it enforceable rather than
+  aspirational, and a customer buying a subset is the worst time to discover it was not.
+- **Sections must be separable too.** `workrules.balances` being optional means flexi
+  balances cannot be assumed present by `workrules.templates`.
+- **The assistant is metered**, unlike every other feature, because it carries genuine
+  marginal cost per customer.
 
 ---
 
@@ -208,16 +224,25 @@ tabs can be added later without changing the group shape.
 
 ---
 
-## 4. Open questions
+## 4. Decisions taken (2026-07-21)
 
-1. **Absence split.** I have put the *rules* (types, accruals, entitlements, holidays)
-   in **Work Rules** and the *workflow* (requests, approvals) in **Absence Requests**,
-   since they are configured by different people. TLW keeps absences under Work Rules
-   throughout. Split, or keep together?
-2. **HR as its own branch** or a section inside Personnel? Separate makes it licensable
-   on its own, which may be worth money; combined is fewer clicks.
-3. **Licensing granularity** — branch level only, or sub-features too (e.g.
-   `documents.esign`, `activities.jobcosting`)? Finer sells better but is more to manage.
-4. **What is genuinely core?** My `[core]` marking is a proposal. If customers buy
-   time-and-attendance alone, then Scheduling, Documents and HR are all optional — but
-   is *Insight* core, or would you sell reporting as an upsell?
+1. **Licensing is two-level** — branch, then sections within it. Matches TLW.
+2. **Absence rules and absence workflow are split** across Work Rules and Absence
+   Requests. Safe to do, because sections are licensed independently, so the split
+   changes navigation without changing what can be shipped.
+3. **HR is its own branch**, as in TLW.
+4. **There is no core product.** Every capability is sellable, Time & Attendance
+   included. Only the platform — Personnel, System Setup, Security, Maintenance — is
+   always present, because nothing functions without it.
+
+## 5. Still open
+
+- **Section boundaries inside Work Rules.** The six sections above (Templates, Breaks &
+  rounding, Pay, Balances, Absence & leave, Adjustments) are my split. If customers
+  actually buy along different lines, these should follow the money rather than my
+  sense of tidiness.
+- **Notification Setup as a sellable module** — it is marked one, but arguably every
+  module needs notifications, which would make it foundation.
+- **Whether `My` self-service should follow module licensing.** Currently always
+  present; but "My expenses" is meaningless without the Expenses module, so its
+  sub-items likely inherit their module's licence.
