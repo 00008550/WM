@@ -27,7 +27,7 @@ public sealed class TokenService(IOptions<JwtOptions> options)
 {
     private readonly JwtOptions _options = options.Value;
 
-    public TokenPair CreateTokenPair(User user, IReadOnlyCollection<string> permissions)
+    public TokenPair CreateTokenPair(User user, EffectiveScreenAccess screenAccess)
     {
         var now = DateTimeOffset.UtcNow;
         var expires = now.AddMinutes(_options.AccessTokenMinutes);
@@ -40,8 +40,12 @@ public sealed class TokenService(IOptions<JwtOptions> options)
             new("name", user.DisplayName),
             new(JwtRegisteredClaimNames.Jti, Guid.CreateVersion7().ToString()),
         };
-        claims.AddRange(user.Roles.Select(r => new Claim(ClaimTypes.Role, r.Role.Name)));
-        claims.AddRange(permissions.Select(p => new Claim(WmPermissions.ClaimType, p)));
+
+        // One claim per screen, e.g. "employees:edit". Screens the user cannot
+        // reach are simply absent.
+        foreach (var (screenId, access) in screenAccess.Screens.Where(s => s.Value != ScreenAccess.None))
+            claims.Add(new Claim(WmClaims.Screen, WmClaims.ScreenValue(screenId, access)));
+
         if (user.EmployeeId is { } employeeId)
             claims.Add(new Claim(WmClaims.EmployeeId, employeeId.ToString()));
 

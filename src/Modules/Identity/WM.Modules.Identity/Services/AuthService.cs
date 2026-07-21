@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
+using WM.SharedKernel.Security;
 
 namespace WM.Modules.Identity.Services;
 
@@ -12,6 +13,7 @@ public sealed class AuthService(
     IdentityDbContext db,
     TokenService tokens,
     IPasswordHasher<User> passwordHasher,
+    IDataScopeResolver scopes,
     ILogger<AuthService> logger)
 {
     private const int MaxFailedAttempts = 5;
@@ -20,7 +22,6 @@ public sealed class AuthService(
     public async Task<AuthResult> LoginAsync(string userName, string password, CancellationToken ct)
     {
         var user = await db.Users
-            .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r.Permissions)
             .FirstOrDefaultAsync(u => u.UserName == userName || u.Email == userName, ct);
 
         if (user is null || !user.IsActive)
@@ -49,7 +50,7 @@ public sealed class AuthService(
         user.FailedLoginAttempts = 0;
         user.LockedOutUntil = null;
 
-        var pair = IssueTokens(user);
+        var pair = await IssueTokensAsync(user, ct);
         await db.SaveChangesAsync(ct);
         return new AuthResult(true, null, pair, user);
     }
@@ -73,13 +74,12 @@ public sealed class AuthService(
         }
 
         var user = await db.Users
-            .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r.Permissions)
             .FirstAsync(u => u.Id == stored.UserId, ct);
 
         if (!user.IsActive)
             return new AuthResult(false, "Account disabled.", null, null);
 
-        var pair = IssueTokens(user);
+        var pair = await IssueTokensAsync(user, ct);
         stored.RevokedAt = DateTimeOffset.UtcNow;
         stored.ReplacedByHash = TokenService.HashToken(pair.RefreshToken);
         await db.SaveChangesAsync(ct);
@@ -94,12 +94,13 @@ public sealed class AuthService(
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, DateTimeOffset.UtcNow), ct);
     }
 
-    public static IReadOnlyCollection<string> PermissionsOf(User user) =>
-        user.Roles.SelectMany(r => r.Role.Permissions).Select(p => p.Permission).ToHashSet();
-
-    private TokenPair IssueTokens(User user)
+    private async Task<TokenPair> IssueTokensAsync(User user, CancellationToken ct)
     {
-        var pair = tokens.CreateTokenPair(user, PermissionsOf(user));
+        // Screen rights come from the user's groups, resolved at sign-in so a
+        // group change takes effect on the next token rather than immediately —
+        // the same trade-off as any claims-based token.
+        var access = await scopes.GetScreenAccessForUserAsync(user.Id, ct);
+        var pair = tokens.CreateTokenPair(user, access);
         db.RefreshTokens.Add(new RefreshToken
         {
             UserId = user.Id,

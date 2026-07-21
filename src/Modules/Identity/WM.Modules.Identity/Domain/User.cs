@@ -2,6 +2,11 @@ using WM.SharedKernel.Domain;
 
 namespace WM.Modules.Identity.Domain;
 
+/// <summary>
+/// A sign-in account. What the user may do and see comes entirely from their
+/// <see cref="Group"/> membership — there is no separate role concept, matching
+/// TLW where the group screen edits one object carrying both.
+/// </summary>
 public sealed class User : AuditableEntity
 {
     public required string UserName { get; set; }
@@ -11,34 +16,14 @@ public sealed class User : AuditableEntity
     public bool IsActive { get; set; } = true;
     public int FailedLoginAttempts { get; set; }
     public DateTimeOffset? LockedOutUntil { get; set; }
+
+    /// <summary>Links the account to an employee, enabling self-service.</summary>
     public Guid? EmployeeId { get; set; }
 
-    public List<UserRole> Roles { get; set; } = [];
+    public List<UserGroup> Groups { get; set; } = [];
     public List<RefreshToken> RefreshTokens { get; set; } = [];
 
     public bool IsLockedOut => LockedOutUntil.HasValue && LockedOutUntil.Value > DateTimeOffset.UtcNow;
-}
-
-public sealed class Role : Entity
-{
-    public required string Name { get; set; }
-    public string Description { get; set; } = string.Empty;
-    public bool IsSystem { get; set; }
-
-    public List<RolePermission> Permissions { get; set; } = [];
-}
-
-public sealed class UserRole
-{
-    public Guid UserId { get; set; }
-    public Guid RoleId { get; set; }
-    public Role Role { get; set; } = null!;
-}
-
-public sealed class RolePermission
-{
-    public Guid RoleId { get; set; }
-    public required string Permission { get; set; }
 }
 
 public sealed class RefreshToken : Entity
