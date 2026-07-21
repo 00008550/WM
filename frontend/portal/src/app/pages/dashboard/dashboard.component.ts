@@ -1,6 +1,8 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { Subject, auditTime } from 'rxjs';
 import { WorkforceApi, LivePresence, PunchRow } from '../../core/api/workforce.api';
 import { RealtimeService, PunchEvent } from '../../core/realtime/realtime.service';
 import { IconComponent } from '../../core/ui/icon.component';
@@ -193,11 +195,23 @@ export class DashboardComponent implements OnInit, OnDestroy {
   readonly punchBusy = signal(false);
   readonly punchError = signal<string | null>(null);
 
+  /** Coalesces presence refreshes triggered by incoming punches. */
+  private readonly presenceRefresh = new Subject<void>();
+
   constructor() {
-    effect(() => {
-      const event = this.realtime.lastPunch();
-      if (event) this.onLivePunch(event);
-    });
+    // Subscribe to the punch stream. Note this is NOT an `effect`: the handler
+    // writes signals it also reads, so inside an effect it would re-trigger
+    // itself indefinitely and flood the API with refresh calls.
+    this.realtime.punches$
+      .pipe(takeUntilDestroyed())
+      .subscribe(event => this.onLivePunch(event));
+
+    // A busy site can produce many punches per second. Collapse the resulting
+    // presence refreshes so the dashboard issues at most one request per window
+    // instead of one per punch.
+    this.presenceRefresh
+      .pipe(auditTime(1500), takeUntilDestroyed())
+      .subscribe(() => this.refreshPresence());
   }
 
   ngOnInit(): void {
@@ -207,6 +221,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
+    for (const frame of this.animations.values()) cancelAnimationFrame(frame);
+    this.animations.clear();
   }
 
   presenceRate(): number {
@@ -258,21 +274,38 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** In-flight count-up animations, so a rapid second call replaces the first. */
+  private readonly animations = new Map<unknown, number>();
+
   private countUp(target: typeof this.shownPresent, to: number): void {
+    // Cancel any animation already running for this target; without this, rapid
+    // updates leave several frame loops writing the same signal at once.
+    const running = this.animations.get(target);
+    if (running !== undefined) cancelAnimationFrame(running);
+
     const from = target();
-    if (from === to) return;
+    if (from === to) {
+      this.animations.delete(target);
+      return;
+    }
+
     const start = performance.now();
     const duration = 600;
     const step = (t: number) => {
       const k = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - k, 3);
       target.set(Math.round(from + (to - from) * eased));
-      if (k < 1) requestAnimationFrame(step);
+      if (k < 1) this.animations.set(target, requestAnimationFrame(step));
+      else this.animations.delete(target);
     };
-    requestAnimationFrame(step);
+    this.animations.set(target, requestAnimationFrame(step));
   }
 
   private onLivePunch(event: PunchEvent): void {
+    // Ignore an event we already have — a reconnect can replay one, and a
+    // duplicate would otherwise inflate today's count.
+    if (this.feed().some(e => e.key === event.punchId)) return;
+
     this.feed.update(entries => [
       {
         key: event.punchId,
@@ -284,8 +317,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
       },
       ...entries.slice(0, 29),
     ]);
-    this.countUp(this.shownPunches, this.punchesToday() + 1);
-    this.punchesToday.update(n => n + 1);
+
+    const total = this.punchesToday() + 1;
+    this.punchesToday.set(total);
+    this.countUp(this.shownPunches, total);
+
+    // Coalesced by auditTime in the constructor rather than fired per punch.
+    this.presenceRefresh.next();
+  }
+
+  private refreshPresence(): void {
     this.api.livePresence().subscribe(p => {
       this.presence.set(p);
       this.countUp(this.shownPresent, p.presentCount);
