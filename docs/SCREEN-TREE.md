@@ -125,7 +125,7 @@ without people to record, accounts to sign in with, and rights to control them.
 ◆ Integrations                                                   [module]
    Connector settings · Sync history · Legacy TLW bridge
 
-◆ Notification Setup                                             [module]
+  Notification Setup                                             [foundation]
    Notification types · Templates · Recipients & manager roles
    Email settings · Attendance notifications · Report notifications
 
@@ -179,19 +179,46 @@ An unlicensed branch or section is **absent, not hidden**: missing from navigati
 refused by the API, and **not offered in the group editor**, so an admin cannot grant
 rights to something the customer has not bought.
 
-Foundation branches — Personnel, System Setup, Security, Maintenance — are always
+Foundation branches — Personnel, Notification Setup, System Setup, Security, Maintenance — are always
 present and carry no licence flag. They are not a "free tier"; they are the platform,
 and there is no coherent product without employees to record, accounts to sign in with,
 and rights to control them. **Everything else is sellable, including Time & Attendance.**
 
-Consequences that constrain how modules are built:
+### Dependencies are declared, not forbidden
 
-- **Module boundaries must be real.** If Scheduling is licensable, nothing outside it
-  may hard-depend on Scheduling types. Cross-module access stays on contracts and
-  events. This was already the module rule; licensing makes it enforceable rather than
-  aspirational, and a customer buying a subset is the worst time to discover it was not.
-- **Sections must be separable too.** `workrules.balances` being optional means flexi
-  balances cannot be assumed present by `workrules.templates`.
+Some modules genuinely need others — Scheduling is meaningless without Work Rules, and
+Payroll Export needs calculated time. Pricing handles that: sell them together.
+
+What pricing does **not** handle is *accidental* coupling — a module reaching into
+another's types when nobody intended them bundled. That is only discovered when someone
+tries to sell them apart, which is the expensive moment to find out.
+
+So each module **declares what it requires**, and the declaration does three jobs:
+
+```
+timeattendance      requires: —
+workrules           requires: timeattendance
+scheduling          requires: workrules
+absencerequests     requires: workrules.absence
+payrollexport       requires: workrules
+activities          requires: timeattendance
+expenses            requires: —
+documents           requires: —
+insight             requires: —
+```
+
+1. **Licence validation** refuses an incoherent combination (Scheduling without Work
+   Rules) at issue time rather than at the customer's site.
+2. **Code may depend along a declared edge.** No ceremony between modules that always
+   ship together — that would be wasted effort.
+3. **Anything undeclared is a bug**, caught in review rather than by a customer.
+
+The point is not to prevent dependencies. It is to make them **visible and deliberate**,
+so bundling is a decision rather than an accident.
+
+- **Sections must be separable too** where they are separately sold:
+  `workrules.balances` being optional means `workrules.templates` cannot assume flexi
+  balances exist.
 - **The assistant is metered**, unlike every other feature, because it carries genuine
   marginal cost per customer.
 
@@ -235,14 +262,18 @@ tabs can be added later without changing the group shape.
    included. Only the platform — Personnel, System Setup, Security, Maintenance — is
    always present, because nothing functions without it.
 
+5. **Notification Setup is foundation.** Every module raises notifications, so it is
+   platform rather than product.
+6. **Dependencies are declared, not avoided.** Modules that need each other are sold
+   together; the declaration exists so bundling is deliberate and licence validation
+   can refuse an incoherent combination.
+
 ## 5. Still open
 
 - **Section boundaries inside Work Rules.** The six sections above (Templates, Breaks &
   rounding, Pay, Balances, Absence & leave, Adjustments) are my split. If customers
   actually buy along different lines, these should follow the money rather than my
   sense of tidiness.
-- **Notification Setup as a sellable module** — it is marked one, but arguably every
-  module needs notifications, which would make it foundation.
-- **Whether `My` self-service should follow module licensing.** Currently always
-  present; but "My expenses" is meaningless without the Expenses module, so its
-  sub-items likely inherit their module's licence.
+- **`My` self-service and licensing.** Currently always present, but "My expenses" is
+  meaningless without the Expenses module. Most likely each `My` sub-item inherits its
+  module's licence, with "My time" and "My profile" always available.
