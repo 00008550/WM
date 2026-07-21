@@ -1,175 +1,223 @@
-# WM — Screen Tree & Permission Model
+# WM — Screen Tree, Permissions & Licensable Modules
 
-*Proposed 2026-07-21. Agree this before building screens.*
+*v2, 2026-07-21. Agree this before building screens.*
 
-This is the navigation tree and the unit of permission. It is derived from TLW's
-actual structure (evidence below), not invented — but reorganised, because the goal
-is a better product, not a reproduction.
+Three jobs in one structure:
+
+1. **Navigation** — how people find things.
+2. **Permission unit** — a group grants none / read / edit per screen.
+3. **Licensing unit** — a **branch is a licensable module**, so a customer can be
+   shipped only what they need. This is a hard requirement, and it is why the tree
+   follows business capability rather than convenience.
 
 ---
 
-## 0. Corrections to earlier documentation
+## 0. Source of truth
 
-Reading TLW's access code properly turned up three things the earlier docs got wrong.
-They are corrected here and in `ARCHITECTURE.md`.
+The branch names below are **TLW's own**, taken from documented menu paths in
+`E:\Tlw\Documentation` (e.g. *"Work Rules → Daily Templates"*, *"System Setup →
+Options"*, *"Time and Attendance → Presence Panel"*), cross-referenced against the
+~230 folders in `WebSite/Views` and the controller areas.
+
+An earlier draft of this document invented its own grouping and undercounted the
+surface. That is corrected here.
+
+### Corrections carried forward
 
 | Earlier claim | Reality in TLW |
 |---|---|
-| "Security groups control which employees a user can see" | **Wrong.** `SecurityGroup` is *physical access control* — which employees may open which door readers, with dated assignments, synced to Suprema hardware (`Logic/AccessControl/SecurityGroupService.cs`, `SupremaControllerService/SyncSecurityGroups.cs`). With devices dropped, the concept is **out of scope for WM**. |
-| "`SiteStructure` = the site/department hierarchy" | **Wrong.** It is the **application's page tree** — `SiteBranch` / `SiteForm` / `SiteFormTab`. "Site" means the *website*. The physical hierarchy is Sites/Departments in People. |
-| "Roles bundle permissions; groups are separate" | **Wrong.** In TLW a **Group *is* a Role** (`/Groups` → `Controllers/Security/GroupsController.cs`, `SoftwareAccessGroupDto`). One object carries per-form Read/Edit **and** managed departments/locations/employees. |
-
-Two further details worth recording:
-
-- TLW permissions are **tri-state per form**: none / `Read` / `Edit` (`AccessType`), and go down to **tab** level within a form (`PersonnelTab`, with a `[DisallowDenyAccess]` marker for tabs that can never be hidden).
-- TLW **fails open**: `if (managedDepartments.Any())` means an *empty* managed list applies no filter, so a half-configured group silently exposes the whole workforce. **WM does not copy this** — scope type is explicit (decision 2026-07-21).
+| "Security groups control which employees a user can see" | `SecurityGroup` is **physical door access** — employees to readers, dated, synced to Suprema hardware. Out of scope; name not reused. |
+| "`SiteStructure` = site/department hierarchy" | It is the **application page tree** (`SiteBranch`/`SiteForm`/`SiteFormTab`). |
+| "Roles and groups are separate" | **A Group *is* a Role** — one object carries per-form read/edit **and** managed departments/locations/employees. |
+| "Time rules" as a branch | Not a TLW concept. The real branch is **Work Rules**, and it already contains absences and accruals alongside templates. |
 
 ---
 
-## 1. Evidence: TLW's real functional areas
+## 1. The tree
 
-Controllers per area (`WebSite/Controllers`, ~500 total):
+`◆` = licensable module. `[core]` = always shipped.
 
-| Area | Controllers | WM disposition |
-|---|---|---|
-| **Reports** | **136** | ⏹ replaced by the **AI assistant** + ~8 core reports |
-| API | 72 | — (transport, not a screen area) |
-| root-level | 52 | spread across the areas below |
-| EPOS (accounts, products, reports, sales, settings, tills) | 48 | ⏹ dropped |
-| Student registration (+ admin, reports, settings) | 27 | ⏹ dropped |
-| Maintenance | 24 | ◐ device-related parts dropped; system health kept |
-| Payroll | 19 | ◐ 19 vendor screens → **one export builder** |
-| Access control | 17 | ⏹ dropped (device-dependent) |
-| Expenses | 9 | ✅ keep |
-| Notifications | 8 | ✅ keep |
-| LAPI / vehicle | 7 | ⏹ dropped |
-| Emergency | 7 | ✅ keep — **software-only, a differentiator** |
-| Work activities | 7 | ✅ keep (job costing) |
-| Scheduling | 6 | ✅ keep |
-| Security | 6 | ✅ keep (users, groups) |
-| Personnel setup | 11 | ✅ keep |
-| Scores (exceptions) | 4 | ✅ keep — folds into Attendance |
-| Company documents | 4 | ✅ keep |
-| MIS / payment integrations | 8 | ◐ connectors, config only |
-| Accruals | 3 | ✅ keep |
-| Planning | 3 | ✅ keep |
-| Visitors | 2 | ▢ later |
+```
+◆ Time & Attendance                                              [core]
+   Daily browser · Presence panel · Clockings & corrections
+   Manual timesheets · Exceptions (scores) · Transaction report
+   Geolocation tracking · QR punching · Virtual terminal
+   Period locking
 
-**The single biggest fact: reporting is 27% of the application.** Replacing it with an
-assistant plus a handful of fixed reports is the highest-leverage decision in the plan.
+◆ Personnel                                                      [core]
+   Employees · Employee contracts · Contract assignment
+   Positions & qualifications · Custom fields · Emergency contacts
+   Employee groups · Population groups · Cost centres
+   Personnel setup · Leavers · Anniversaries
+
+◆ Work Rules                                                     [core]
+   ── Templates
+      Daily templates · Periodic templates · Weekly models
+      Master daily model assignment · Calendar day models · Day types
+      Shift matching · Split shifts · Multi-shift
+   ── Breaks & rounding
+      Break rules · Rounding rules · Global schedule thresholds
+   ── Pay
+      Pay categories · Tariffs · Hourly rates · Cost centre allocation
+      Pay periods
+   ── Balances
+      Counters · Weekly counters · Flexi balance · Flexi balance tracking
+      Balance reset · Contract hours limits
+   ── Absence & leave
+      Absences · Predefined absences · Absence allocation
+      Absence authorisation · Absence managers setup
+      Accruals · Accrual adjustments · Length-of-service bonus
+      Holidays · School holidays · Recaps
+   ── Adjustments
+      Time adjustments · Corrections · Exception setup
+      Blocked exception rules
+
+◆ Scheduling                                                     [module]
+   Planning board · Planning control · Auto-planning
+   Roster · Roster calendar · Roster notification templates
+   Employee schedule requests · Timetables · Timetable creator
+
+◆ Absence Requests                                               [module]
+   Requests · Approvals · Team calendar · Blocked dates
+   (the employee-facing workflow; the *rules* live in Work Rules)
+
+◆ Documents                                                      [module]
+   Company documents · Document categories · Employee documents
+   Onboarding documents · Document tags · Expiry tracking
+   E-signature
+
+◆ HR                                                             [module]
+   Appraisals · Disciplinaries · Objectives · Remunerations
+   Certificates · Probation & fixed-term tracking
+
+◆ Activities / Job Costing                                       [module]
+   Work activities · Activity hierarchy · Activity machines
+   Scheduled activities · Clients · Job sheets
+   Activity documents & notes · Global activity exceptions
+   Global activity rounding rules · Default activity assignment
+
+◆ Expenses                                                       [module]
+   Claims · Mileage · Expense dashboard
+   Types & groups · Rates · Payment categories · Vehicle types
+
+◆ Emergency & Safety                                             [module]
+   Emergency control · Live roll call · Muster points
+   Fire marshals · Incident archive · Guard screen
+
+◆ Visitors                                                       [module]
+   Visitor activities · Pre-registration & invitations
+   Check-in/out · Deliveries · Visitor settings
+
+◆ Insight                                                        [core]
+   Assistant ⭐ · Core reports · Saved reports
+   Report scheduling & delivery · Favourites
+   (replaces 136 report controllers)
+
+◆ Payroll Export                                                 [module]
+   Export builder · Export runs & history · Format mappings
+   (replaces 19 per-vendor screens + 44 plugins)
+
+◆ Integrations                                                   [module]
+   Connector settings · Sync history · Legacy TLW bridge
+
+◆ Notification Setup                                             [core]
+   Notification types · Templates · Recipients & manager roles
+   Email settings · Attendance notifications · Report notifications
+
+◆ System Setup                                                   [core]
+   Options · Calculation settings · Localisation · Custom localisation
+   Navigation & display settings · Data retention
+
+◆ Security                                                       [core]
+   Users · Groups · Access diagnostics · User action log
+   Two-factor · SSO settings
+
+◆ Maintenance                                                    [core]
+   System health · Version & rollout · Backup/restore
+   Licence status & features · Plugins · Audit browser
+
+   My                                                            [always]
+   My time · My absence · My documents · My expenses · My profile
+```
+
+**~120 screens** across the retained scope — not the ~40 an earlier draft claimed.
+Against legacy's ~230 the reduction comes almost entirely from three places:
+reports (136 controllers → the assistant), payroll (19 vendor screens → one builder),
+and the dropped verticals.
+
+### Deliberately dropped
+
+EPOS/catering (~48 controllers) · Student registration (~27) · Physical access control
+(~17) · LAPI/ANPR vehicle (~7) · Device maintenance screens · Card printing.
 
 ---
 
-## 2. Proposed WM tree
+## 2. Licensing
 
-Grouped by what a person is *doing*, not by which service owns it. Each **leaf is a
-screen** and a screen is the unit of permission (none / read / edit).
+**A branch is a licensable module.** A licence enables branches, and the navigation,
+the API and the group editor all respect it — an unlicensed branch is absent, not
+merely hidden.
 
 ```
-Operations
-  ├─ Dashboard                 live presence, punch feed, quick punch
-  ├─ Attendance                clockings, corrections, exceptions, manual timesheets
-  ├─ Timesheets                calculated results per employee/period
-  └─ Emergency                 trigger, live roll call, muster points, incident history
-
-People
-  ├─ Employees                 the record: identity, contract, custom fields
-  ├─ Org structure             sites, departments, positions, population groups
-  ├─ HR                        appraisals, disciplinaries, objectives, qualifications
-  └─ Documents                 company + employee documents, e-signature
-
-Time rules            ← the engine; deepest part of the product
-  ├─ Daily templates           shifts, breaks, core hours, rounding, exceptions
-  ├─ Weekly & periodic         weekly models, periodic templates, pay periods
-  ├─ Counters & balances       counters, flexi balances, accrual rules
-  └─ Pay categories            categories, tariffs, rounding rules, cost centres
-
-Scheduling
-  ├─ Planning board            rotas, drag & drop, coverage
-  ├─ Roster                    roster calendar, schedule requests
-  └─ Auto-planning             rules-driven generation
-
-Absence
-  ├─ Requests                  submit, approve, reject, cancel
-  ├─ Entitlements              allocations, accrual balances
-  └─ Calendars                 holidays, school holidays, team calendar
-
-Activities                     ← field service / job costing
-  ├─ Work activities           activity hierarchy, machines
-  ├─ Scheduled activities      assignment, support member, travel
-  ├─ Clients                   sites visited
-  └─ Job sheets                completion, attachments
-
-Expenses
-  ├─ Claims                    expenses + mileage, approval workflow
-  └─ Expense setup             types, rates, vehicle types, payment categories
-
-Insight
-  ├─ Assistant                 ask questions, author reports        ⭐ replaces 136 controllers
-  ├─ Reports                   saved + core reports, scheduled delivery
-  └─ Exports                   payroll export builder, run history
-
-Administration
-  ├─ Users                     accounts, employee link, group membership
-  ├─ Groups                    screen permissions + employee scope
-  ├─ Settings                  options, localisation, notification setup
-  ├─ Integrations              connector configuration
-  ├─ Licensing                 licence status, features, limits
-  ├─ Plugins                   installed plugins
-  └─ Audit                     user action log, access diagnostics
-
-My                             ← self-service; visible to any employee-linked user
-  ├─ My time                   own status, timesheet, punches
-  ├─ My absence                own requests and balances
-  ├─ My documents              view and e-sign
-  └─ My expenses               own claims
+Licence
+ ├─ features:  ["timeattendance", "personnel", "workrules", "scheduling",
+ │              "documents", "activities", "expenses", "insight.assistant", ...]
+ └─ limits:    maxEmployees, maxSites, maxUsers
 ```
 
-**~40 screens** versus TLW's ~230 — because reports collapse into the assistant,
-per-vendor payroll screens collapse into one builder, and EPOS/schools/devices are gone.
+Consequences worth stating now, because they constrain how modules are built:
+
+- **`[core]` branches ship with every licence** — a workforce product without time,
+  people, work rules, reporting, security and setup is not a product.
+- **Module boundaries must be real.** If Scheduling is licensable, nothing in a core
+  branch may hard-depend on Scheduling types. This is already the module rule in
+  `ARCHITECTURE.md`; licensing makes it enforceable rather than aspirational.
+- **The assistant is separately licensable** (`insight.assistant`) because unlike every
+  other feature it carries per-token cost.
+- **Sub-features exist where the split is commercially real** — e.g. `documents.esign`
+  separate from `documents`.
+- **Group editors only offer licensed screens**, so an admin cannot grant rights to a
+  module the customer has not bought.
 
 ---
 
 ## 3. Permission model
 
-Each screen carries **none / read / edit** per group. A user may belong to **several
-groups**; access combines as a union (most permissive wins), like IAM group membership.
-
 ```
 Group
- ├─ Screen permissions      screen → none | read | edit
- └─ Employee scope          None | AllEmployees | ByDepartments | ByEmployees
+ ├─ Screen permissions   screen → none | read | edit
+ └─ Employee scope       None | AllEmployees | ByDepartments | ByEmployees
 ```
 
-Rules:
-
-- **`read` opens the screen; `edit` allows mutation.** Endpoints enforce this — a read
-  user hitting a write endpoint gets 403 regardless of what the UI shows.
-- **Screen access and employee scope are independent.** `edit` on Employees plus a
-  department scope means "may edit, but only these people".
-- **The `My` branch is not group-controlled.** Any employee-linked user gets it, so
-  self-service never depends on an admin remembering.
-- **No deny rules.** Narrowing is done by removing group membership. Deny lists that
-  interact across several groups are exactly what made TLW's model hard to reason about
-  (it needed a `DataAccessScopeDiagnostics` subsystem to explain itself).
+- A user may belong to **several groups**; access combines as a **union** — most
+  permissive wins, like IAM group membership.
+- **`read` opens a screen; `edit` allows mutation.** Enforced server-side; hiding a
+  button is UX, not security.
+- **Screen access and employee scope are independent** — "may edit, but only these
+  people" is a normal configuration.
+- **`My` is never group-controlled.** Any employee-linked user gets self-service.
+- **No deny rules.** Narrow by removing membership. Deny lists interacting across
+  several groups are what forced TLW to ship a diagnostics subsystem to explain itself.
+- **Scope is explicit.** TLW fails open — an empty managed list applies no filter, so a
+  half-configured group exposes the whole workforce. WM requires the intent to be stated.
 
 ### Deferred: tab-level permissions
 
-TLW goes finer than screens — `PersonnelTab` gives per-tab rights inside Personnel.
-**Not in the first pass.** The `Employees` screen will have tabs (contract, HR, documents)
-and those are candidates later, but screen-level first: it covers the real cases, and
-tab-level can be added without changing the group shape.
+TLW goes finer, with per-tab rights inside Personnel (`PersonnelTab`). Screens first;
+tabs can be added later without changing the group shape.
 
 ---
 
-## 4. Open questions before building
+## 4. Open questions
 
-1. **Grouping** — does the eight-branch top level match how you think about the product?
-   The one I am least sure of is **Time rules** as its own branch rather than sitting
-   under a Setup/Configuration branch with Settings and Integrations.
-2. **Timesheets vs Attendance** — separate screens, or one screen with two views?
-   TLW separates them; they overlap heavily.
-3. **Insight** as a name for the assistant + reports branch, or something plainer
-   ("Reports", with the assistant inside it)?
-4. **Naming**: TLW says *Groups*; AWS-style would be *Groups* too, so this seems safe.
-   Confirm we are not reusing "roles" anywhere in the UI.
+1. **Absence split.** I have put the *rules* (types, accruals, entitlements, holidays)
+   in **Work Rules** and the *workflow* (requests, approvals) in **Absence Requests**,
+   since they are configured by different people. TLW keeps absences under Work Rules
+   throughout. Split, or keep together?
+2. **HR as its own branch** or a section inside Personnel? Separate makes it licensable
+   on its own, which may be worth money; combined is fewer clicks.
+3. **Licensing granularity** — branch level only, or sub-features too (e.g.
+   `documents.esign`, `activities.jobcosting`)? Finer sells better but is more to manage.
+4. **What is genuinely core?** My `[core]` marking is a proposal. If customers buy
+   time-and-attendance alone, then Scheduling, Documents and HR are all optional — but
+   is *Insight* core, or would you sell reporting as an upsell?

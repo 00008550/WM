@@ -200,6 +200,12 @@ Admin CRUD: list/search users, create (optionally linked to an employee, with ro
 - Feature gates: server-side `ILicenseFeature` checks **and** token claims so the UI hides unlicensed modules (UI hiding is UX; server always re-checks).
 - **Per-plugin licensing**: each plugin id is a licensable feature — mirrors selling payroll plugins per customer.
 
+### Modules are the licensing unit
+
+**A navigation branch is a licensable module** (see [`SCREEN-TREE.md`](./SCREEN-TREE.md)), so a customer can be shipped exactly what they need. An unlicensed branch is **absent** — missing from the navigation, refused by the API, and not offered in the group editor so nobody can grant rights to something the customer has not bought.
+
+This turns the module rule from a design preference into a constraint that has to hold: **if Scheduling is licensable, no core branch may hard-depend on Scheduling types.** Cross-module access stays on contracts and events, and anything shared moves to SharedKernel. Getting this wrong is only discovered when a customer buys a subset, which is the worst time to find out — so it is checked as modules are built, not after.
+
 ---
 
 ## 6. Plugin Architecture
