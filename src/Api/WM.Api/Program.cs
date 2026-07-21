@@ -65,18 +65,28 @@ foreach (var module in modules)
 app.MapHub<AttendanceHub>("/hubs/attendance");
 app.MapHealthChecks("/health");
 
-// Development bootstrap: create schema + seed demo data.
-if (app.Environment.IsDevelopment())
+// Bootstrap. Schema migration runs in every environment — on-prem installs
+// upgrade themselves on start, which is how a customer's server stays current
+// without us reaching it. Demo data is Development-only.
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
     var services = scope.ServiceProvider;
     await services.GetRequiredService<IdentityDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<PeopleDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<TimeAttendanceDbContext>().Database.MigrateAsync();
-    await services.GetRequiredService<IdentitySeeder>().SeedAsync();
-    await services.GetRequiredService<PeopleSeeder>().SeedAsync();
-    await services.GetRequiredService<PunchSeeder>().SeedAsync();
-    await services.GetRequiredService<DemoUserSeeder>().SeedAsync(); // links users to employees
+
+    if (app.Environment.IsDevelopment())
+    {
+        await services.GetRequiredService<IdentitySeeder>().SeedAsync();
+        await services.GetRequiredService<PeopleSeeder>().SeedAsync();
+        await services.GetRequiredService<PunchSeeder>().SeedAsync();
+        await services.GetRequiredService<DemoUserSeeder>().SeedAsync();
+    }
+    else
+    {
+        // A fresh production install still needs one way in.
+        await services.GetRequiredService<IdentitySeeder>().SeedAsync();
+    }
 }
 
 app.Run();

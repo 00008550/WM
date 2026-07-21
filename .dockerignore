@@ -1,0 +1,14 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.angular
+**/.vs
+**/.vscode
+**/.git
+**/.github
+**/TestResults
+**/*.user
+**/appsettings.Development.json
+frontend/portal/.angular
+docs

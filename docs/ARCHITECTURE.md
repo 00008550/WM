@@ -509,13 +509,35 @@ The risk was never "too many containers" — it is **unattended long-run behavio
 
 ### Keeping the broker-agnostic abstraction anyway
 
-The `IEventStreamProducer` / MassTransit abstractions stay — **but the justification changes**. Not for deployment flexibility, for three cheaper reasons:
+The `IEventStreamProducer` / MassTransit abstractions stay — **but the justification changes**. Not for deployment flexibility, for two cheaper reasons:
 
 1. **Dev and CI speed** — unit and integration tests run without brokers; the inner loop stays fast.
 2. **Graceful degradation** — the app must keep serving when a broker blips, which requires the seam to exist regardless.
-3. **Insurance** — the one genuine adoption blocker below.
 
-**Open risk to verify with real customers:** legacy runs on **Windows Server + IIS + SQL Server**, and some IT policies do not permit a container runtime. If a meaningful number of sites cannot run Docker, we need a no-container install path — and *that* is when the reduced stack becomes relevant again. Worth confirming before v1, because it changes packaging, not architecture.
+### Ship as Linux containers — the legacy constraints are already gone
+
+An earlier draft worried about "Windows Server + IIS + SQL Server" sites. **That is a legacy constraint WM has already escaped:** WM is .NET 9 (Kestrel — no IIS) on PostgreSQL (no SQL Server), with an Angular SPA served by nginx. Nothing in the stack requires Windows.
+
+**Target: a Linux host running Docker (or Podman). The host OS is otherwise an implementation detail** — the same Linux images run on Windows Server via Docker if a customer's IT insists.
+
+This is also a **commercial advantage worth stating in the sales conversation**: no Windows Server licence, no SQL Server licence. SQL Server Standard alone is a per-core cost that WM removes entirely.
+
+**Shipped artefacts** (all built from the repo, see `deploy/docker-compose.prod.yml`):
+
+| Image | Base | Size | Notes |
+|---|---|---|---|
+| `wm/wm-api` | `dotnet/aspnet:9.0-alpine` | ~194 MB | non-root, health-checked, migrates on start |
+| `wm/wm-worker` | `dotnet/runtime:9.0-alpine` | ~165 MB | non-root; plugins mounted at runtime, not baked in |
+| `wm/wm-portal` | `nginx:1.27-alpine` | ~49 MB | serves the SPA, proxies `/api` + `/hubs` |
+
+Deployment properties this buys us:
+- **Single origin** — nginx proxies the API and SignalR, so there is no CORS and no API URL baked into the JS bundle.
+- **Only the portal is exposed**; API, worker, database and brokers stay on the internal network.
+- **Versioned rollout and instant rollback** — pin `WM_VERSION` per customer, `docker compose pull && up -d` to upgrade, repin to roll back.
+- **Schema upgrades itself** — the API applies EF Core migrations on start in every environment, which is how an on-prem install stays current without us reaching it.
+- **Secrets are required, not defaulted** — compose refuses to start without `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY` and `WM_ADMIN_PASSWORD`. There is no hard-coded administrator password in a production build.
+
+Two Alpine-specific requirements learned by actually running it: **ICU must be installed** (`icu-libs`, `icu-data-full`) because WM is multi-language and invariant globalization is not acceptable; and container health checks must target **`127.0.0.1`, not `localhost`**, since `localhost` resolves to IPv6 first and nginx binds IPv4.
 
 ### Consequence: rollout tooling is a first-class deliverable
 
