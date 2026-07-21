@@ -95,16 +95,23 @@ public sealed class PunchService(
 
     public async Task<IReadOnlyList<RecentPunchEntry>> GetRecentAsync(int take, CancellationToken ct)
     {
+        // Restrict to employees the caller may see before touching punches — otherwise
+        // the feed would leak the existence and movements of out-of-scope staff.
+        var visible = (await employees.ListActiveAsync(ct)).ToDictionary(e => e.Id, e => e.FullName);
+        if (visible.Count == 0)
+            return [];
+
+        var visibleIds = visible.Keys.ToArray();
         var punches = await db.Punches.AsNoTracking()
+            .Where(p => visibleIds.Contains(p.EmployeeId))
             .OrderByDescending(p => p.Timestamp)
             .Take(Math.Clamp(take, 1, 200))
             .ToListAsync(ct);
 
-        var names = (await employees.ListActiveAsync(ct)).ToDictionary(e => e.Id, e => e.FullName);
         return punches
             .Select(p => new RecentPunchEntry(
                 p.Id, p.EmployeeId, p.EmployeeCode,
-                names.GetValueOrDefault(p.EmployeeId, p.EmployeeCode),
+                visible.GetValueOrDefault(p.EmployeeId, p.EmployeeCode),
                 p.Timestamp, p.Direction, p.Source, p.DeviceId))
             .ToList();
     }

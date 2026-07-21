@@ -8,6 +8,7 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<SecurityGroup> SecurityGroups => Set<SecurityGroup>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -47,6 +48,25 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
         {
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.Property(x => x.TokenHash).HasMaxLength(88);
+        });
+
+        b.Entity<SecurityGroup>(e =>
+        {
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).HasMaxLength(128);
+            e.Property(x => x.Description).HasMaxLength(512);
+            e.HasMany(x => x.Sites).WithOne().HasForeignKey(x => x.SecurityGroupId);
+            e.HasMany(x => x.Departments).WithOne().HasForeignKey(x => x.SecurityGroupId);
+            e.HasMany(x => x.Members).WithOne(x => x.SecurityGroup).HasForeignKey(x => x.SecurityGroupId);
+        });
+
+        b.Entity<SecurityGroupSite>().HasKey(x => new { x.SecurityGroupId, x.SiteId });
+        b.Entity<SecurityGroupDepartment>().HasKey(x => new { x.SecurityGroupId, x.DepartmentId });
+
+        b.Entity<UserSecurityGroup>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.SecurityGroupId });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
         });
     }
 }

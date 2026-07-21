@@ -32,6 +32,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard({ permission: 'users.manage' })],
         loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
       },
+      {
+        path: 'security-groups',
+        canActivate: [permissionGuard({ permission: 'roles.manage' })],
+        loadComponent: () =>
+          import('./pages/security-groups/security-groups.component').then(m => m.SecurityGroupsComponent),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

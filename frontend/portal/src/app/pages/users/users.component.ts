@@ -5,6 +5,9 @@ import {
   UsersApi, UserListItem, RoleListItem, CreateUserRequest, UpdateUserRequest,
 } from '../../core/api/users.api';
 import { WorkforceApi, EmployeeRow } from '../../core/api/workforce.api';
+import {
+  SecurityGroupsApi, SecurityGroup, AccessDiagnostics, DataScopeKind, SCOPE_LABELS,
+} from '../../core/api/security-groups.api';
 import { IconComponent } from '../../core/ui/icon.component';
 
 @Component({
@@ -145,6 +148,29 @@ import { IconComponent } from '../../core/ui/icon.component';
         </div>
 
         @if (!isNew()) {
+          <div>
+            <span class="text-xs uppercase tracking-widest text-muted">Security groups (what they can see)</span>
+            <div class="mt-2 space-y-1.5">
+              @for (g of securityGroups(); track g.id) {
+                <label class="flex items-center gap-2.5 text-sm cursor-pointer">
+                  <input type="checkbox" [checked]="form.groupIds.includes(g.id)" (change)="toggleGroup(g.id)"
+                         class="accent-pulse w-4 h-4" />
+                  <span>{{ g.name }}</span>
+                  <span class="text-xs text-muted">{{ scopeLabel(g.scopeKind) }}</span>
+                </label>
+              } @empty {
+                <p class="text-xs text-muted">No groups defined yet.</p>
+              }
+            </div>
+          </div>
+
+          @if (diagnostics(); as d) {
+            <div class="border border-line rounded-md bg-raised/50 px-3 py-2.5">
+              <div class="text-[11px] uppercase tracking-widest text-muted">Effective visibility</div>
+              <p class="text-xs mt-1">{{ d.explanation }}</p>
+            </div>
+          }
+
           <label class="flex items-center gap-2.5 text-sm cursor-pointer">
             <input type="checkbox" [(ngModel)]="form.isActive" class="accent-pulse w-4 h-4" /> Active
           </label>
@@ -172,12 +198,15 @@ import { IconComponent } from '../../core/ui/icon.component';
 export class UsersComponent implements OnInit {
   private readonly api = inject(UsersApi);
   private readonly workforce = inject(WorkforceApi);
+  private readonly groupsApi = inject(SecurityGroupsApi);
 
   readonly loading = signal(true);
   readonly users = signal<UserListItem[]>([]);
   readonly total = signal(0);
   readonly roles = signal<RoleListItem[]>([]);
   readonly employees = signal<EmployeeRow[]>([]);
+  readonly securityGroups = signal<SecurityGroup[]>([]);
+  readonly diagnostics = signal<AccessDiagnostics | null>(null);
 
   readonly editing = signal(false);
   readonly isNew = signal(false);
@@ -192,11 +221,23 @@ export class UsersComponent implements OnInit {
     forkJoin({
       roles: this.api.roles(),
       employees: this.workforce.employees('', 1, 200),
-    }).subscribe(({ roles, employees }) => {
+      groups: this.groupsApi.list(),
+    }).subscribe(({ roles, employees, groups }) => {
       this.roles.set(roles);
       this.employees.set(employees.items);
+      this.securityGroups.set(groups);
     });
     this.load();
+  }
+
+  scopeLabel(kind: DataScopeKind): string {
+    return SCOPE_LABELS[kind] ?? '';
+  }
+
+  toggleGroup(id: string): void {
+    this.form.groupIds = this.form.groupIds.includes(id)
+      ? this.form.groupIds.filter(g => g !== id)
+      : [...this.form.groupIds, id];
   }
 
   openCreate(): void {
@@ -212,12 +253,18 @@ export class UsersComponent implements OnInit {
     const roleIds = this.roles().filter(r => u.roles.includes(r.name)).map(r => r.id);
     this.form = {
       userName: u.userName, email: u.email, displayName: u.displayName, password: '',
-      employeeId: u.employeeId, roleIds, isActive: u.isActive,
+      employeeId: u.employeeId, roleIds, isActive: u.isActive, groupIds: [],
     };
     this.isNew.set(false);
     this.error.set(null);
     this.resetInfo.set(null);
+    this.diagnostics.set(null);
     this.editing.set(true);
+
+    // Current membership and the resulting visibility, so an admin can see the
+    // effect of a change without leaving the drawer.
+    this.groupsApi.groupsForUser(u.id).subscribe(ids => (this.form.groupIds = ids));
+    this.groupsApi.diagnostics(u.id).subscribe(d => this.diagnostics.set(d));
   }
 
   close(): void {
@@ -242,11 +289,17 @@ export class UsersComponent implements OnInit {
       };
       this.api.create(req).subscribe(done);
     } else if (this.editingId) {
+      const id = this.editingId;
       const req: UpdateUserRequest = {
         displayName: this.form.displayName, email: this.form.email, isActive: this.form.isActive,
         employeeId: this.form.employeeId, roleIds: this.form.roleIds,
       };
-      this.api.update(this.editingId, req).subscribe(done);
+      // Group membership is a separate endpoint; save it with the user so the
+      // admin experiences one "Save" rather than two half-applied changes.
+      this.api.update(id, req).subscribe({
+        next: () => this.groupsApi.setGroupsForUser(id, this.form.groupIds).subscribe(done),
+        error: done.error,
+      });
     }
   }
 
@@ -272,6 +325,7 @@ export class UsersComponent implements OnInit {
     return {
       userName: '', email: '', displayName: '', password: '',
       employeeId: null as string | null, roleIds: [] as string[], isActive: true,
+      groupIds: [] as string[],
     };
   }
 }

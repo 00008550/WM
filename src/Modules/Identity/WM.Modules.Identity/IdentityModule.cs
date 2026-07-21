@@ -32,6 +32,8 @@ public sealed class IdentityModule : IModule
         services.AddScoped<AuthService>();
         services.AddScoped<IdentitySeeder>();
         services.AddScoped<UserManagementService>();
+        services.AddScoped<SecurityGroupService>();
+        services.AddScoped<IDataScopeResolver, DataScopeResolver>();
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
@@ -74,6 +76,7 @@ public sealed class IdentityModule : IModule
     {
         AuthEndpoints.Map(endpoints);
         UserEndpoints.Map(endpoints);
+        SecurityGroupEndpoints.Map(endpoints);
     }
 }
 
