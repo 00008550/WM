@@ -171,10 +171,23 @@ Against legacy's ~230 the reduction comes almost entirely from three places:
 reports (136 controllers → the assistant), payroll (19 vendor screens → one builder),
 and the dropped verticals.
 
+◇ Student Registration                          [module — deferred, schools vertical]
+   Lesson registration (+ bulk, retro) · AM/PM registration
+   Registration marks · School calendar · Timetables
+   Student dashboard & search · Mentors
+   Consecutive & percentage absence alerts
+   (MIS connectors — SIMS, iSAMS, Tribal EBS — already sit in Integrations)
+
+   Kept in the tree, not built. Cheap to retain because TLW models students and
+   teachers as **Employee records** distinguished by employee group —
+   `IStudentRegistrationService.GetStudents()` and `GetTeachers()` both return
+   `IQueryable<Employee>`. Nothing in the People model needs to change to allow
+   it later, provided the person-type question below is settled early.
+
 ### Deliberately dropped
 
-EPOS/catering (~48 controllers) · Student registration (~27) · Physical access control
-(~17) · LAPI/ANPR vehicle (~7) · Device maintenance screens · Card printing.
+EPOS/catering (~48 controllers) · Physical access control (~17) ·
+LAPI/ANPR vehicle (~7) · Device maintenance screens · Card printing.
 
 ---
 
@@ -340,10 +353,29 @@ timezones, unrelated to site time zones), `BulkRegistration` (student lesson
 registration), `Inventory`/`PaymentType`/`ReceiptStatus`/`TipManagement` and the
 ParentPay/Squid/WisePay settings (all EPOS).
 
-## 6. Still open
+## 6. Person type — decide before People is finished
+
+Keeping the schools vertical open raises a modelling question worth settling now,
+because it is cheap now and expensive later.
+
+TLW puts **students, teachers and staff all in the `Employee` table**, separated by
+employee group. It works, but it means contracts, timesheets, accruals and payroll
+export all technically apply to a fourteen-year-old, and nothing in the model says
+otherwise. The same strain shows up outside schools: agency and contractor staff are
+tracked but not paid through the system.
+
+Recommendation: a **`PersonType`** discriminator on the people record —
+`Employee · Contractor · Student · Teacher` — with modules declaring which types they
+apply to. One table, no new joins, but payroll can refuse a student and attendance can
+still include one. Adding it now costs a column; adding it after Work Rules and Payroll
+are built means revisiting both.
+
+## 7. Still open
 
 - **Whether Periodic/weekly and Costing are really optional.** Balances and Absence are
   clearly separable. If customers never buy attendance without costing, Costing belongs
   in the base.
 - **Screen count per section**, which drives the build estimate. The Work Rules base
   alone is ~15 screens and is the deepest part of the product.
+- **Person type** — the recommendation above needs a yes or no before People is
+  finished.
