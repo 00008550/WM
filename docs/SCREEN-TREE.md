@@ -51,9 +51,19 @@ without people to record, accounts to sign in with, and rights to control them.
 
   Personnel                                                      [foundation]
    Employees · Employee contracts · Contract assignment
-   Positions & qualifications · Custom fields · Emergency contacts
-   Employee groups · Population groups · Cost centres
+   Positions & qualifications · Perks · Custom fields · Emergency contacts
+   Employee groups · Population groups
+   ── Org structure
+      Sites · Departments · Locations · Buildings · Cost centres
+      (Locations sits under Personnel Setup in TLW, not access control;
+       Buildings is reused by muster points, so it outlives the AC drop)
    Personnel setup · Leavers · Anniversaries
+
+◆ Import / Export                                                [module]
+   Bulk import: personnel (simple & advanced) · clockings ·
+   clockings with absences · absences · activities ·
+   employee custom field values · clients & client sites/contacts
+   Export settings · Import history & error reporting
 
   Work Rules — base                            [required by Time & Attendance]
       Daily templates · Day types · Calendar day models
@@ -251,8 +261,21 @@ so bundling is a decision rather than an accident.
 ```
 Group
  ├─ Screen permissions   screen → none | read | edit
- └─ Employee scope       None | AllEmployees | ByDepartments | ByEmployees
+ └─ Employee scope       None
+                       | AllEmployees
+                       | ByEmployees        an explicit list
+                       | ByStructure        any combination of:
+                             departments · locations · sites
+                             buildings · cost centres · work activities
 ```
+
+**`ByStructure` carries more dimensions than an earlier draft allowed.** TLW's group
+editor has `_RoleManagesDepartments`, `_RoleManagedLocations`, `_RoleManagesBuildings`,
+`_RoleManagesCostCentres` and `_RoleManagesWorkActivities` — five scoping dimensions,
+not the two (departments, sites) previously modelled. They combine as an intersection
+within a group: "departments A and B, but only at location C" is a real configuration
+and a common one, since a manager typically owns a function at a place rather than
+everywhere.
 
 - A user may belong to **several groups**; access combines as a **union** — most
   permissive wins, like IAM group membership.
@@ -297,10 +320,30 @@ tabs can be added later without changing the group shape.
 8. **`My` sub-items inherit their module's licence.** "My expenses" appears only with
    Expenses; "My time" and "My profile" are always present.
 
-## 5. Still open
+## 5. Gap analysis (2026-07-21)
 
-- **Whether the four optional Work Rules sections are the right seams.** Balances and
-  Absence & leave are clearly separable. Periodic/weekly and Costing are less obvious —
-  if customers never buy attendance without costing, Costing belongs in the base.
-- **Screen count per section**, which drives the build estimate. The base alone is
-  ~15 screens and is the deepest part of the product.
+Every one of the 236 view folders was mapped against this tree. 82 are dropped
+verticals or plumbing; the remaining 154 all map, **after** adding three things the
+tree was missing:
+
+| Missing | Where it actually lives in TLW | Now |
+|---|---|---|
+| **Locations** | `PersonnelSetupController/LocationsController` — personnel setup, *not* access control | Personnel → Org structure |
+| **Buildings** | `AccessControl/BuildingsController`, but reused by muster points | Personnel → Org structure (outlives the AC drop) |
+| **Import / Export** | `ImportExportController` — bulk import of personnel, clockings, absences, activities, custom fields, clients | Its own module |
+
+And one correction to the **permission model**, which matters more than the tree: group
+scoping has **five** structural dimensions, not two. See §3.
+
+Confirmed dropped after checking: `Events` (AC event types), `Timezone` (door-access
+timezones, unrelated to site time zones), `BulkRegistration` (student lesson
+registration), `Inventory`/`PaymentType`/`ReceiptStatus`/`TipManagement` and the
+ParentPay/Squid/WisePay settings (all EPOS).
+
+## 6. Still open
+
+- **Whether Periodic/weekly and Costing are really optional.** Balances and Absence are
+  clearly separable. If customers never buy attendance without costing, Costing belongs
+  in the base.
+- **Screen count per section**, which drives the build estimate. The Work Rules base
+  alone is ~15 screens and is the deepest part of the product.
