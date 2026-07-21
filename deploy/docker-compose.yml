@@ -1,10 +1,12 @@
-name: wm
-
-# WM default stack. One `docker compose up -d` gives a complete installation.
-# Deployed per customer on their own server (see docs/ARCHITECTURE.md section 13A).
+# DEVELOPMENT infrastructure only — the API, worker and portal run on the host
+# (dotnet run / ng serve) for hot reload and debugging.
 #
-# Sizing note: Kafka ~1GB RAM, RabbitMQ ~200MB, Postgres/Redis modest.
-# Baseline target server: 8 cores / 32GB / SSD.
+# For the shipped full-container stack see docker-compose.prod.yml.
+#
+# The project name is deliberately different from prod so the two never share
+# volumes: they initialise Postgres with different passwords, and a shared
+# volume silently keeps whichever ran first.
+name: wm-dev
 
 services:
   postgres:

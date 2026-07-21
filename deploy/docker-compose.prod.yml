@@ -1,6 +1,8 @@
-name: wm
-
 # WM production stack — one file, one customer, one server.
+#
+# Project name is distinct from the dev stack (wm-dev) so the two never share
+# volumes or ports.
+name: wm
 #
 #   cp .env.example .env        # set secrets first
 #   docker compose -f docker-compose.prod.yml up -d

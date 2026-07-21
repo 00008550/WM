@@ -77,7 +77,19 @@ public sealed class IdentitySeeder(
         admin.PasswordHash = hasher.HashPassword(admin, adminPassword);
         admin.Roles.Add(new UserRole { UserId = admin.Id, RoleId = adminRole.Id, Role = adminRole });
 
+        // Visibility is separate from permissions: an administrator also needs a
+        // group granting the "all employees" scope, or they would see no employee data.
+        var allEmployees = new SecurityGroup
+        {
+            Name = "All employees",
+            Description = "Unrestricted visibility of every employee.",
+            IsSystem = true,
+            ScopeKind = DataScopeKind.All,
+        };
+        allEmployees.Members.Add(new UserSecurityGroup { UserId = admin.Id, SecurityGroupId = allEmployees.Id });
+
         db.Roles.AddRange(adminRole, managerRole, employeeRole);
+        db.SecurityGroups.Add(allEmployees);
         db.Users.Add(admin);
         await db.SaveChangesAsync(ct);
         logger.LogInformation(

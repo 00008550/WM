@@ -89,6 +89,8 @@ export class ShellComponent {
       items.push({ path: '/me', label: 'My time', icon: 'clock' });
     if (this.auth.hasPermission('users.manage'))
       items.push({ path: '/users', label: 'Users', icon: 'users' });
+    if (this.auth.hasPermission('roles.manage'))
+      items.push({ path: '/security-groups', label: 'Security groups', icon: 'key' });
     return items;
   });
 

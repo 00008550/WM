@@ -27,7 +27,8 @@ public sealed class DemoUserSeeder(
         if (employeeRole is null || managerRole is null)
             return;
 
-        var active = await employees.ListActiveAsync(ct);
+        // Seeding runs at startup with no signed-in user, so it must bypass data scope.
+        var active = await employees.ListAllActiveUnscopedAsync(ct);
         if (active.Count < 3)
             return;
 

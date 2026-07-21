@@ -49,8 +49,14 @@ public sealed class TimeAttendanceModule : IModule
             .RequireAuthorization(WmPermissions.AttendanceView);
 
         attendance.MapGet("/timesheet/{employeeId:guid}", async (
-            Guid employeeId, DateOnly? from, DateOnly? to, PunchService service, CancellationToken ct) =>
+            Guid employeeId, DateOnly? from, DateOnly? to,
+            PunchService service, IEmployeeDirectory employees, CancellationToken ct) =>
         {
+            // FindByIdAsync is scope-aware: an employee outside the caller's scope
+            // is indistinguishable from one that does not exist.
+            if (await employees.FindByIdAsync(employeeId, ct) is null)
+                return Results.NotFound();
+
             var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));

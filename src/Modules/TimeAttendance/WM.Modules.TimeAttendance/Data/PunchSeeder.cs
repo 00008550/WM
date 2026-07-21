@@ -16,7 +16,8 @@ public sealed class PunchSeeder(
         if (await db.Punches.AnyAsync(ct))
             return;
 
-        var active = await employees.ListActiveAsync(ct);
+        // Seeding runs at startup with no signed-in user, so it must bypass data scope.
+        var active = await employees.ListAllActiveUnscopedAsync(ct);
         if (active.Count == 0)
             return;
 
