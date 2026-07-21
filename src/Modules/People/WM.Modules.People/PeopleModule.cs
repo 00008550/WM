@@ -76,25 +76,91 @@ public sealed class PeopleModule : IModule
 
         employees.MapPost("/", async (EmployeeUpsertRequest request, PeopleDbContext db, CancellationToken ct) =>
         {
-            if (await db.Employees.AnyAsync(e => e.Code == request.Code, ct))
-                return Results.Problem($"Employee code '{request.Code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            if (Validate(request) is { } invalid)
+                return Results.Problem(invalid, statusCode: StatusCodes.Status400BadRequest);
+
+            var code = request.Code.Trim();
+            // Case-insensitive: 'E1030' and 'e1030' are the same badge number.
+            if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower(), ct))
+                return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
+                return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
 
             var employee = new Employee
             {
-                Code = request.Code,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                Email = request.Email,
-                Phone = request.Phone,
-                JobTitle = request.JobTitle,
+                Code = code,
+                FirstName = request.FirstName.Trim(),
+                LastName = request.LastName.Trim(),
+                Email = Blank(request.Email),
+                Phone = Blank(request.Phone),
+                JobTitle = Blank(request.JobTitle),
                 SiteId = request.SiteId,
                 DepartmentId = request.DepartmentId,
                 HireDate = request.HireDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
             };
             db.Employees.Add(employee);
-            await db.SaveChangesAsync(ct);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
+            {
+                // The unique index is the real guarantee; the check above races.
+                return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            }
             return Results.Created($"/api/employees/{employee.Id}", employee);
         }).RequireAuthorization(WmPermissions.EmployeesManage);
+
+        employees.MapPut("/{id:guid}", async (
+            Guid id, EmployeeUpsertRequest request, PeopleDbContext db, IDataScopeResolver scopes, CancellationToken ct) =>
+        {
+            if (Validate(request) is { } invalid)
+                return Results.Problem(invalid, statusCode: StatusCodes.Status400BadRequest);
+
+            // Edit is scoped like read: you cannot modify someone you cannot see.
+            var scope = await scopes.GetScopeAsync(ct);
+            var employee = await db.Employees.WithinScope(scope).FirstOrDefaultAsync(e => e.Id == id, ct);
+            if (employee is null)
+                return Results.NotFound();
+
+            var code = request.Code.Trim();
+            if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower() && e.Id != id, ct))
+                return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
+                return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
+
+            employee.Code = code;
+            employee.FirstName = request.FirstName.Trim();
+            employee.LastName = request.LastName.Trim();
+            employee.Email = Blank(request.Email);
+            employee.Phone = Blank(request.Phone);
+            employee.JobTitle = Blank(request.JobTitle);
+            employee.SiteId = request.SiteId;
+            employee.DepartmentId = request.DepartmentId;
+            if (request.HireDate is { } hired) employee.HireDate = hired;
+            if (request.Status is { } status) employee.Status = status;
+            employee.UpdatedAt = DateTimeOffset.UtcNow;
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            }
+            return Results.Ok(employee);
+        }).RequireAuthorization(WmPermissions.EmployeesManage);
+
+        static string? Validate(EmployeeUpsertRequest r) =>
+            string.IsNullOrWhiteSpace(r.Code) ? "Employee code is required."
+            : string.IsNullOrWhiteSpace(r.FirstName) ? "First name is required."
+            : string.IsNullOrWhiteSpace(r.LastName) ? "Last name is required."
+            : r.SiteId == Guid.Empty ? "A site must be selected."
+            : null;
+
+        static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
         var sites = endpoints.MapGroup("/api/sites").WithTags("Sites");
 
@@ -123,7 +189,8 @@ public sealed record EmployeeUpsertRequest(
     string? JobTitle,
     Guid SiteId,
     Guid? DepartmentId,
-    DateOnly? HireDate);
+    DateOnly? HireDate,
+    EmployeeStatus? Status = null);
 
 internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver scopes) : IEmployeeDirectory
 {

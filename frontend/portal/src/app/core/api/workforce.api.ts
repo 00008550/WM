@@ -30,6 +30,20 @@ export interface Site {
   timeZone: string;
 }
 
+export interface EmployeeUpsert {
+  code: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  jobTitle: string | null;
+  siteId: string;
+  departmentId: string | null;
+  hireDate: string | null;
+  /** 0 Active, 1 On leave, 2 Terminated. Ignored on create. */
+  status?: number;
+}
+
 export interface LivePresenceEntry {
   employeeId: string;
   employeeCode: string;
@@ -69,6 +83,14 @@ export class WorkforceApi {
 
   sites(): Observable<Site[]> {
     return this.http.get<Site[]>(`${this.base}/api/sites`);
+  }
+
+  createEmployee(request: EmployeeUpsert): Observable<EmployeeRow> {
+    return this.http.post<EmployeeRow>(`${this.base}/api/employees`, request);
+  }
+
+  updateEmployee(id: string, request: EmployeeUpsert): Observable<EmployeeRow> {
+    return this.http.put<EmployeeRow>(`${this.base}/api/employees/${id}`, request);
   }
 
   livePresence(): Observable<LivePresence> {
