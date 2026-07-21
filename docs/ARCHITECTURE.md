@@ -148,7 +148,8 @@ Legend: ✅ built · ▢ planned.
 ## 4. Security
 
 - **Auth**: OAuth2/OIDC (Auth Code + PKCE for SPA/mobile; client credentials for integrations). Short-lived JWT access tokens + rotating refresh tokens with **reuse detection** (family revocation on theft). TOTP 2FA, WebAuthn/passkeys, lockout, breached-password check, strong hashing. Enterprise SSO (Entra ID, Google, SAML). *WM today: self-contained JWT + refresh rotation + lockout are live; OpenIddict/2FA/SSO are the Phase-3 upgrade.*
-- **Authorization**: Roles → fine-grained permissions (`employees.manage`, `payroll.export`, `absence.approve`…) via ASP.NET Core policies. **Row-level scope** on the site/department hierarchy (TLW SiteStructure) so a manager sees only their subtree, via EF Core global query filters on scope claims. **Multi-tenancy-ready** (tenant id + filter).
+- **Authorization**: **Groups** carry per-screen rights (none / read / edit) **and** employee scope, in one object — mirroring TLW, where `/Groups` edits a role holding both. A user may belong to several groups; access combines as a union. Scope is applied as query filters, never per endpoint. See [`SCREEN-TREE.md`](./SCREEN-TREE.md) for the tree and the permission rules. **Multi-tenancy-ready** (tenant id + filter).
+  > Naming note: TLW's `SecurityGroup` is a *different, physical* concept — which employees may open which door readers. That is out of scope for WM and the name is deliberately not reused. Likewise TLW's `SiteStructure` is the application's page tree, not the site/department hierarchy.
 - **Audit**: every mutation emits an audit event to Kafka `wm.audit`; an append-only, hash-chained store makes it tamper-evident and queryable (replaces `Logic/AuditTrail`). Admin module ships an audit browser.
 - **Hardening**: CSP, HSTS, secure cookies, gateway rate limiting, FluentValidation, secrets in env/Key Vault, field-level encryption for special-category data (GDPR), dependency + SAST scanning in CI.
 
@@ -198,6 +199,12 @@ Admin CRUD: list/search users, create (optionally linked to an employee, with ro
 - **Online activation** binds a license to an installation id (optional machine fingerprint) enabling revocation/floating counts; **offline activation** file exchange for air-gapped sites.
 - Feature gates: server-side `ILicenseFeature` checks **and** token claims so the UI hides unlicensed modules (UI hiding is UX; server always re-checks).
 - **Per-plugin licensing**: each plugin id is a licensable feature — mirrors selling payroll plugins per customer.
+
+### Modules are the licensing unit
+
+**A navigation branch is a licensable module** (see [`SCREEN-TREE.md`](./SCREEN-TREE.md)), so a customer can be shipped exactly what they need. An unlicensed branch is **absent** — missing from the navigation, refused by the API, and not offered in the group editor so nobody can grant rights to something the customer has not bought.
+
+This turns the module rule from a design preference into a constraint that has to hold: **if Scheduling is licensable, no core branch may hard-depend on Scheduling types.** Cross-module access stays on contracts and events, and anything shared moves to SharedKernel. Getting this wrong is only discovered when a customer buys a subset, which is the worst time to find out — so it is checked as modules are built, not after.
 
 ---
 
@@ -434,7 +441,7 @@ This single decision is worth more than any individual feature.
 |---|---|---|---|
 | **0 — Foundations** | Solution skeleton, Docker infra, Identity, app shell, design system | — | ✅ done |
 | **1 — People, Time & Users** | People, punch pipeline (Kafka), live dashboard, timesheets, users + employee linking + self-service | — | ✅ done |
-| **1b — Access model** ⭐ | **Security groups**, page/function permissions, **data access scope + diagnostics screen**, access-right exclusions, admin group. *Moved early: every later query depends on scope being right.* | 4–6 wks | ▢ **next** |
+| **1b — Access model** ⭐ | **Groups** (per-screen read/edit + employee scope in one object), several groups per user combining as a union, scope applied as query filters, diagnostics screen. *Moved early: every later query depends on scope being right.* | 4–6 wks | ◐ **in progress** |
 | **1c — Core depth** | Employee contracts, custom fields, positions & qualifications, corrections, period locking, employee/population groups | 4–5 wks | ▢ |
 | **2 — Rules engine** ⭐ | Daily templates (shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift), weekly models, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay, **safe rules expression language** (replaces legacy per-template custom SQL) | **10–16 wks** | ▢ |
 | **3 — Absence & Accruals** | Absence types, requests + multi-level approval (absence managers per employee/department), blocked dates, holidays, entitlements, accruals incl. length-of-service, recaps | 8–10 wks | ▢ |
@@ -472,7 +479,7 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
 2. **Free/open-weight model by default**, provider-agnostic, on-prem-safe; hosted API optional. Assistant is a metered licensed feature.
 3. **Everything is a licensable feature** so packaging/pricing is configuration, not code.
 4. **EF Core everywhere** — no Dapper. Optimise measured hot paths only (compiled queries, projections, `FromSql` as a last resort); never split the stack pre-emptively.
-5. **Security groups + data access scope** adopted from legacy (richer than flat roles) and **moved to the front** of the queue.
+5. **Groups** adopted from legacy `/Groups` (one object carrying per-screen read/edit *and* employee scope, richer than flat roles) and **moved to the front** of the queue. WM allows several groups per user, and makes scope type explicit rather than legacy's fail-open "empty list means everything".
 6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
 
 Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
@@ -559,7 +566,7 @@ Every retained legacy functional area maps to exactly one module. Checked area-b
 | # | Module | Covers (legacy area) | Status |
 |---|---|---|---|
 | 1 | **Identity** | users, roles, login, 2FA, SSO, self-service surface | ✅ built |
-| 2 | **Access** ⭐ | **security groups**, page/function permissions, **data access scope + diagnostics**, access-right exclusions | ▢ **next — foundational** |
+| 2 | **Access** ⭐ | **Groups**: per-screen read/edit + employee scope, several per user, diagnostics. See `SCREEN-TREE.md` | ◐ **in progress — foundational** |
 | 3 | **People** | employees, org (sites/departments), contracts, hourly rates, custom fields, contact & emergency info, groups, population groups, cost centres, positions | ◐ basics built |
 | 4 | **HR** | appraisals, disciplinaries, objectives, remunerations, certificates, **qualifications + expiry**, onboarding, fixed-term & probation, leavers, anniversaries | ▢ *(split from People: different sensitivity + permissions)* |
 | 5 | **TimeAttendance** | punches, clockings, pauses, corrections, manual timesheets, daily browser, geolocation, QR punch, period locking | ◐ core built |

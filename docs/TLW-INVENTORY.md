@@ -146,6 +146,8 @@ Expense claims, **expense dashboard**, **mileage claims** + **mileage periods**,
 ### 3.9 Access Control (logical parts retained; hardware dropped)
 AC calendar, holidays, periods, **year view**, **dashboard**, **presence panel**, settings, **door control**, **door status**, **buildings**, **locations**, **security groups** + **smart security groups**, **reader security groups**, **timezones** (+details), **proximity cards**, **card management**, **card templates**, **card printing**, **card expiry**, **external access log**, **AC event notifications**.
 
+> **`SecurityGroup` belongs here, not to user permissions.** It assigns *employees* to *door readers* over dated periods and is synced to hardware (`Logic/AccessControl/SecurityGroupService.cs`, `SupremaControllerService/SyncSecurityGroups.cs`). With devices dropped it is out of scope for WM, and the name is not reused — user visibility is handled by **groups** (§3.14).
+
 ### 3.10 Safety & Emergency
 Fire report, **custom fire report**, **online fire report**, **Fire Link** (Adam device alarm → auto report), **mustering dashboard**, **muster points** (employee + **fire marshal**), **emergency events archive**, **guard screen** (with its own notification records).
 
@@ -159,7 +161,7 @@ Notification setup, **attendance notifications**, **custom notifications**, **re
 **67 standard reports**, **custom reports** (17 plugin projects), **Report Builder**, **Web Report Designer v1 & v2**, **statistical** reports, **favourites**, **scheduled report delivery** with recipient-scoped data (Employees / Users / Notification Managers) and per-report data windows.
 
 ### 3.14 Security & Administration
-Users, roles, **security groups**, **web page-level permissions** (`WebPage` entity), **data access scope** + diagnostics screen, software options, **localization management** + **custom localization** (multi-culture, custom keys), **audit trail** (insert/update/delete interfaces on entities), **user action logs**, **system login reports**, **2FA (email code)**, **new-IP sign-in detection**, password reset, **delete data** tooling, **navigation icons / display settings**.
+Users, **groups** (`/Groups` — a group *is* a role: per-form none/read/edit **plus** managed departments/locations/employees/buildings/cost-centres/work-activities; exposed in the API as `SoftwareAccessGroupDto`), **per-form and per-tab permissions** (`SiteStructure` = the application's page tree of `SiteBranch`/`SiteForm`/`SiteFormTab`; `WebPage` entity; `AccessType` = Read/Edit; `PersonnelTab`), **data access scope** + diagnostics screen, software options, **localization management** + **custom localization** (multi-culture, custom keys), **audit trail** (insert/update/delete interfaces on entities), **user action logs**, **system login reports**, **2FA (email code)**, **new-IP sign-in detection**, password reset, **delete data** tooling, **navigation icons / display settings**.
 
 ### 3.15 EPOS / Cashless Catering — ~25 screens (deprioritised for WM)
 Tills, till designs, till groups, products, product groups/types, **tally groups**, meals, **free meal settings**, **diners** + diner defaults, **caterers**, sales + **sale corrections**, payments, **VAT settings**, **tariffs**, **inventory**, **receipt status**, **tip management**, **Squid cards**, **ParentPay/WisePay** integration, EPOS reports, **daily reconciliation**.
