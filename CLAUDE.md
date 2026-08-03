@@ -48,12 +48,12 @@ frontend/portal   Angular SPA ("Control Room" design system, Tailwind)
 
 ```
 dotnet build WM.sln                      # from repo root
-dotnet test                              # NOTE: 0 test projects exist today
+dotnet test WM.sln
 cd frontend/portal && npm run build
 cd frontend/portal && npm run test       # ng test
 ```
 
-**There are no test projects yet.** The first slice that adds real behaviour creates `src/<Area>/…Tests/` (xUnit) and wires it into `WM.sln`. "Tests pass" is meaningless until then — say "no tests exist for this" rather than reporting a green `dotnet test`.
+**Test coverage is thin — check what actually ran.** `src/SharedKernel/WM.SharedKernel.Tests/` (xUnit) is currently the only test project. A green `dotnet test` therefore proves very little about a module. When a slice adds behaviour to a module that has no test project, create `src/<Area>/<Area>.Tests/` and wire it into `WM.sln`; never report tests as passing for code that has none.
 
 For UI work, run the portal via preview_start (`.claude/launch.json` → `portal`, port 4200) and verify in the browser. Never ask the user to check manually.
 
@@ -69,3 +69,5 @@ For UI work, run the portal via preview_start (`.claude/launch.json` → `portal
 
 - `master` is the default branch — **never commit directly to it.** Branch as `feat/<plan>-<portion>` or `fix/<plan>-<portion>`.
 - Commit or push only when the workflow calls for it. PRs are opened by `wm-reviewer` after a passing review.
+- **Every portion PR targets `master` directly. Never stack PRs.** GitHub only auto-retargets an open PR when its base branch is *deleted* on merge — otherwise merging the stacked PR lands its commits on the intermediate branch and `master` silently never receives them. This happened once (#11 merged into `docs/scope-model-corrections` instead of `master`; recovered by #12).
+- A consequence: **land the plan file before the first portion PR.** A portion that needs `docs/plans/NNN-*.md` to exist cannot target `master` until the plan is on `master`.
