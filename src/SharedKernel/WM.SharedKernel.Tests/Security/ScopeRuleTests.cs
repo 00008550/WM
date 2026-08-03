@@ -77,6 +77,21 @@ public class ScopeRuleTests
     }
 
     [Fact]
+    public void A_constraint_does_not_alias_the_caller_s_id_set()
+    {
+        // A HashSet<Guid> satisfies IReadOnlySet<Guid>, so a non-copying constructor would leave
+        // the caller holding a mutable handle on a live security constraint. The resolver builds
+        // its id sets incrementally, so this is a reachable widening, not a theoretical one.
+        var ids = new HashSet<Guid> { DeptX };
+        var rule = ScopeRule.Constrained(new ScopeConstraint(ScopeDimension.Department, ids));
+
+        ids.Add(DeptY);
+
+        Assert.True(rule.Matches(At(SiteA, DeptX), null));
+        Assert.False(rule.Matches(At(SiteA, DeptY), null));
+    }
+
+    [Fact]
     public void All_grants_every_employee()
     {
         Assert.True(ScopeRule.All.Matches(At(SiteA, DeptX), null));
