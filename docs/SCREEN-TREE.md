@@ -282,13 +282,19 @@ Group
                              buildings · cost centres · work activities
 ```
 
-**`ByStructure` carries more dimensions than an earlier draft allowed.** TLW's group
-editor has `_RoleManagesDepartments`, `_RoleManagedLocations`, `_RoleManagesBuildings`,
-`_RoleManagesCostCentres` and `_RoleManagesWorkActivities` — five scoping dimensions,
-not the two (departments, sites) previously modelled. They combine as an intersection
-within a group: "departments A and B, but only at location C" is a real configuration
-and a common one, since a manager typically owns a function at a place rather than
-everywhere.
+**`ByStructure` carries more dimensions than an earlier draft allowed.** `IAuthorizationService`
+exposes **six** `Managed*ByRole` accessors — departments, locations, buildings, cost centres,
+working activities and caterers — not the two (departments, sites) previously modelled, and
+not the five an earlier revision of this document claimed. Caterers belong to the dropped
+EPOS vertical, leaving five that matter to WM. They combine as an intersection within a
+group: "departments A and B, but only at location C" is a real configuration and a common
+one, since a manager typically owns a function at a place rather than everywhere.
+
+**Legacy only enforces two of them centrally.** `RoleBasedEmployeeFilterService` honours
+departments ∩ locations and nothing else; buildings, cost centres and working activities are
+read at scattered call sites. That scatter is why legacy needed `DataAccessScopeDiagnostics`
+to explain its own decisions, and it is the thing WM's single `WithinScope()` filter exists
+to prevent. See `docs/plans/001-compositional-data-scope.md`.
 
 - A user may belong to **several groups**; access combines as a **union** — most
   permissive wins, like IAM group membership.
