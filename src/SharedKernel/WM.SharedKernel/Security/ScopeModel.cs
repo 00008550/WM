@@ -80,7 +80,11 @@ public sealed class ScopeConstraint
     public ScopeConstraint(ScopeDimension dimension, IEnumerable<Guid> ids, bool includeDescendants = false)
     {
         Dimension = dimension;
-        Ids = ids as IReadOnlySet<Guid> ?? new HashSet<Guid>(ids);
+        // Always copy. A HashSet<Guid> satisfies IReadOnlySet<Guid>, so storing the caller's
+        // instance would let them keep a mutable handle on a security constraint and widen it
+        // after the fact — and the resolver does build its id sets incrementally before
+        // expanding them for child sites.
+        Ids = new HashSet<Guid>(ids);
         IncludeDescendants = includeDescendants;
     }
 
