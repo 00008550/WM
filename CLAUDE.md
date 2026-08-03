@@ -69,3 +69,5 @@ For UI work, run the portal via preview_start (`.claude/launch.json` → `portal
 
 - `master` is the default branch — **never commit directly to it.** Branch as `feat/<plan>-<portion>` or `fix/<plan>-<portion>`.
 - Commit or push only when the workflow calls for it. PRs are opened by `wm-reviewer` after a passing review.
+- **Every portion PR targets `master` directly. Never stack PRs.** GitHub only auto-retargets an open PR when its base branch is *deleted* on merge — otherwise merging the stacked PR lands its commits on the intermediate branch and `master` silently never receives them. This happened once (#11 merged into `docs/scope-model-corrections` instead of `master`; recovered by #12).
+- A consequence: **land the plan file before the first portion PR.** A portion that needs `docs/plans/NNN-*.md` to exist cannot target `master` until the plan is on `master`.

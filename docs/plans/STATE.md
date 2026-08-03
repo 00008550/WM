@@ -10,7 +10,7 @@ Approved by user 2026-08-03, all 5 portions. Closes Phase 1b. Blocks 1c and 2: e
 query depends on scope being right.
 
 **Next portion:** P2 — persist composed scope + migrate existing groups. **High risk**: the
-migration must not widen any existing group's employee set. Blocked until PR #11 merges.
+migration must not widen any existing group's employee set. Blocked until PR #12 merges.
 
 ## Queue
 
@@ -22,8 +22,12 @@ migration must not widen any existing group's employee set. Blocked until PR #11
 
 | Plan | Portion | PR | Merged |
 |---|---|---|---|
-| — | workflow + doc corrections | [#10](https://github.com/00008550/WM/pull/10) | awaiting review |
-| 001 | P1 — compositional scope model | [#11](https://github.com/00008550/WM/pull/11) | awaiting review |
+| — | workflow + doc corrections | [#10](https://github.com/00008550/WM/pull/10) | ✅ merged to master |
+| 001 | P1 — compositional scope model | [#11](https://github.com/00008550/WM/pull/11) | ⚠️ merged to the wrong branch — superseded by #12 |
+| 001 | P1 — compositional scope model | [#12](https://github.com/00008550/WM/pull/12) | open, targets master |
+
+Once #12 merges, `docs/scope-model-corrections` is fully contained in `master` and should be
+deleted. See the stacking note in `CLAUDE.md` → Git for why #11 went astray.
 
 ## Conventions
 
