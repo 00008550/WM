@@ -374,7 +374,12 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 
 | TLW area (source) | WM home | Status |
 |---|---|---|
-| Clockings / swipes / swipe processing | TimeAttendance | ✅ built (web/mobile punches) |
+| Swipe capture (individual punches) | TimeAttendance | ✅ built (web/mobile punches) |
+| **`Clockings` — the daily aggregate (249 cols)** | TimeAttendance + Rules | ▢ **not started** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md) |
+| Pay categories (`CPTN01..20`, 20 fixed slots) | Rules | ▢ planned — hard ceiling of 20 in legacy |
+| Clocking generation ("calendar" job, nightly) | Worker | ▢ not started |
+| Swipe→day allocation (night shift, offset, prev/next day) | TimeAttendance | ▢ not started |
+| Clocking change audit (`ClockingsLog`, 97 cols) | Admin + `wm.audit` | ▢ planned |
 | Manual timesheets / corrections | TimeAttendance | ◐ partial (timesheet read; corrections planned) |
 | Exceptions / abnormalities (`Scores`) | TimeAttendance | ▢ planned |
 | QR punching (`QrSetup`) | TimeAttendance | ▢ planned |
