@@ -111,11 +111,17 @@ extension point works before Phase 2 has to rely on it.
 
 ## Portions
 
-### [ ] P1 — Compositional scope model in SharedKernel
-**Touches:** `SharedKernel/Security/DataScope.cs`, new unit test project
-**Done when:** `EffectiveDataScope` expresses intersection-within-group and union-across-groups;
+### [x] P1 — Compositional scope model in SharedKernel
+**Touches:** `SharedKernel/Security/ScopeModel.cs` (new), `WM.SharedKernel.Tests` (new), `CLAUDE.md`
+**Done when:** the model expresses intersection-within-group and union-across-groups;
 `CanSee` agrees with the query filter for every combination; `All`/`Self`/`None` preserved.
 Pure model change — no DB, no endpoints, nothing else compiles against it yet.
+
+**Built as:** a new `ScopeModel.cs` alongside the legacy `DataScope.cs` rather than replacing it.
+`DataScopeKind` is load-bearing in `SecurityGroupService` (persistence — P2) and the diagnostics
+`Explain` (P5); replacing it in P1 would pull both portions forward. The legacy pair is deleted
+in P3 when the resolver and query filter move over. **No behaviour change in P1** — deliberate,
+so P2's migration can be validated against today's semantics rather than a moving baseline.
 **Tests:** first test project in the repo — create `src/SharedKernel/WM.SharedKernel.Tests/`
 (xUnit), wire into `WM.sln`. Cover: D2's dropped-grant case (Sites group ∪ Departments group
 sees both), empty-dimension-matches-nothing, null-discriminator-never-widens, unknown → empty.
