@@ -39,6 +39,10 @@
 > `Source\Logic\Entities\HorioDB.designer.cs` (6.1 MB, 240,262 lines): **579 tables, 8,173
 > columns**. The single most important omission from earlier drafts is the **`Clockings` daily
 > aggregate** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md).
+>
+> A full one-trip measurement of every table — including the tariff/rate model, global
+> calculation settings and per-install options, none of which WM models — is in
+> [`TLW-SCHEMA-SWEEP.md`](./TLW-SCHEMA-SWEEP.md). **Plan from the schema, not from this file.**
 
 Product naming: **Synergy Workforce (SWF)**, previously **Horio**, previously **TLW (Time Log Web)**. All three names appear throughout the source.
 
