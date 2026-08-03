@@ -403,7 +403,7 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ◐ field exists; UI/self-service building now |
 | Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ▢ building now |
 | User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; Manager scoping planned |
-| Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ▢ planned |
+| Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) |
 | User action logging (`UserActionLogsService`) | Admin + `wm.audit` | ▢ planned |
 | SSO | Identity | ▢ planned (local JWT live) |
 | 2FA (`TwoFactorAuthenticationService`) | Identity | ▢ planned |
@@ -441,7 +441,7 @@ This single decision is worth more than any individual feature.
 |---|---|---|---|
 | **0 — Foundations** | Solution skeleton, Docker infra, Identity, app shell, design system | — | ✅ done |
 | **1 — People, Time & Users** | People, punch pipeline (Kafka), live dashboard, timesheets, users + employee linking + self-service | — | ✅ done |
-| **1b — Access model** ⭐ | **Groups** (per-screen read/edit + employee scope in one object), several groups per user combining as a union, scope applied as query filters, diagnostics screen. *Moved early: every later query depends on scope being right.* | 4–6 wks | ◐ **in progress** |
+| **1b — Access model** ⭐ | **Groups** (per-screen read/edit + employee scope in one object), several groups per user combining as a union, scope applied as query filters, diagnostics screen. *Moved early: every later query depends on scope being right.* | 4–6 wks | ◐ **in progress — plan 001** |
 | **1c — Core depth** | Employee contracts, custom fields, positions & qualifications, corrections, period locking, employee/population groups | 4–5 wks | ▢ |
 | **2 — Rules engine** ⭐ | Daily templates (shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift), weekly models, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay, **safe rules expression language** (replaces legacy per-template custom SQL) | **10–16 wks** | ▢ |
 | **3 — Absence & Accruals** | Absence types, requests + multi-level approval (absence managers per employee/department), blocked dates, holidays, entitlements, accruals incl. length-of-service, recaps | 8–10 wks | ▢ |
@@ -480,6 +480,13 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
 3. **Everything is a licensable feature** so packaging/pricing is configuration, not code.
 4. **EF Core everywhere** — no Dapper. Optimise measured hot paths only (compiled queries, projections, `FromSql` as a last resort); never split the stack pre-emptively.
 5. **Groups** adopted from legacy `/Groups` (one object carrying per-screen read/edit *and* employee scope, richer than flat roles) and **moved to the front** of the queue. WM allows several groups per user, and makes scope type explicit rather than legacy's fail-open "empty list means everything".
+
+   **WM deliberately inverts all three of legacy's fail-open behaviours** (measured in `RoleBasedEmployeeFilterService`, 2026-08-03):
+   - an **empty managed list applies no filter** in legacy, so a misconfigured role sees every employee — in WM a dimension present with zero ids matches **nothing**;
+   - `EmployeeLocationId == null ||` makes **location-less employees visible to every role** — in WM a null discriminator never widens visibility;
+   - the `default:` branch **returns the query unfiltered** and merely logs, commented as intentional "to avoid an error getting to the user" — WM fails closed and returns nothing.
+
+   Legacy also supports an explicit **`ByEmployees`** managed-employee list, which WM did not model at all until plan 001.
 6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
 
 Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
