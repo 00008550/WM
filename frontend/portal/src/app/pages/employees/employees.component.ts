@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -10,6 +10,7 @@ import { IconComponent } from '../../core/ui/icon.component';
 @Component({
   selector: 'wm-employees',
   imports: [FormsModule, DatePipe, IconComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-6xl">
       <header class="flex items-end justify-between gap-4 flex-wrap rise" style="--i: 0">

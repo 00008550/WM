@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { SelfServiceApi, TimesheetDay } from '../../core/api/self-service.api';
 import { EmployeeRow, PunchRow } from '../../core/api/workforce.api';
 import { AuthService } from '../../core/auth/auth.service';
@@ -8,6 +8,7 @@ import { IconComponent } from '../../core/ui/icon.component';
 @Component({
   selector: 'wm-self-service',
   imports: [DatePipe, DecimalPipe, IconComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-4xl">
       <header class="rise" style="--i: 0">
