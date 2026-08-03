@@ -9,19 +9,21 @@ The handoff bus for the wm-surveyor → wm-builder → wm-reviewer cycle.
 Approved by user 2026-08-03, all 5 portions. Closes Phase 1b. Blocks 1c and 2: every later
 query depends on scope being right.
 
-**Next portion:** P1 — compositional scope model in SharedKernel (+ the repo's first test project).
+**Next portion:** P2 — persist composed scope + migrate existing groups. **High risk**: the
+migration must not widen any existing group's employee set. Blocked until PR #11 merges.
 
 ## Queue
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 001 | Compositional data scope (closes Phase 1b) | 5 (P1 next) | in-progress |
+| 001 | Compositional data scope (closes Phase 1b) | 5 (P1 done, P2 next) | in-review |
 
 ## Shipped
 
 | Plan | Portion | PR | Merged |
 |---|---|---|---|
-| — | — | — | — |
+| — | workflow + doc corrections | [#10](https://github.com/00008550/WM/pull/10) | awaiting review |
+| 001 | P1 — compositional scope model | [#11](https://github.com/00008550/WM/pull/11) | awaiting review |
 
 ## Conventions
 
