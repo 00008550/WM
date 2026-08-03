@@ -69,6 +69,35 @@ Three hard ceilings, all customer-visible: **20 pay categories, 12 swipes per da
 
 ---
 
+## 1b. The escape hatch is **five** surfaces, not one
+
+`ARCHITECTURE.md` §14 decision 6 plans to replace "per-template custom SQL" with a safe rules
+expression language. The schema shows customer-authored executable code lives in **five distinct
+places**, and the rules language only replaces the first:
+
+| Surface | Column(s) | What it means |
+|---|---|---|
+| Daily template | `DailyModels.CustomSql` (+ `CustomSqlForNoRecalculating`, `ShouldCustomSqlReturnMessage`, `RecalculateAfterCustomSql`) | the known one — runs during calculation, mutates the clocking |
+| Flexi balance | `FlexiBalances.SqlStatement` | balance logic as SQL (own doc: `Custom SQL\Flexi balance SQL.md`) |
+| **Notifications** | `Notifications.SqlQuery` | **the notification hub is SQL-driven** — the "~70 notification types" are at least partly SQL definitions, not code |
+| **Payroll export** | `PayrollExportSettings.TSQLText` | **exports carry raw T-SQL** — part of the 44-plugin story is per-customer SQL, not per-customer C# |
+| **Counter formulas** | `Formula`, `CostCenterFormula`, `WorkActivityFormula` on `EmployeeWeeklyCounters`, `EmployeeMonthlyCounters`, `EmployeeAnnualCounters` and their `EmployeeContract*` twins | a **separate formula language** (TLW `FormulaEvaluator`), not SQL |
+
+Consequences:
+
+- **The rules expression language is scoped too narrowly.** It must cover the counter *formula*
+  language too — which is a different language from the SQL hatch, evaluated per counter, with
+  cost-centre and work-activity variants.
+- **Notifications are not purely event-driven in legacy.** If ~70 notification types are defined
+  by `SqlQuery`, WM's event-driven hub (§9) is a *behaviour change*, not a port. That needs
+  deciding explicitly rather than discovering during Phase 4.
+- **Payroll export needs a SQL-authoring story or a migration path.** §14's "generic export
+  builder" has to absorb `TSQLText`, or existing customers cannot move.
+- Each surface duplicates the same problems: unauditable, unreplayable, injection-prone. Solving
+  it once generically is worth more than four separate escape hatches.
+
+---
+
 ## 2. `dbo.TariffValues` — the hours→money path WM has nothing for
 
 44 columns: `Id`, `TariffId`, `DateFrom`, `DateTo`, `CounterRate1..20`, `CounterChargeRate1..20`.
@@ -172,6 +201,9 @@ Nothing below exists in WM in any form.
 | Manual timesheets | TimeAttendance | later |
 | Day-boundary matrix (8 weekday-pair windows) | Rules | plan 003 |
 | QR punching as 12 configurable behaviours | TimeAttendance | later |
+| **Counter formula language** (`Formula`/`CostCenterFormula`/`WorkActivityFormula`) | Rules | **plan 003** |
+| **SQL-defined notifications** (`Notifications.SqlQuery`) | Notifications | decide before Phase 4 |
+| **Payroll export T-SQL** (`PayrollExportSettings.TSQLText`) | Payroll export builder | decide before Phase 6 |
 
 **Recommended next plans:** 003 — Tariffs, contracts and calculation settings (the money path and
 its inputs); 004 — per-install configuration. Both are Phase-2 prerequisites in the same way the
