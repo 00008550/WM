@@ -20,7 +20,15 @@ public sealed record GroupMutationResult(bool Succeeded, string? Error, Guid? Id
     public static GroupMutationResult Fail(string error) => new(false, error, null);
 }
 
-public sealed class SecurityGroupService(IdentityDbContext db)
+/// <summary>
+/// Group CRUD and membership.
+///
+/// Every path that changes what a user may see also tells <see cref="IScopeChangeNotifier"/> who
+/// was affected. Query paths would not need it — they re-resolve scope on the next request — but
+/// an open live connection resolved its audience once, when it connected, and would otherwise
+/// keep serving the old scope until it happened to reconnect.
+/// </summary>
+public sealed class SecurityGroupService(IdentityDbContext db, IScopeChangeNotifier scopeChanges)
 {
     public async Task<IReadOnlyList<SecurityGroupListItem>> ListAsync(CancellationToken ct) =>
         await db.SecurityGroups.AsNoTracking()
@@ -105,6 +113,12 @@ public sealed class SecurityGroupService(IdentityDbContext db)
         group.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
+        // A system group's scope was left untouched above, so only a non-system edit can have
+        // moved anyone. Description-only edits are the common case and should not churn sockets.
+        if (!group.IsSystem)
+            await NotifyMembersAsync(id, ct);
+
         return GroupMutationResult.Ok(id);
     }
 
@@ -116,8 +130,13 @@ public sealed class SecurityGroupService(IdentityDbContext db)
         if (group.IsSystem)
             return GroupMutationResult.Fail("System groups cannot be deleted.");
 
+        // Read the membership before the delete cascades it away — after SaveChanges there is
+        // nobody left to look up, and these are precisely the users who just lost scope.
+        var members = await MemberIdsAsync(id, ct);
+
         db.SecurityGroups.Remove(group);
         await db.SaveChangesAsync(ct);
+        await scopeChanges.UserScopeChangedAsync(members, ct);
         return GroupMutationResult.Ok(id);
     }
 
@@ -143,8 +162,18 @@ public sealed class SecurityGroupService(IdentityDbContext db)
             db.Add(new UserSecurityGroup { UserId = userId, SecurityGroupId = groupId });
 
         await db.SaveChangesAsync(ct);
+        await scopeChanges.UserScopeChangedAsync([userId], ct);
         return GroupMutationResult.Ok(userId);
     }
+
+    private async Task NotifyMembersAsync(Guid groupId, CancellationToken ct) =>
+        await scopeChanges.UserScopeChangedAsync(await MemberIdsAsync(groupId, ct), ct);
+
+    private async Task<Guid[]> MemberIdsAsync(Guid groupId, CancellationToken ct) =>
+        await db.Set<UserSecurityGroup>().AsNoTracking()
+            .Where(m => m.SecurityGroupId == groupId)
+            .Select(m => m.UserId)
+            .ToArrayAsync(ct);
 
     private static string? Validate(SecurityGroupUpsertRequest request) => request.ScopeKind switch
     {

@@ -22,4 +22,10 @@ public interface IEmployeeDirectory
     Task<IReadOnlyList<EmployeeSummary>> ListAllActiveUnscopedAsync(CancellationToken ct = default);
 }
 
-public sealed record EmployeeSummary(Guid Id, string Code, string FullName, string? JobTitle, Guid SiteId);
+/// <summary>
+/// <paramref name="DepartmentId"/> is here because department is a data-scope axis: a consumer
+/// deciding who may see this employee needs both axes, not just the site. Null means "no
+/// department", which never satisfies a department constraint.
+/// </summary>
+public sealed record EmployeeSummary(
+    Guid Id, string Code, string FullName, string? JobTitle, Guid SiteId, Guid? DepartmentId = null);

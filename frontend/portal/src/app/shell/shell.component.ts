@@ -44,7 +44,7 @@ import { IconComponent } from '../core/ui/icon.component';
                       class="p-1.5 rounded-md text-muted hover:text-text hover:bg-raised transition-colors duration-150">
                 <wm-icon [name]="dark() ? 'sun' : 'moon'" [size]="15" />
               </button>
-              <button (click)="auth.logout()" aria-label="Sign out"
+              <button (click)="signOut()" aria-label="Sign out"
                       class="p-1.5 rounded-md text-muted hover:text-coral hover:bg-raised transition-colors duration-150">
                 <wm-icon name="power" [size]="15" />
               </button>
@@ -97,6 +97,19 @@ export class ShellComponent {
 
   constructor() {
     void this.realtime.connect();
+  }
+
+  /**
+   * Close the socket before dropping the session.
+   *
+   * The realtime service is app-scoped, so without this the next user to sign in inherits the
+   * previous one's still-open connection — which was authenticated as them and is in *their*
+   * scope groups. `connect()` would see a live connection and return early, so a self-service
+   * account could end up watching a manager's punch feed.
+   */
+  async signOut(): Promise<void> {
+    await this.realtime.disconnect();
+    await this.auth.logout();
   }
 
   toggleTheme(): void {

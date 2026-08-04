@@ -36,8 +36,22 @@ export class RealtimeService {
    */
   readonly punches$: Observable<PunchEvent> = this.punches.asObservable();
 
+  private readonly scopeChanged = new Subject<void>();
+
+  /**
+   * The server moved this connection between scope groups — the set of employees we are
+   * entitled to see just changed. Anything already on screen may now be stale in either
+   * direction, so consumers reload rather than patch.
+   */
+  readonly scopeChanged$: Observable<void> = this.scopeChanged.asObservable();
+
   async connect(): Promise<void> {
     if (this.connection) return;
+
+    // The hub requires `attendance.view`, so a self-service-only account cannot hold a
+    // socket. Not attempting the handshake is the difference between "this user has no
+    // live feed" and a failed negotiate in the console on every sign-in.
+    if (!this.auth.hasPermission('attendance.view')) return;
 
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl(`${environment.apiUrl}/hubs/attendance`, {
@@ -48,6 +62,8 @@ export class RealtimeService {
 
     this.connection.on('punchRecorded', (event: PunchEvent) =>
       this.zone.run(() => this.punches.next(event)));
+
+    this.connection.on('scopeChanged', () => this.zone.run(() => this.scopeChanged.next()));
 
     this.connection.onreconnected(() => this.zone.run(() => this.connected.set(true)));
     this.connection.onclose(() => this.zone.run(() => this.connected.set(false)));

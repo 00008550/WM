@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
@@ -70,6 +71,10 @@ public sealed class IdentityModule : IModule
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
+
+        // A host that pushes live data replaces this with something that re-groups open
+        // sockets. TryAdd so the module stands up on its own (worker, tests) without one.
+        services.TryAddSingleton<IScopeChangeNotifier, NullScopeChangeNotifier>();
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
@@ -86,10 +91,7 @@ internal sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentU
 
     private System.Security.Claims.ClaimsPrincipal? Principal => accessor.HttpContext?.User;
 
-    public Guid? UserId =>
-        Guid.TryParse(Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
-            ?? Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id)
-            ? id : null;
+    public Guid? UserId => WmClaims.UserIdOf(Principal);
 
     public string? UserName => Principal?.Identity?.Name;
 

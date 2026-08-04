@@ -213,6 +213,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.presenceRefresh
       .pipe(auditTime(1500), takeUntilDestroyed())
       .subscribe(() => this.refreshPresence());
+
+    // The server re-grouped this socket: what we may see changed mid-session. Drop the feed
+    // and reload rather than keep rows we may no longer be entitled to — the scope could have
+    // narrowed as easily as widened, and the client cannot tell which from here.
+    this.realtime.scopeChanged$
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => {
+        this.feed.set([]);
+        this.reload();
+      });
   }
 
   ngOnInit(): void {
