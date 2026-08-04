@@ -4,6 +4,7 @@ using Npgsql;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
 using WM.SharedKernel.Common;
+using WM.SharedKernel.Security;
 
 namespace WM.Modules.Identity.Services;
 
@@ -26,7 +27,17 @@ public sealed record UserMutationResult(bool Succeeded, string? Error, Guid? Use
     public static UserMutationResult Fail(string error) => new(false, error, null);
 }
 
-public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<User> hasher)
+/// <summary>
+/// User CRUD.
+///
+/// Two of the fields an edit can change are scope inputs, not profile fields: an inactive user
+/// resolves to <c>None</c> (<see cref="DataScopeResolver"/>), and the <c>Self</c> grant hangs off
+/// <c>EmployeeId</c>. So this service tells <see cref="IScopeChangeNotifier"/> for the same reason
+/// <see cref="SecurityGroupService"/> does — an open live connection resolved its audience when it
+/// connected and would otherwise keep serving the old one.
+/// </summary>
+public sealed class UserManagementService(
+    IdentityDbContext db, IPasswordHasher<User> hasher, IScopeChangeNotifier scopeChanges)
 {
     public async Task<PagedResult<UserListItem>> ListAsync(string? search, int page, int pageSize, CancellationToken ct)
     {
@@ -137,6 +148,11 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
         if (roles is null)
             return UserMutationResult.Fail("One or more roles do not exist.");
 
+        // Measured against the loaded row, before the assignments below overwrite it: a
+        // display-name or email edit moves nobody's scope and must not churn every socket the
+        // user holds.
+        var scopeChanged = user.IsActive != request.IsActive || user.EmployeeId != request.EmployeeId;
+
         user.DisplayName = request.DisplayName.Trim();
         user.Email = email;
         user.IsActive = request.IsActive;
@@ -145,7 +161,13 @@ public sealed class UserManagementService(IdentityDbContext db, IPasswordHasher<
         user.Roles.AddRange(roles.Select(r => new UserRole { UserId = user.Id, RoleId = r.Id }));
         user.UpdatedAt = DateTimeOffset.UtcNow;
 
-        return await SaveGuardingUniquenessAsync(user.Id, ct);
+        var result = await SaveGuardingUniquenessAsync(user.Id, ct);
+        // Only after the write lands. A rejected save leaves the database as it was, so nothing
+        // has moved and there is nothing to re-group.
+        if (result.Succeeded && scopeChanged)
+            await scopeChanges.UserScopeChangedAsync([user.Id], ct);
+
+        return result;
     }
 
     public async Task<UserMutationResult> ResetPasswordAsync(Guid id, string newPassword, CancellationToken ct)

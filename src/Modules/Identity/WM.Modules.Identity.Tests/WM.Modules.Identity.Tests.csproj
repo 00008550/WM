@@ -9,6 +9,11 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- The module's services take an IdentityDbContext, so testing one means giving it a real
+         context. In-memory rather than Npgsql: these tests assert service behaviour (who gets
+         told a scope changed), not SQL, and a test that needs a database server running is a
+         test nobody runs. Version tracks the module's EF Core. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup>
