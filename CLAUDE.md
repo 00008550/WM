@@ -8,7 +8,10 @@ Repo: `E:\Work\GitProjects\WM` → `github.com/00008550/WM` (private). Default b
 | Question | Read |
 |---|---|
 | What should we build / how is it designed? | `docs/ARCHITECTURE.md` (§13 = TLW→WM coverage matrix, §14 = roadmap) |
-| What does the legacy product actually do? | `docs/TLW-INVENTORY.md` |
+| What does the legacy product actually do? | `docs/TLW-INVENTORY.md` (services, screens, integrations) |
+| What does the legacy **schema** hold? | `docs/TLW-SCHEMA-SWEEP.md` — **plan from this, not the inventory** |
+| The central entity WM lacks | `docs/TLW-CLOCKING-MODEL.md` |
+| How much is covered, and what is unsurveyed? | `docs/COVERAGE-AUDIT.md` |
 | What screens exist? | `docs/SCREEN-TREE.md` |
 | What is being built right now? | `docs/plans/` — see below |
 | Where is the legacy code? | `E:\Tlw` (read-only reference: `Source`, `Database`, `Documentation`) |
