@@ -23,7 +23,7 @@
 | Import plugins | 5 |
 | Websites / UI apps | 18 |
 | Domain entity classes | **247** |
-| **Database tables (LINQ-to-SQL model)** | **579** *(measured 2026-08-04 — the 247 above counts hand-written entity classes, not tables)* |
+| **Database tables (LINQ-to-SQL model)** | **578 distinct** *(579 `TableAttribute` mappings; `dbo.PredefinedAbsences` is mapped by two classes — re-measured 2026-08-04 in the phase audit)* |
 | **Mapped database columns** | **8,173** |
 | **Table associations** | **1,147** |
 | Web UI screen folders (Views) | **~230** |
@@ -36,9 +36,15 @@
 
 > **Correction (2026-08-04).** "247 entity classes" is roughly half the real table count. The
 > authoritative schema is the LINQ-to-SQL model at
-> `Source\Logic\Entities\HorioDB.designer.cs` (6.1 MB, 240,262 lines): **579 tables, 8,173
-> columns**. The single most important omission from earlier drafts is the **`Clockings` daily
-> aggregate** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md).
+> `Source\Logic\Entities\HorioDB.designer.cs` (6.1 MB, 240,262 lines): **578 distinct tables,
+> 8,173 columns**. The single most important omission from earlier drafts is the **`Clockings`
+> daily aggregate** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md).
+>
+> *578 vs 579 (reconciled in the phase audit, 2026-08-04):* the file carries **579**
+> `TableAttribute(Name=…)` mappings but only **578** distinct table names — `dbo.PredefinedAbsences`
+> is mapped by two entity classes. `COVERAGE-AUDIT.md` counted distinct names (578); this file
+> previously counted mappings (579). Both were arithmetically right and the disagreement was
+> unexplained. **578 is the table count; 579 is the mapping count.**
 >
 > A full one-trip measurement of every table — including the tariff/rate model, global
 > calculation settings and per-install options, none of which WM models — is in

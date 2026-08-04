@@ -15,12 +15,22 @@ a document. Companions: [`TLW-SCHEMA-SWEEP.md`](./TLW-SCHEMA-SWEEP.md) (what leg
 
 | | Legacy (TLW) | WM today |
 |---|---|---|
-| Database tables | **578** | **8 entity classes** |
+| Database tables | **578 distinct** (579 mappings) | **8 aggregates / 15 entity classes** |
 | Mapped columns | **8,173** | — |
 | Modules / services | 59 Windows services | **3 modules** (Identity, People, TimeAttendance) |
-| HTTP endpoints | — | **29** |
-| Test projects | — | 1 (`WM.SharedKernel.Tests`, 22 tests) |
+| HTTP endpoints | — | **29** + 1 SignalR hub + `/health` |
+| Test projects | — | 2 — `WM.SharedKernel.Tests` (22) and `WM.Modules.Identity.Tests` (11); the latter only on the 001-P2 branch |
 | Stack | .NET Framework, LINQ-to-SQL, SQL Server, MVC/Silverlight | .NET 10 LTS, EF Core 10, PostgreSQL, Angular 22 |
+
+> **Re-measured 2026-08-04 (phase audit).** 578 is the count of *distinct* table names; the
+> designer file holds 579 `TableAttribute` mappings because `dbo.PredefinedAbsences` is mapped
+> twice. `TLW-INVENTORY.md` said 579 and this file said 578 — both right, neither explained.
+>
+> **The endpoint count of 29 was the count of `Map*` route registrations only.** It excluded
+> `MapHub<AttendanceHub>("/hubs/attendance")` (`src/Api/WM.Api/Program.cs:65`) and
+> `MapHealthChecks`. That exclusion is why the hub's missing data scoping went unnoticed for
+> three phases — see [`PHASE-AUDIT.md`](./PHASE-AUDIT.md) finding **A1**. Count transports,
+> not routes.
 
 **Dropped by decision: 121 tables / 1,502 columns** — devices & access control (54 / 719) and
 EPOS/cashless (67 / 783). That is ~21% of tables and ~18% of columns, so the **retained surface is
@@ -68,13 +78,21 @@ that hid the Clocking aggregate.
 
 Found in the 48 unbucketed tables. Small, but each is real and none appears in any WM document.
 
-| Table(s) | Why it matters |
-|---|---|
-| **`FileVirusScanQueue`** | Uploaded documents are **virus-scanned**. WM's Documents module (§10) accepts uploads to object storage with no scanning step. For an on-prem product taking employee file uploads this is a security control, not a nicety. |
-| **`CalculationProcessingQueue`** | Calculation is **queued**, confirming `HorioCalculationService` runs async after each swipe. WM's replay design should adopt the queue explicitly rather than rediscover the need. |
-| **`SalaryDeductions`** | Payroll-adjacent employee data. Nothing in WM's plan holds deductions. |
-| **`Currencies`, `Cultures`** | Multi-currency and multi-culture are **first-class tables**, not a formatting concern. Relevant to expenses, tariffs and the UK/France customer base. |
-| **`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`** | A separate API-auth surface for the mobile app and integrations, distinct from user login. WM's Flutter plan assumes the same JWT path as the web; legacy did not. |
+| Table(s) | Cols | Why it matters | Owned as of 2026-08-04 |
+|---|---:|---|---|
+| **`FileVirusScanQueue`** | 5 | Uploaded documents are **virus-scanned**. WM's Documents module (§10) accepts uploads to object storage with no scanning step. For an on-prem product taking employee file uploads this is a security control, not a nicety. | still unowned — Phase 4, distant |
+| **`CalculationProcessingQueue`** | 5 | Calculation is **queued**, confirming `HorioCalculationService` runs async after each swipe. WM's replay design should adopt the queue explicitly rather than rediscover the need. (`UserCalculationProcessingQueue`, 3 cols, is the per-user companion.) | still unowned — Phase 2, **imminent**: plan 002 should name it |
+| **`SalaryDeductions`** (+ `SalaryDeductionTypes`) | 8 / 3 | Payroll-adjacent employee data. Nothing in WM's plan holds deductions. | still unowned — Phase 6, distant |
+| **`Currencies`, `Cultures`** | 6 / 6 | Multi-currency and multi-culture are **first-class tables**, not a formatting concern. Relevant to expenses, tariffs and the UK/France customer base. | still unowned — Phase 6/7, distant |
+| **`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`** | 5 / 4 / 6 | A separate API-auth surface for the mobile app and integrations, distinct from user login. WM's Flutter plan assumes the same JWT path as the web; legacy did not. | **now owned by plan 003 P4** (design note only) |
+
+**Measured 2026-08-04 (phase audit).** `ApiKeys` = `Id, Name, ApiKey, IsActive, ApiType` — a flat
+key list with a **type discriminator**, i.e. more than one class of integration caller.
+`SynergyAppAuthenticationTokens` = `Id, EmployeeId, TokenHash, IssueDate, IsRevoked,
+MobileDeviceInfo` — the mobile app authenticates as an **employee** with a per-device,
+individually revocable token, *not* as a user with a password. That is a materially different
+model from WM's "the Flutter app uses the same JWT as the web", and it is the one of the five
+that touches an already-shipped surface (Identity). The other four are all Phase 2+.
 
 Also in that group and correctly out of scope: the schools vertical (`AMPMAttendance`, `Marks`,
 `SchoolCalendars`), and device remnants (`ProximityCards`, `GetDoorStatuses`, `ThermalPipView`).
@@ -94,19 +112,37 @@ Genuine strengths after this round:
 - **The five escape hatches** — daily template SQL, flexi balance SQL, notification SQL, payroll
   T-SQL, and the counter formula language.
 - **The access model** — plan 001, with legacy's three fail-opens explicitly inverted and shipped
-  under test.
+  under test. *Caveat added 2026-08-04: the fail-opens are inverted in the **model**
+  (`ScopeModel.cs`), which nothing consumes yet. The **enforcement** surface still has holes the
+  model cannot reach — see [`PHASE-AUDIT.md`](./PHASE-AUDIT.md) A1–A4. A correct model behind an
+  unscoped transport buys nothing.*
 - **The process itself** — the surveyor now measures before planning, classifies
-  Keep/Improve/Invert/Drop, and hunts edge cases.
+  Keep/Improve/Invert/Drop, and hunts edge cases. *Caveat: the two phases shipped before the
+  process existed (PRs #3, #7, #8) were never surveyed or reviewed, and that is where every
+  blocking finding in the phase audit was found.*
 
 ## 5. Recommended queue
 
-1. **Finish 001** (P2–P5). Short, and every later query depends on scope being right.
-2. **Settle 002's design decision** — mirror legacy's fixed slots or normalise and project. The
-   ceiling propagating across 13 tables argues strongly for normalising.
-3. **Plan 003 — Rules inputs**: tariffs, employee contracts and `…Effective` resolution,
-   `Calculations` settings, the counter formula language.
-4. **Plan 004 — per-install configuration** (`SoftwareMainOptions`, 227 columns).
-5. **Survey before planning** the four named-but-unmeasured areas, biggest first:
+*Revised 2026-08-04 by the phase audit ([`PHASE-AUDIT.md`](./PHASE-AUDIT.md)), which found live
+enforcement gaps in already-shipped phases. Those jump the queue: they are defects in code
+customers would be running, not missing features.*
+
+1. **Plan 003 — enforcement gaps** (new, draft). The realtime punch feed is broadcast to every
+   authenticated client with no data scope and no permission check; employee writes are
+   unscoped; the site list is unscoped; there is no authorization fallback policy. Finding **A1**
+   is a live row-level data leak that plan 001 cannot reach, because it does not go through a
+   query filter at all.
+2. **Finish 001** (P3–P5). Every later query depends on scope being right. P4 and P5 were
+   amended by the audit: Building has no legacy employee-side meaning, and P5 needs a
+   departments endpoint that does not exist yet.
+3. **Settle 002's design decision** — mirror legacy's fixed slots or normalise and project. The
+   ceiling propagating across 13 tables argues strongly for normalising. 002 should also name
+   `CalculationProcessingQueue` explicitly (§3).
+4. **Plan 004 — Rules inputs**: tariffs, employee contracts and `…Effective` resolution,
+   `Calculations` settings, the counter formula language. *(Was "003" in the pre-audit queue;
+   renumbered because 003 is now the enforcement plan.)*
+5. **Plan 005 — per-install configuration** (`SoftwareMainOptions`, 227 columns). *(Was "004".)*
+6. **Survey before planning** the four named-but-unmeasured areas, biggest first:
    **People/HR (95 tables)**, **Absence & accruals (44)**, **Notifications (29)**,
    **Scheduling (16)**. HR is the largest unexamined bucket in the product.
 

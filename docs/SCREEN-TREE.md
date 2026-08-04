@@ -278,17 +278,32 @@ Group
                        | AllEmployees
                        | ByEmployees        an explicit list
                        | ByStructure        any combination of:
-                             departments · locations · sites
-                             buildings · cost centres · work activities
+                             departments · locations (= WM "sites")
+                             cost centres · work activities
 ```
 
 **`ByStructure` carries more dimensions than an earlier draft allowed.** `IAuthorizationService`
-exposes **six** `Managed*ByRole` accessors — departments, locations, buildings, cost centres,
-working activities and caterers — not the two (departments, sites) previously modelled, and
-not the five an earlier revision of this document claimed. Caterers belong to the dropped
-EPOS vertical, leaving five that matter to WM. They combine as an intersection within a
-group: "departments A and B, but only at location C" is a real configuration and a common
-one, since a manager typically owns a function at a place rather than everywhere.
+exposes **six** managed-dimension accessors — departments, locations, buildings, cost centres,
+working activities and caterers — not the two (departments, sites) previously modelled. Caterers
+belong to the dropped EPOS vertical. They combine as an intersection within a group: "departments
+A and B, but only at location C" is a real configuration and a common one, since a manager
+typically owns a function at a place rather than everywhere.
+
+> **Two corrections from the phase audit (2026-08-04), both measured:**
+>
+> 1. **"locations" and "sites" are the same axis, not two.** `dbo.Employees` (153 columns) has
+>    `DepartmentId`, `EmployeeLocationId` and `CostCentreId` — there is no `SiteId`. WM's `Site`
+>    *is* legacy's `Location`. The earlier tree listed both and so overcounted.
+> 2. **Buildings are not an employee attribute, so buildings are not four-of-six — they are
+>    zero.** `BuildingId` appears on `Devices`, `GetDoorStatuses`, `ac_security_group`,
+>    `AnprEventsView`, `EposTills`, `LapiCameras` and `FireMarshalMusterPoints` — physical plant,
+>    all of it dropped except muster points (Safety, phase 6b). `ManagedBuildingsByRole` exists,
+>    but there is nothing on an employee for it to match against. **Four dimensions matter to WM,
+>    not five:** departments, locations/sites, cost centres, work activities — plus the explicit
+>    employee list.
+>
+> Precision note: five of the six are named `Managed*ByRole`; cost centres is
+> `ManagedCostCentres(int roleId)` (`IAuthorizationService.cs:22-23`). Same thing, different name.
 
 **Legacy only enforces two of them centrally.** `RoleBasedEmployeeFilterService` honours
 departments ∩ locations and nothing else; buildings, cost centres and working activities are
@@ -305,8 +320,22 @@ to prevent. See `docs/plans/001-compositional-data-scope.md`.
 - **`My` is never group-controlled.** Any employee-linked user gets self-service.
 - **No deny rules.** Narrow by removing membership. Deny lists interacting across
   several groups are what forced TLW to ship a diagnostics subsystem to explain itself.
+  *(The legacy feature being declined is `AccessRightsExclusions` + `AccessRightsExclusionEmployees`
+  + `AccessRightsExclusionResources`, wired through `AuthorizationService.SaveExclusionListForRole`.)*
 - **Scope is explicit.** TLW fails open — an empty managed list applies no filter, so a
   half-configured group exposes the whole workforce. WM requires the intent to be stated.
+
+> **Status check (2026-08-04).** Neither half of this model is finished, and the doc previously
+> implied both were closer than they are:
+> - **Screen permissions: not started.** No `WebPage`/`FormAccess` equivalent exists in WM. The
+>   Angular routes guard on coarse permission names (`app.routes.ts:17-40`), which is not the
+>   same thing and is client-side.
+> - **Employee scope: shipped but partly unreachable.** The `Departments` scope kind exists in the
+>   API and the database, but the group editor's dropdown offers only None / Self / Sites / All
+>   (`security-groups.component.ts:113-116`) and **there is no `/api/departments` endpoint** to
+>   populate a picker. Plan 001 P5 cannot be built until that endpoint exists.
+>
+> See [`PHASE-AUDIT.md`](./PHASE-AUDIT.md) A2 and C5.
 
 ### Deferred: tab-level permissions
 
