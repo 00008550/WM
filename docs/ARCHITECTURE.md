@@ -416,11 +416,15 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | Integration services (RotaGeek, SageHR, …) | Connector plugins | ◐ SDK contract built; connectors planned |
 | Licensing / WebLicenseManager | Licensing (lib + service) | ◐ lib+CLI built; service/portal planned |
 | Audit trail | Admin + `wm.audit` | ◐ topic designed; store+browser planned |
-| Users / user management (`Logic/Users`) | Identity (user mgmt) | ▢ planned (building now) |
-| User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ◐ field exists; UI/self-service building now |
-| Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ▢ building now |
-| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; Manager scoping planned |
-| Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) |
+| Users / user management (`Logic/Users`) | Identity (user mgmt) | ✅ built — list/search, create, edit roles + employee link, reset password, lockout (`UserEndpoints.cs`, `UserManagementService.cs`) |
+| User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ✅ built — `User.EmployeeId`, one-to-one enforced, `/api/me/employee` |
+| Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ◐ partial — punches/timesheet/profile live; absences, documents, expenses follow their phases |
+| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; **legacy's `Role.IsSelfOnly` / `IsDepartmentOnly` / `CanModifySelf` not modelled** — see `PHASE-AUDIT.md` B3 |
+| Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) — **department scope is unreachable from the UI and employee writes are unscoped**, see `PHASE-AUDIT.md` A2/A4 |
+| Realtime punch feed (no legacy equivalent — WM addition) | Api SignalR hub | ⚠️ **built but unscoped** — broadcasts every punch to every authenticated client; plan 003 P1 |
+| API/integration auth (`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`) | Identity | ▢ **not started** — legacy authenticates the mobile app as an *employee* with a revocable per-device token, not as a user; plan 003 P4 |
+| Screen-level rights (`FormAccess`, `SiteItemPermission`, `WebPages`, `NavigationIcons`) | Identity groups | ▢ **not started** — §14 Phase 1b promises these; plan 001 explicitly excludes them |
+| Access deny-lists (`AccessRightsExclusions` + 2 child tables) | — | ⏹ dropped by design — WM narrows by removing group membership, never by deny rules (`ScopeModel.cs:176-180`). Recorded here because it was previously only a code comment |
 | User action logging (`UserActionLogsService`) | Admin + `wm.audit` | ▢ planned |
 | SSO | Identity | ▢ planned (local JWT live) |
 | 2FA (`TwoFactorAuthenticationService`) | Identity | ▢ planned |
@@ -431,16 +435,30 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | Student registration | — | ⏹ deprioritized (schools vertical) |
 | Card printing | — | ⏹ dropped (was device-adjacent) |
 
-Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentionally out of scope.
+Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentionally out of scope ·
+⚠️ built but defective.
+
+> **Audited 2026-08-04.** Every `✅` and `◐` in this table was checked against the code, not
+> against the previous revision of this table. Four rows were stale ("building now" for work
+> merged in PR #3), and four rows were missing entirely — the realtime feed, the API-auth
+> surface, screen-level rights and the deny-list drop. Findings, evidence and disposition:
+> [`PHASE-AUDIT.md`](./PHASE-AUDIT.md).
 
 ---
 
 ## 14. Roadmap (v3 — rebased on the measured legacy scope)
 
-> **Read `TLW-INVENTORY.md` first.** An exhaustive scan of the legacy product (317 projects,
-> 59 services, 247 entities, ~230 screens, 67 reports, ~70 notification types, ~150 fields on
-> the Daily Template alone) showed the earlier estimate was badly wrong. WM today is
-> roughly **3–5%** of the legacy functional surface. This roadmap is rebased on that reality.
+> **Read `TLW-SCHEMA-SWEEP.md` and `COVERAGE-AUDIT.md` first.** An exhaustive scan of the legacy
+> product (317 projects, 59 services, **578 database tables / 8,173 columns**, ~230 screens,
+> 67 reports, ~70 notification types, ~150 fields on the Daily Template alone) showed the earlier
+> estimate was badly wrong. This roadmap is rebased on that reality.
+>
+> **Corrected 2026-08-04.** This note previously said "247 entities" and "roughly 3–5% of the
+> legacy functional surface". Both were superseded by `COVERAGE-AUDIT.md` and never updated here.
+> 247 counts hand-written entity classes, not tables; the measured schema is **578 distinct
+> tables** (579 `TableAttribute` mappings). Against the ~457 tables WM retains after the device
+> and EPOS drops, WM's 8 aggregates are **under 2%** of the retained data model. Never size a
+> plan from the optimistic number.
 
 ### Sequencing principle
 Order by **dependency, not visibility**. Everything commercially valuable — timesheets,
@@ -458,7 +476,7 @@ This single decision is worth more than any individual feature.
 |---|---|---|---|
 | **0 — Foundations** | Solution skeleton, Docker infra, Identity, app shell, design system | — | ✅ done |
 | **1 — People, Time & Users** | People, punch pipeline (Kafka), live dashboard, timesheets, users + employee linking + self-service | — | ✅ done |
-| **1b — Access model** ⭐ | **Groups** (per-screen read/edit + employee scope in one object), several groups per user combining as a union, scope applied as query filters, diagnostics screen. *Moved early: every later query depends on scope being right.* | 4–6 wks | ◐ **in progress — plan 001** |
+| **1b — Access model** ⭐ | **Groups** (per-screen read/edit + employee scope in one object), several groups per user combining as a union, scope applied as query filters, diagnostics screen. *Moved early: every later query depends on scope being right.* | 4–6 wks | ◐ **in progress — plans 001 + 003** |
 | **1c — Core depth** | Employee contracts, custom fields, positions & qualifications, corrections, period locking, employee/population groups | 4–5 wks | ▢ |
 | **2 — Rules engine** ⭐ | Daily templates (shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift), weekly models, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay, **safe rules expression language** (replaces legacy per-template custom SQL) | **10–16 wks** | ▢ |
 | **3 — Absence & Accruals** | Absence types, requests + multi-level approval (absence managers per employee/department), blocked dates, holidays, entitlements, accruals incl. length-of-service, recaps | 8–10 wks | ▢ |
@@ -504,7 +522,37 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
    - the `default:` branch **returns the query unfiltered** and merely logs, commented as intentional "to avoid an error getting to the user" — WM fails closed and returns nothing.
 
    Legacy also supports an explicit **`ByEmployees`** managed-employee list, which WM did not model at all until plan 001.
+
+   **Audit addenda (2026-08-04) — measured, and not previously recorded anywhere:**
+   - There is a **fourth** fail-open of the same shape: `if (managedEmployees.Any())`
+     (`RoleBasedEmployeeFilterService.cs:50, 89, 128`) means a `ByEmployees` role with an empty
+     list also sees everyone. WM's `ScopeRule.Constrained` already covers it; the doc did not.
+   - The rule is implemented **four times**, not three: the three C# marker-interface overloads,
+     plus the T-SQL function `dbo.EmployeeIdsManagedByRole`
+     (`E:\Tlw\Database\Versioning\80.V5.26.0.0.sql:880-934`), which is what
+     `IsEmployeeManagedByRole` and `GetPermittedEmployeeIdsForRole` actually call. **The two
+     implementations disagree on the unknown-`ManagementType` case**: C# returns the query
+     unfiltered (fail-open), SQL returns an empty table (fail-closed). WM's fail-closed choice
+     matches legacy's own SQL, not just our preference.
+   - `dbo.Role` has only **six columns** and three of them are scope modifiers plan 001 did not
+     model: `IsSelfOnly`, `IsDepartmentOnly`, `CanModifySelf`. `IsSelfOnly` is a hard
+     **narrowing override** that beats the managed lists entirely
+     (`AuthorizationService.cs:220-224, 236-240, 275-279`); `CanModifySelf` is a read/write
+     asymmetry on one's own record (`AuthorizationService.cs:281-286`). WM's `Self` is a
+     *unioned* rule, i.e. widening. See `PHASE-AUDIT.md` B3.
+   - Legacy's **`Buildings` are not an employee attribute.** `dbo.Employees` (153 cols) carries
+     `DepartmentId`, `EmployeeLocationId`, `CostCentreId` — and no `BuildingId`. `BuildingId`
+     appears only on devices, doors, ANPR, EPOS tills and muster points. A building scope
+     dimension over employees would be a WM invention, not a legacy behaviour. See
+     `PHASE-AUDIT.md` B4.
 6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
+7. **No deny rules** *(recorded 2026-08-04 by the phase audit; the decision itself is older)*.
+   Legacy's `AccessRightsExclusions` + `AccessRightsExclusionEmployees` +
+   `AccessRightsExclusionResources` let a role's access be *subtracted* per resource, wired
+   through `AuthorizationService.SaveExclusionListForRole`. WM narrows only by removing group
+   membership — deny rules interacting across several groups are what forced legacy to ship a
+   diagnostics subsystem to explain its own answers. This was previously stated only in a code
+   comment (`ScopeModel.cs:176-180`); it is a decision and belongs here.
 
 Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
 

@@ -148,26 +148,99 @@ with departments ∩ site sees only the intersection; the existing 1b assertions
 (manager 16 employees / admin 40, 0 out-of-scope punches).
 **Risk:** medium.
 
-### [ ] P4 — Explicit employee list + Building dimension
-**Touches:** `People/Domain/Employee.cs` (+ `Building` entity), People migration,
-`SecurityGroup` dimensions, `WithinScope()`
-**Done when:** legacy's `ByEmployees` equivalent works (a group scoped to a named employee
-set), and Building works as a third real dimension intersecting the others.
-**Tests:** employee-list scope; building ∩ department; an employee with null building is
-invisible to a building-scoped group.
-**Risk:** medium — adds a People entity and a migration.
-**Note:** if Building looks like scope creep at review time, split it out — the employee list
-is the part legacy customers depend on.
+**Amended 2026-08-04 by the phase audit.** P2's per-group mapping is faithful, but *resolution*
+is not, and P3 is where the difference lands. Three deviations from today's behaviour are
+**sanctioned** — a reviewer must not treat them as regressions — and each needs a test that
+names it:
+
+1. **`Self` stops being outranked.** Today `DataScopeResolver.cs:50, 57` seeds `widest = Self`
+   for an employee-linked user and then lets `Sites` (3) beat `Self` (1), so a site-scoped
+   manager cannot see their own record unless they happen to be at one of their sites. Under the
+   union, `Self` becomes an independent rule and they always can. That is a **widening**, it is
+   correct, and it is the behaviour `DataScope.cs:22-26` always claimed.
+2. **Site ids stop leaking between groups.** Today `DataScopeResolver.cs:58-59` unions
+   `SiteIds` from *every* group regardless of that group's `ScopeKind`, so a Departments-kind
+   group carrying stray site rows widens a *different* Sites-kind group. Under the composed
+   model each group's constraints stay its own. That is a **narrowing** and it is a bug fix.
+3. **`IncludeChildSites` stops leaking between groups.** Today `DataScopeResolver.cs:60` ORs the
+   flag across all groups, and it defaults to `true` (`SecurityGroup.cs:30`), so in practice
+   almost every user gets descendant expansion. Per Decision 1 it becomes per-dimension. Also a
+   **narrowing**, also intended.
+
+**Additional test:** the audit's baseline (admin 40 / manager 16) must hold *because* the rule is
+right. The seeded manager belongs to no security group at all (`DemoUserSeeder.cs` assigns roles,
+never groups), so today they resolve to `Self` and see **1**, not 16. Establish the real number
+before changing the resolver, or the regression test is measuring nothing.
+
+### [ ] P4 — Explicit employee list ~~+ Building dimension~~
+**Touches:** `SecurityGroup` dimensions, `WithinScope()`, `SecurityGroupService`
+**Done when:** legacy's `ByEmployees` equivalent works — a group scoped to a named employee set,
+intersecting correctly with the other dimensions.
+**Tests:** employee-list scope; employee-list ∩ site; a group whose employee list is empty
+matches nobody (the fourth fail-open, `RoleBasedEmployeeFilterService.cs:50`).
+**Risk:** low–medium — no new entity now that Building is out.
+
+> **Amended 2026-08-04 by the phase audit — Building is removed from this portion.**
+> The original note hedged ("if Building looks like scope creep at review time, split it out").
+> It is worse than scope creep: it has no legacy meaning. Measured in
+> `HorioDB.designer.cs`, `dbo.Employees` has 153 columns including `DepartmentId`,
+> `EmployeeLocationId` and `CostCentreId` — and **no `BuildingId`**. Every table carrying
+> `BuildingId` is physical plant: `Devices`, `GetDoorStatuses`, `ac_security_group`,
+> `AnprEventsView`, `EposTills`, `LapiCameras`, `FireMarshalMusterPoints`. All are dropped by
+> invariant 3 except muster points, which arrive in phase 6b.
+>
+> `ManagedBuildingsByRole` exists, but there is nothing on an employee for it to match. Building
+> would therefore be a WM invention wearing a legacy label — the exact failure mode "improve,
+> don't transcribe" is meant to prevent. `ScopeDimension.Building` stays declared in
+> `ScopeModel.cs` (it is already fail-closed and costs nothing); nothing resolves it.
+>
+> **If a real third dimension is wanted to prove the extension point, use `CostCentre`** — it *is*
+> an employee column (`Employees.CostCentreId`, plus `CostCentreGroupId`) and it is the one
+> Phase 2 needs anyway. That is a user decision, recorded in *Open questions* below.
 
 ### [ ] P5 — Group editor + diagnostics explain the composed rule
 **Touches:** `security-groups.component.ts`, `security-groups.api.ts`, `users.component.ts`,
-diagnostics endpoint
+diagnostics endpoint, **`People/PeopleModule.cs` (new `GET /api/departments`)**,
+**`workforce.api.ts`**
 **Done when:** the editor lets an admin build a multi-dimension group (add/remove dimensions,
 not pick one kind), and the diagnostics screen explains a decision as the composed rule —
 "visible because group *Ops North* grants departments A,B ∩ site C" — rather than naming a
 single kind. Verified in the browser via preview_start.
 **Tests:** `npm run test` for the editor; browser verification with screenshot.
 **Risk:** low.
+
+> **Amended 2026-08-04 by the phase audit — P5 has a hard prerequisite nobody noticed.**
+> The department dimension is **unreachable from the UI today and has been since PR #7**: the
+> scope dropdown offers None / Self / Sites / All only
+> (`security-groups.component.ts:113-116` — `DataScopeKind.Departments` is absent), and there is
+> **no `/api/departments` endpoint** anywhere in the API to populate a picker. `Department` is a
+> seeded entity (`PeopleSeeder.cs:31-39`) with no read surface.
+>
+> So P5 must add `GET /api/departments` (People module, `employees.view`, scoped — a manager must
+> not enumerate departments they cannot see) before the multi-dimension editor can exist. Budget
+> for it here or split it out as its own portion; do not discover it mid-build.
+
+---
+
+## Amendments (phase audit, 2026-08-04)
+
+This plan was re-checked against `E:\Tlw` and against the shipped code. Its claims about legacy
+held up on every point that was checked — the three fail-opens are at
+`RoleBasedEmployeeFilterService.cs:36-39`, `:44` and `:56-61` exactly as cited, the six managed
+dimensions exist at `IAuthorizationService.cs:22-23, 37-42`, and `ByEmployees` is real. Four
+things were added or corrected:
+
+- **A fourth fail-open of the same shape** — `if (managedEmployees.Any())` at `:50, :89, :128`.
+  The model already handles it; P4 now has a test that names it.
+- **A fourth implementation of the rule** — the T-SQL function `dbo.EmployeeIdsManagedByRole`
+  (`E:\Tlw\Database\Versioning\80.V5.26.0.0.sql:880-934`), which is what the authoritative
+  `IsEmployeeManagedByRole` path actually calls. It **fails closed** on an unknown management
+  type where the C# fails open, so WM's inversion agrees with half of legacy already.
+- **`Role.IsSelfOnly` / `IsDepartmentOnly` / `CanModifySelf`** — three of `dbo.Role`'s six columns,
+  unmodelled and not mentioned anywhere in WM. `IsSelfOnly` is a narrowing override that beats
+  the managed lists; WM's `Self` is a widening union member. Tracked as `PHASE-AUDIT.md` B3, for
+  the user to rule on; not folded into a portion because it is a product decision.
+- **P4's Building dimension has no legacy basis** and is removed (see above).
 
 ## Decisions (user, 2026-08-03)
 
@@ -185,5 +258,16 @@ single kind. Verified in the browser via preview_start.
 
 **Is any customer today configured with a `ByEmployees` role?** Doesn't block anything —
 P4 is approved and builds it regardless. If the answer turns out to be "none", P4's employee-list
-dimension can be built for completeness rather than urgency, and Building becomes the more
-valuable half of that portion.
+dimension can be built for completeness rather than urgency.
+
+**Replace Building with CostCentre in P4?** (raised by the phase audit, 2026-08-04) Building has
+no employee-side existence in legacy, so P4 now ships the employee list alone. If the intent of
+the second half was to prove the dimension extension point before Phase 2 depends on it,
+`CostCentre` does that honestly: `Employees.CostCentreId` is a real column,
+`CostCentresManagedByRole` is a real table, and Rules needs it anyway. This adds a People entity
+and a migration to P4 — the cost the Building half was going to carry. **User's call.**
+
+**Does WM want legacy's `IsSelfOnly` narrowing override?** See `PHASE-AUDIT.md` B3. Legacy can
+say "this role sees *only* its own record, whatever else it was granted". WM's union cannot
+express a narrowing, by design. The question is whether that configuration is one customers use,
+in which case it needs a home (a group flag, or a role property) rather than a shrug.
