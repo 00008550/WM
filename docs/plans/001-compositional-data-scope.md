@@ -172,6 +172,18 @@ right. The seeded manager belongs to no security group at all (`DemoUserSeeder.c
 never groups), so today they resolve to `Self` and see **1**, not 16. Establish the real number
 before changing the resolver, or the regression test is measuring nothing.
 
+**Warning left by 003 P1 — this portion turns a passing test red, on purpose.**
+`WM.Api.Tests/Realtime/AttendanceScopeGroupTests.A_connection_never_receives_the_same_event_twice`
+asserts that a punch matches **at most one** of the groups a connection is in. That holds only
+because today's resolver collapses a user to a single `DataScopeKind`, so their groups all sit on
+one axis. The moment P3 unions rules across groups, a user in a Sites group *and* a Departments
+group joins both axes, a punch at their site in their department is addressed to both, and
+SignalR's default lifetime manager does **not** de-duplicate across the groups a message is sent
+to — the client renders the punch twice. **P3 must decide how the hub de-duplicates** (address a
+single per-user group, de-duplicate connections before sending, or make the client idempotent on
+punch id) and update that test to encode the decision. Do not simply delete the assertion: it is
+the only thing standing between the composed rule and duplicate rows on the dashboard.
+
 ### [ ] P4 — Explicit employee list ~~+ Building dimension~~
 **Touches:** `SecurityGroup` dimensions, `WithinScope()`, `SecurityGroupService`
 **Done when:** legacy's `ByEmployees` equivalent works — a group scoped to a named employee set,

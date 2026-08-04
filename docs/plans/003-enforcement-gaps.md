@@ -181,6 +181,34 @@ shipped surface.
    either way, so it is WM's choice: a create you cannot then see is indistinguishable from a
    create that failed. P2 enforces it on the post-image of both create and update.
 
+## Deliberately not solved here — session and token revocation
+
+Decision 2 revokes a user's **realtime audience** within the session. It does **not** revoke their
+session, and the difference is easy to miss precisely because the visible half looks complete: a
+socket that stops delivering punches reads like "access removed", while the same account is still
+calling `GET /api/employees` with the same bearer token.
+
+What P1 gives you, concretely:
+
+- A scope change (group edited or deleted, membership changed, user deactivated, employee link
+  changed) re-groups every open socket that user holds, immediately.
+- Nothing else. The access token they already hold keeps working on every HTTP endpoint until it
+  expires — `AccessTokenMinutes` is 10 by default, so **a deactivated user keeps HTTP access for
+  up to ten more minutes.** They cannot extend it: `AuthService.RefreshAsync` re-checks `IsActive`
+  and refuses, so the exposure is bounded by the access-token lifetime rather than the 14-day
+  refresh window.
+- Permissions are worse than scope, because they are claims. `WmPermissions` policies are
+  `RequireClaim` against the JWT (`IdentityModule.cs:66-70`), so removing a role does not narrow a
+  live token, and — unlike scope — **it does not close a socket the user already holds either**:
+  the hub authorizes `attendance.view` at connect and never again. That one is not bounded by ten
+  minutes; it lasts as long as the connection does.
+
+None of this is a P1 defect: revoking a session is a token-lifetime decision (short-lived access
+tokens plus a revocation list, or per-request re-validation) that belongs to `TokenService` /
+`AuthService`, not to the scope model or the transport. It is recorded here so the next person to
+read `AttendanceAudience` does not conclude revocation is solved. Owner: the phase that takes
+session lifetime — see also P4, which designs per-device revocable tokens for the Flutter app.
+
 ## Still open — §4, and it does not block this plan
 
 **User direction, 2026-08-04: "probably best to adapt strategy from old TLW."**
