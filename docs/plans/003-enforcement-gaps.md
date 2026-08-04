@@ -1,6 +1,6 @@
 # 003 — Close the enforcement gaps in the shipped phases
 
-Status: approved         <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
 Approved by user 2026-08-04, all 4 portions, and **ordered ahead of 001 P3** — A1 and A2 are
 defects in running code, 001 P3 corrects a model no endpoint consults yet.
 Roadmap: ARCHITECTURE.md §14 Phase 1b — Access model (this is the enforcement half; plan 001 is
@@ -121,7 +121,7 @@ every path, including the ones that are not queries.
 
 ## Portions
 
-### [ ] P1 — Scope the realtime punch feed
+### [x] P1 — Scope the realtime punch feed  ·  reviewed 2026-08-05, [#18](https://github.com/00008550/WM/pull/18)
 **Touches:** `src/Api/WM.Api/Realtime/AttendanceHub.cs`,
 `src/Api/WM.Api/Infrastructure/EventStreamProducers.cs`, `src/Api/WM.Api/Program.cs`,
 new `src/Api/WM.Api.Tests/`
