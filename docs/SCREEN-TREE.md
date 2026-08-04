@@ -307,29 +307,54 @@ typically owns a function at a place rather than everywhere.
 
 **Legacy only enforces two of them centrally.** `RoleBasedEmployeeFilterService` honours
 departments ∩ locations and nothing else; buildings, cost centres and working activities are
-read at scattered call sites. That scatter is why legacy needed `DataAccessScopeDiagnostics`
-to explain its own decisions, and it is the thing WM's single `WithinScope()` filter exists
-to prevent. See `docs/plans/001-compositional-data-scope.md`.
+read at scattered call sites. WM's single `WithinScope()` filter exists to prevent that scatter.
+See `docs/plans/001-compositional-data-scope.md`.
 
-- A user may belong to **several groups**; access combines as a **union** — most
-  permissive wins, like IAM group membership.
+> **Correction (2026-08-05).** This paragraph previously ended *"that scatter is why legacy
+> needed `DataAccessScopeDiagnostics` to explain its own decisions"*. **It isn't.**
+> `DataAccessScopeDiagnostics` is `DataContext` lifetime tracking for connection leaks
+> (`Logic/DAL/DataContextTracking/DataAccessScopeDiagnostics.cs:10-55`). Legacy has no tool that
+> explains an access decision. See [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md) §11.
+
+- ~~A user may belong to **several groups**; access combines as a **union** — most permissive
+  wins, like IAM group membership.~~ **Wrong about TLW, measured 2026-08-05.** A TLW user holds
+  **exactly one** role/group: `GetUserRole` uses `SingleOrDefault`
+  (`AuthorizationService.cs:1265-1280`), the cache is `Dictionary<userId, roleId>` (`:773-786`),
+  and `AddUserToRole` **deletes the existing assignment before inserting** (`:1008-1041`). There
+  is no union in TLW and no precedence rule, because there is never more than one grant.
+  **WM's model here is undecided** — see `TLW-AUTHORIZATION-MODEL.md` §13 and §4's open question.
 - **`read` opens a screen; `edit` allows mutation.** Enforced server-side; hiding a
-  button is UX, not security.
+  button is UX, not security. *(Matches TLW: GET requires `FormViewing`, POST requires
+  `FormEditing` — `AuthorizingControllerBase.cs:565-575`. Edit implies view, and every ancestor
+  branch must also be accessible — `FormAccess.cs:31-43`.)*
 - **Screen access and employee scope are independent** — "may edit, but only these
-  people" is a normal configuration.
+  people" is a normal configuration. *(Matches TLW: the two axes never intersect, except in
+  `CurrentUserCanViewEmployeeFormTab`, which is the exclusion list — `FormAccess.cs:85-90`.)*
 - **`My` is never group-controlled.** Any employee-linked user gets self-service.
-- **No deny rules.** Narrow by removing membership. Deny lists interacting across
-  several groups are what forced TLW to ship a diagnostics subsystem to explain itself.
+- **No deny rules.** Narrow by removing membership.
   *(The legacy feature being declined is `AccessRightsExclusions` + `AccessRightsExclusionEmployees`
-  + `AccessRightsExclusionResources`, wired through `AuthorizationService.SaveExclusionListForRole`.)*
-- **Scope is explicit.** TLW fails open — an empty managed list applies no filter, so a
+  + `AccessRightsExclusionResources`, wired through `AuthorizationService.SaveExclusionListForRole`.
+  Note that TLW's own screen-right resolution is **deny-overrides-allow, default deny**
+  (`AuthorizationService.cs:695-718`) — the opposite of "most permissive wins". It is only
+  unreachable in practice because a user has one role. The requirement the exclusion list met —
+  hiding named individuals' Salary/Bank/Disciplinary tabs from a manager who legitimately holds
+  the tab (`GroupsController.cs:463-466`) — is currently unmet in WM.)*
+- **Scope is explicit.** TLW fails open in **twelve** measured places in the in-scope surface,
+  not the three or four previously recorded — an empty managed list applies no filter, so a
   half-configured group exposes the whole workforce. WM requires the intent to be stated.
+  Inventory: `TLW-AUTHORIZATION-MODEL.md` §10.
 
-> **Status check (2026-08-04).** Neither half of this model is finished, and the doc previously
-> implied both were closer than they are:
-> - **Screen permissions: not started.** No `WebPage`/`FormAccess` equivalent exists in WM. The
->   Angular routes guard on coarse permission names (`app.routes.ts:17-40`), which is not the
->   same thing and is client-side.
+> **Status check (2026-08-04, screen-permissions half re-measured 2026-08-05).** Neither half of
+> this model is finished, and the doc previously implied both were closer than they are:
+> - **Screen permissions: not started.** No equivalent of legacy's `dbo.AccessControlEntry`
+>   exists in WM. The Angular routes guard on coarse permission names (`app.routes.ts:17-40`),
+>   which is not the same thing and is client-side. *(The legacy table was previously named here
+>   as `WebPage`/`FormAccess`. `dbo.WebPages` is a **localization** table
+>   (`HorioDB.designer.cs:27642-27654`) and `FormAccess` is a static C# helper class
+>   (`FormAccess.cs:7`) — neither is the store. The store is
+>   `AccessControlEntry(Id, Allow, RoleId, ActionId, SecuredObjectTypeId, SecuredObjectId)`,
+>   `HorioDB.designer.cs:10330-10346`, ≈960–1,010 rows per role over 49 branches / 382 forms /
+>   75 tabs.)*
 > - **Employee scope: shipped but partly unreachable.** The `Departments` scope kind exists in the
 >   API and the database, but the group editor's dropdown offers only None / Self / Sites / All
 >   (`security-groups.component.ts:113-116`) and **there is no `/api/departments` endpoint** to
