@@ -23,10 +23,26 @@
 | Import plugins | 5 |
 | Websites / UI apps | 18 |
 | Domain entity classes | **247** |
+| **Database tables (LINQ-to-SQL model)** | **579** *(measured 2026-08-04 — the 247 above counts hand-written entity classes, not tables)* |
+| **Mapped database columns** | **8,173** |
+| **Table associations** | **1,147** |
 | Web UI screen folders (Views) | **~230** |
 | Standard DevExpress reports | **67** |
 | Distinct email notification types | **~70** |
 | Daily Template configuration fields | **~150** |
+| **Columns on `dbo.Clockings`** | **249** — the widest table WM needs |
+| **Columns on `dbo.Employees`** | **153** |
+| **Pay category slots (`CPTN01..20`)** | **20, fixed** — hard ceiling |
+
+> **Correction (2026-08-04).** "247 entity classes" is roughly half the real table count. The
+> authoritative schema is the LINQ-to-SQL model at
+> `Source\Logic\Entities\HorioDB.designer.cs` (6.1 MB, 240,262 lines): **579 tables, 8,173
+> columns**. The single most important omission from earlier drafts is the **`Clockings` daily
+> aggregate** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md).
+>
+> A full one-trip measurement of every table — including the tariff/rate model, global
+> calculation settings and per-install options, none of which WM models — is in
+> [`TLW-SCHEMA-SWEEP.md`](./TLW-SCHEMA-SWEEP.md). **Plan from the schema, not from this file.**
 
 Product naming: **Synergy Workforce (SWF)**, previously **Horio**, previously **TLW (Time Log Web)**. All three names appear throughout the source.
 
