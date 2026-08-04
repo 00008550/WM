@@ -19,6 +19,11 @@ public sealed class SecurityGroup : AuditableEntity
     /// <summary>System groups (e.g. "All employees") cannot be deleted.</summary>
     public bool IsSystem { get; set; }
 
+    // ---- legacy single-kind shape (plan 001 P3 deletes this half) ----
+    // Still authoritative: the resolver and query filter read these until P3 moves over.
+    // Kept alongside the composed shape below so P2 changes no behaviour and the migration
+    // can be validated against today's semantics rather than a moving baseline.
+
     public DataScopeKind ScopeKind { get; set; } = DataScopeKind.None;
 
     /// <summary>For <see cref="DataScopeKind.Sites"/>: also include descendant sites.</summary>
@@ -26,7 +31,46 @@ public sealed class SecurityGroup : AuditableEntity
 
     public List<SecurityGroupSite> Sites { get; set; } = [];
     public List<SecurityGroupDepartment> Departments { get; set; } = [];
+
+    // ---- composed shape (plan 001) ----
+
+    /// <summary>
+    /// What this group grants. <see cref="ScopeRuleKind.Constrained"/> means "every constraint
+    /// in <see cref="Constraints"/> must hold" — an intersection.
+    /// </summary>
+    public ScopeRuleKind RuleKind { get; set; } = ScopeRuleKind.None;
+
+    /// <summary>
+    /// One row per dimension this group narrows on. Absent dimension = unconstrained;
+    /// present with zero values = matches nobody. That inversion of legacy's fail-open
+    /// is the point, so it must survive persistence.
+    /// </summary>
+    public List<SecurityGroupConstraint> Constraints { get; set; } = [];
+
     public List<UserSecurityGroup> Members { get; set; } = [];
+}
+
+/// <summary>One dimension's constraint on a group. Values live in the child table.</summary>
+public sealed class SecurityGroupConstraint
+{
+    public Guid SecurityGroupId { get; set; }
+    public ScopeDimension Dimension { get; set; }
+
+    /// <summary>
+    /// Expand <see cref="Values"/> to descendants at resolution time (site trees).
+    /// Per-dimension rather than per-group: legacy's single OR'd <c>IncludeChildSites</c> flag
+    /// let one group's setting expand a different group's sites.
+    /// </summary>
+    public bool IncludeDescendants { get; set; }
+
+    public List<SecurityGroupConstraintValue> Values { get; set; } = [];
+}
+
+public sealed class SecurityGroupConstraintValue
+{
+    public Guid SecurityGroupId { get; set; }
+    public ScopeDimension Dimension { get; set; }
+    public Guid ValueId { get; set; }
 }
 
 public sealed class SecurityGroupSite

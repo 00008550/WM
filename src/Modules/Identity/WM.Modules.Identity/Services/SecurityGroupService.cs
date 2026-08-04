@@ -52,6 +52,11 @@ public sealed class SecurityGroupService(IdentityDbContext db)
             Departments = request.DepartmentIds.Distinct().Select(id => new SecurityGroupDepartment { DepartmentId = id }).ToList(),
         };
 
+        // Write the composed shape alongside the legacy one so groups created after this portion
+        // are not left behind by the migration. The legacy pair stays authoritative until P3.
+        (group.RuleKind, group.Constraints) = LegacyScopeMapping.FromLegacy(
+            request.ScopeKind, request.IncludeChildSites, request.SiteIds, request.DepartmentIds);
+
         db.SecurityGroups.Add(group);
         await db.SaveChangesAsync(ct);
         return GroupMutationResult.Ok(group.Id);
@@ -61,6 +66,7 @@ public sealed class SecurityGroupService(IdentityDbContext db)
     {
         var group = await db.SecurityGroups
             .Include(g => g.Sites).Include(g => g.Departments)
+            .Include(g => g.Constraints).ThenInclude(c => c.Values)
             .FirstOrDefaultAsync(g => g.Id == id, ct);
         if (group is null)
             return GroupMutationResult.Fail("Group not found.");
@@ -83,6 +89,17 @@ public sealed class SecurityGroupService(IdentityDbContext db)
                 group.Sites.Add(new SecurityGroupSite { SecurityGroupId = id, SiteId = siteId });
             foreach (var departmentId in request.DepartmentIds.Distinct())
                 group.Departments.Add(new SecurityGroupDepartment { SecurityGroupId = id, DepartmentId = departmentId });
+
+            group.Constraints.Clear();
+            var (ruleKind, constraints) = LegacyScopeMapping.FromLegacy(
+                request.ScopeKind, request.IncludeChildSites, request.SiteIds, request.DepartmentIds);
+            group.RuleKind = ruleKind;
+            foreach (var constraint in constraints)
+            {
+                constraint.SecurityGroupId = id;
+                foreach (var value in constraint.Values) value.SecurityGroupId = id;
+                group.Constraints.Add(constraint);
+            }
         }
         group.Description = request.Description.Trim();
         group.UpdatedAt = DateTimeOffset.UtcNow;

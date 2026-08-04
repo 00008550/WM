@@ -57,11 +57,24 @@ public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> option
             e.Property(x => x.Description).HasMaxLength(512);
             e.HasMany(x => x.Sites).WithOne().HasForeignKey(x => x.SecurityGroupId);
             e.HasMany(x => x.Departments).WithOne().HasForeignKey(x => x.SecurityGroupId);
+            e.HasMany(x => x.Constraints).WithOne().HasForeignKey(x => x.SecurityGroupId);
             e.HasMany(x => x.Members).WithOne(x => x.SecurityGroup).HasForeignKey(x => x.SecurityGroupId);
         });
 
         b.Entity<SecurityGroupSite>().HasKey(x => new { x.SecurityGroupId, x.SiteId });
         b.Entity<SecurityGroupDepartment>().HasKey(x => new { x.SecurityGroupId, x.DepartmentId });
+
+        b.Entity<SecurityGroupConstraint>(e =>
+        {
+            // One constraint per dimension per group — a group cannot narrow the same axis twice.
+            e.HasKey(x => new { x.SecurityGroupId, x.Dimension });
+            e.HasMany(x => x.Values)
+                .WithOne()
+                .HasForeignKey(x => new { x.SecurityGroupId, x.Dimension });
+        });
+
+        b.Entity<SecurityGroupConstraintValue>()
+            .HasKey(x => new { x.SecurityGroupId, x.Dimension, x.ValueId });
 
         b.Entity<UserSecurityGroup>(e =>
         {

@@ -86,6 +86,9 @@ public sealed class IdentitySeeder(
             IsSystem = true,
             ScopeKind = DataScopeKind.All,
         };
+        // Write both shapes. The legacy pair stays authoritative until plan 001 P3.
+        (allEmployees.RuleKind, allEmployees.Constraints) = Services.LegacyScopeMapping.FromLegacy(
+            allEmployees.ScopeKind, allEmployees.IncludeChildSites, [], []);
         allEmployees.Members.Add(new UserSecurityGroup { UserId = admin.Id, SecurityGroupId = allEmployees.Id });
 
         db.Roles.AddRange(adminRole, managerRole, employeeRole);
