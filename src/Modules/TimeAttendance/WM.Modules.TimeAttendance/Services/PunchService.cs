@@ -55,7 +55,7 @@ public sealed class PunchService(
         await db.SaveChangesAsync(ct);
 
         await eventStream.PublishAsync(EventTopics.Punches, employee.Code, new PunchRecorded(
-            punch.Id, employee.Id, employee.Code, employee.FullName, employee.SiteId,
+            punch.Id, employee.Id, employee.Code, employee.FullName, employee.SiteId, employee.DepartmentId,
             punch.Timestamp, punch.Direction.ToString(), punch.Source.ToString()), ct);
 
         return new PunchResult(punch, null);

@@ -222,5 +222,5 @@ internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver s
         db.Employees.AsNoTracking().WithinScope(scope);
 
     private static readonly System.Linq.Expressions.Expression<Func<Employee, EmployeeSummary>> Summary =
-        e => new EmployeeSummary(e.Id, e.Code, e.FirstName + " " + e.LastName, e.JobTitle, e.SiteId);
+        e => new EmployeeSummary(e.Id, e.Code, e.FirstName + " " + e.LastName, e.JobTitle, e.SiteId, e.DepartmentId);
 }

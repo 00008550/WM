@@ -24,11 +24,15 @@ Findings: [`../PHASE-AUDIT.md`](../PHASE-AUDIT.md). Headline:
 
 ## Active plan
 
-**003 — Enforcement gaps** (`003-enforcement-gaps.md`) — `approved` 2026-08-04, all 4 portions,
-and **ordered ahead of 001 P3 by the user**. A1 and A2 are defects in running code; 001 P3
+**003 — Enforcement gaps** (`003-enforcement-gaps.md`) — `in-progress`, approved 2026-08-04, all 4
+portions, and **ordered ahead of 001 P3 by the user**. A1 and A2 are defects in running code; 001 P3
 corrects a model no endpoint consults yet. Fix what is bleeding first.
 
-**Next portion:** 003 P1 — scope the realtime punch feed.
+**P1 passed review 2026-08-05 and is open as [#18](https://github.com/00008550/WM/pull/18)** — A1 is
+closed: the punch feed addresses scope groups instead of broadcasting, the hub requires
+`attendance.view`, and a scope change re-groups the user's open sockets within the session.
+
+**Next portion:** 003 P2 — fail closed by default, and scope the writes (A2).
 
 **001 — Compositional data scope** (`001-compositional-data-scope.md`) — `in-progress`, paused
 after P2. Approved by user 2026-08-03, all 5 portions. **P3, P4 and P5 were amended in place by
@@ -46,7 +50,7 @@ P3 changes resolution, or the regression test asserts a number nobody produced.
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 003 | Enforcement gaps found by the phase audit | 4 (P1 next) | **approved — active** |
+| 003 | Enforcement gaps found by the phase audit | 4 (P1 done, P2 next) | **in-progress — active** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, P3 next) | in-progress, paused after P2 |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
 
@@ -70,13 +74,14 @@ Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`
 | — | .NET 10 LTS, EF Core 10, Angular 22 | [#14](https://github.com/00008550/WM/pull/14) | ✅ merged to master |
 | — | coverage audit | [#15](https://github.com/00008550/WM/pull/15) | ✅ merged to master |
 | 001 | P2 — persist composed scope + migrate | [#16](https://github.com/00008550/WM/pull/16) | ✅ merged to master (`a9fdcc3`) |
-| — | phase audit + plan 003 + doc corrections | [#17](https://github.com/00008550/WM/pull/17) | open |
+| — | phase audit + plan 003 + doc corrections | [#17](https://github.com/00008550/WM/pull/17) | ✅ merged to master (`2557921`) |
+| 003 | P1 — scope the realtime punch feed | [#18](https://github.com/00008550/WM/pull/18) | open — reviewed and passed 2026-08-05 |
 
 ## In flight
 
 | PR | What | Status |
 |---|---|---|
-| [#17](https://github.com/00008550/WM/pull/17) | phase audit, plan 003, doc corrections | open — must land before 003 P1's PR |
+| [#18](https://github.com/00008550/WM/pull/18) | 003 P1 — scoped punch feed, hub permission, in-session scope revocation | open — review passed round 2, targets `master` |
 
 `docs/scope-model-corrections` is fully contained in `master` and can be deleted. See the
 stacking note in `CLAUDE.md` → Git for why #11 went astray.

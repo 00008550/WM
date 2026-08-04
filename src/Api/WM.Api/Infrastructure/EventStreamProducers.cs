@@ -2,6 +2,7 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.AspNetCore.SignalR;
 using WM.Api.Realtime;
+using WM.Modules.TimeAttendance.Contracts;
 using WM.SharedKernel.Events;
 
 namespace WM.Api.Infrastructure;
@@ -73,6 +74,10 @@ public sealed class KafkaEventStreamProducer : IEventStreamProducer, IDisposable
 ///
 /// Both legs are non-blocking and non-throwing. Once a punch is persisted the
 /// user's request must succeed — fan-out is a side effect, never a dependency.
+///
+/// The SignalR leg is <b>scoped</b>: it addresses the groups the punched employee belongs to,
+/// not every connected client. Kafka is unfiltered on purpose — it is the durable estate-wide
+/// stream that workers and connectors read, and it has no browser on the other end.
 /// </summary>
 public sealed class BroadcastingEventStreamProducer(
     KafkaEventStreamProducer kafka,
@@ -101,21 +106,37 @@ public sealed class BroadcastingEventStreamProducer(
         if (topic != EventTopics.Punches)
             return;
 
+        // Addressed, never broadcast. The groups come from the *punched employee's* own site,
+        // department and identity; a connection is in one of them only if its user's resolved
+        // scope contains that employee (AttendanceScopeGroups). This is the realtime half of the
+        // rule PunchService already applies to GET /api/punches/recent — "the feed would leak the
+        // existence and movements of out-of-scope staff" — which the realtime leg used to ignore.
+        if (@event is not PunchRecorded punch)
+        {
+            // An unrecognised payload on the punch topic has no audience rule, so it gets no
+            // audience. Falling back to everyone is the defect this portion exists to remove.
+            logger.LogWarning("Event of type {EventType} on {Topic} has no realtime audience rule; not pushed",
+                typeof(TEvent).Name, topic);
+            return;
+        }
+
+        var audience = AttendanceScopeGroups.ForSubject(punch.EmployeeId, punch.SiteId, punch.DepartmentId);
+
         try
         {
             // Not linked to the request token: the caller's response may already have
-            // been sent, and cancelling the broadcast for that reason is not useful.
+            // been sent, and cancelling the push for that reason is not useful.
             using var cts = new CancellationTokenSource(BroadcastTimeout);
-            await hub.Clients.All.SendAsync("punchRecorded", @event, cts.Token);
+            await hub.Clients.Groups(audience).SendAsync("punchRecorded", @event, cts.Token);
         }
         catch (OperationCanceledException)
         {
-            logger.LogWarning("Realtime broadcast timed out after {Timeout}s; clients will refresh on poll",
+            logger.LogWarning("Realtime push timed out after {Timeout}s; clients will refresh on poll",
                 BroadcastTimeout.TotalSeconds);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Realtime broadcast failed; clients will refresh on poll");
+            logger.LogWarning(ex, "Realtime push failed; clients will refresh on poll");
         }
     }
 }

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- WM.Api resolves Relational to 10.0.10 (via EntityFrameworkCore.Design, which is
+         PrivateAssets=all and so does not flow here), while Npgsql 10.0.3 asks for 10.0.4.
+         Without this pin the test host binds the older assembly and MSB3277 warns on every
+         build. Pinned to the version the host is actually compiled against. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WM.Api\WM.Api.csproj" />
+  </ItemGroup>
+
+</Project>

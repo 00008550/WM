@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog;
 using WM.Api.Infrastructure;
 using WM.Api.Realtime;
@@ -10,6 +11,7 @@ using WM.Modules.TimeAttendance;
 using WM.Modules.TimeAttendance.Data;
 using WM.SharedKernel.Events;
 using WM.SharedKernel.Modules;
+using WM.SharedKernel.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,7 +31,16 @@ foreach (var module in modules)
     module.RegisterServices(builder.Services, builder.Configuration);
 
 builder.Services.AddScoped<WM.Api.Infrastructure.DemoUserSeeder>();
+
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<AttendanceConnectionRegistry>();
+builder.Services.AddSingleton<AttendanceAudience>();
+// This host is the one that pushes live data, so it is the one that has to act on a scope
+// change. Replace rather than Add: the Identity module registers a no-op default so it works in
+// hosts with no live transport, and two registrations of the same interface would leave which
+// one wins depending on registration order.
+builder.Services.Replace(ServiceDescriptor.Singleton<IScopeChangeNotifier>(
+    sp => sp.GetRequiredService<AttendanceAudience>()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
@@ -62,7 +73,11 @@ app.UseAuthorization();
 foreach (var module in modules)
     module.MapEndpoints(app);
 
-app.MapHub<AttendanceHub>("/hubs/attendance");
+// The hub is a transport like any endpoint, and it gets a permission policy like any endpoint.
+// The [Authorize] attribute on the hub class says the same thing; both are kept because the
+// audit found this leak by reading the two places independently and finding neither.
+app.MapHub<AttendanceHub>("/hubs/attendance")
+    .RequireAuthorization(WmPermissions.AttendanceView);
 app.MapHealthChecks("/health");
 
 // Bootstrap. Schema migration runs in every environment — on-prem installs
