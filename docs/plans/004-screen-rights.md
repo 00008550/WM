@@ -4,14 +4,17 @@ Status: draft            <!-- draft → approved → in-progress → in-review �
 Roadmap: ARCHITECTURE.md §14 Phase 1b — Access model. Plan 001 is the *scope* half, plan 003 the
 *enforcement* half; this is the *screen rights* half, which both explicitly excluded.
 
-> ### ⛔ Not approvable yet — it depends on a decision only the user can make.
-> `ARCHITECTURE.md` §4 says groups carry per-screen rights **and** scope in one object, "mirroring
-> TLW, where `/Groups` edits a role holding both". The 2026-08-05 survey confirmed the one-object
-> half and **refuted the union half** — see
-> [`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md) §13, options **A** and **B**.
-> Every portion below is written for **option A** (one group per user, rights and scope in one
-> object). Under **option B** P1–P3 survive with a different resolution step; §"If the user picks
-> B" says exactly what changes. Do not build any portion before the ruling.
+> ### ✅ The blocking decision has been taken — **option A**, user, 2026-08-05.
+> One object, one membership: a security group carries screen rights, data scope, a mode
+> (`Normal` / `SelfOnly`) and `CanEditOwnRecord`, and a user belongs to exactly one.
+> `ARCHITECTURE.md` §4 has been rewritten to match. The portions below were already written for
+> option A and stand as drafted; the §"If the user picks B" section is retained only as a record
+> of the path not taken and should be deleted when this plan is next revised.
+>
+> **Still `draft`, and still not executable**, for a different reason: option A requires the
+> one-membership refactor (`User.Roles` → `User.SecurityGroupId`, the JWT claim shape, both
+> seeders, `DataScopeResolver`) which is *not* in this plan. That work must land first — it is
+> the prerequisite for both this plan and the rewrite of 001 P3.
 
 Legacy sources surveyed (all read in full unless noted):
 - `E:\Tlw\Source\WebSite\Controllers\Security\GroupsController.cs` (845 lines)

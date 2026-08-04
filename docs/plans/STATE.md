@@ -54,11 +54,24 @@ Headline, all measured with `file:line`:
   code comments (`ScopeModel.cs:223`, `SecurityGroupEndpoints.cs:61`) need a one-line fix from
   whichever portion next touches those files.
 
-**One decision is now waiting on the user** — `TLW-AUTHORIZATION-MODEL.md` §13–§14: adopt TLW's
-model **fully** (one object *and* one group per user, option **A**, recommended) or keep WM's
-multi-membership and write down the two precedence rules legacy never needed (option **B**).
-The concrete §4 replacement text is drafted for A. **§4 itself was not edited** — it is a design
-section, so the change is a proposal.
+### Decisions taken (user, 2026-08-05)
+
+1. **Option A — one object, one membership.** A security group carries screen rights, data scope,
+   a mode (`Normal` / `SelfOnly`) and `CanEditOwnRecord`; a user belongs to exactly one, non-null.
+   `ARCHITECTURE.md` §4 **has been rewritten** to match, including *why* exclusivity is part of the
+   design rather than an accident of it. Plan 004's ⛔ block is cleared.
+2. **Adopt `CanEditOwnRecord`** (legacy `CanModifySelf`): a user may see their own record without
+   being able to edit it. 003 P2b already carries the named seam for it.
+
+**What A costs, and what it does not.** 001 P1/P2 survive intact — intersection-within-a-group is
+still the right shape and is shipped under test. What dies is the *union across groups*: D2, and
+with it 001 P3's premise. P3 must be **rewritten smaller**, not amended. `003 P1`'s
+`AttendanceAudience` simplifies but is not wrong.
+
+**The prerequisite nobody has planned yet:** the one-membership refactor — `User.Roles` →
+`User.SecurityGroupId`, the JWT claim shape, `IdentitySeeder` + `DemoUserSeeder`,
+`DataScopeResolver` collapsing to a lookup, and the users screen. It blocks both plan 004 and the
+001 P3 rewrite, and it needs a plan of its own. **Next survey job.**
 
 ## Active plan
 
