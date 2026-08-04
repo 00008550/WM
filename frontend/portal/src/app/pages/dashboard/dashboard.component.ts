@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Subject, auditTime } from 'rxjs';
@@ -19,6 +19,7 @@ interface FeedEntry {
 @Component({
   selector: 'wm-dashboard',
   imports: [DatePipe, FormsModule, IconComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-6xl">
       <header class="flex items-baseline justify-between rise" style="--i: 0">

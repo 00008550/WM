@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
@@ -10,6 +10,7 @@ import { IconComponent } from '../../core/ui/icon.component';
 @Component({
   selector: 'wm-security-groups',
   imports: [FormsModule, IconComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-5xl">
       <header class="flex items-end justify-between gap-4 flex-wrap rise" style="--i: 0">

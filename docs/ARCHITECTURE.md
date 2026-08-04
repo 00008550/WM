@@ -85,8 +85,8 @@ All containerized (Docker Compose for dev, Kubernetes-ready for prod). **Object 
 
 | Concern | Choice |
 |---|---|
-| Backend | .NET 9, C# 13, ASP.NET Core Minimal APIs, module system (`IModule`) |
-| ORM | EF Core 9 + Npgsql; Dapper for hot read paths |
+| Backend | **.NET 10 (LTS)**, C# 14, ASP.NET Core Minimal APIs, module system (`IModule`) |
+| ORM | **EF Core 10** + Npgsql. **No Dapper** — see §14 decision 4; raw SQL where measured, via `FromSql`/`SqlQuery<T>`/`ExecuteUpdate` |
 | Database | **PostgreSQL 17** (schema per module) |
 | Object storage | MinIO (dev) / S3 or Azure Blob (prod) — documents, exports, report output |
 | Cache / realtime backplane | Redis |
@@ -100,7 +100,13 @@ All containerized (Docker Compose for dev, Kubernetes-ready for prod). **Object 
 | Observability | OpenTelemetry, Serilog |
 | CI/CD | GitHub Actions, Docker, Trivy scans |
 
-> Node note: dev box is Node 20.17, so Angular 19 until Node ≥20.19 unlocks Angular 20.
+> **Runtime support (2026-08-04):** .NET 9 is STS and its support window closed around May 2026.
+> WM ships **on-prem to customer servers**, where upgrades are infrequent and outside our control,
+> so an unsupported runtime is not acceptable. .NET 10 is LTS with a 3-year window that matches the
+> deployment model. The dev box already carries SDK 10.0.302 / runtime 10.0.10.
+>
+> Node note: dev box is Node **24.18**, so no Angular ceiling. (The old "Node 20.17 limits us to
+> Angular 19" note is obsolete.)
 
 ---
 

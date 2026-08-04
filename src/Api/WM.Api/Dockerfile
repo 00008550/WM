@@ -1,5 +1,5 @@
 # WM API — build from the repo root:  docker build -f src/Api/WM.Api/Dockerfile .
-FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
 # Restore first so the layer caches on source-only changes.
@@ -15,7 +15,7 @@ RUN dotnet restore src/Api/WM.Api/WM.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/Api/WM.Api/WM.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 
 # Alpine ships without ICU. WM is multi-language (localisation is a first-class

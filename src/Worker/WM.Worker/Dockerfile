@@ -1,5 +1,5 @@
 # WM Worker — build from the repo root:  docker build -f src/Worker/WM.Worker/Dockerfile .
-FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
 COPY nuget.config Directory.Build.props ./
@@ -13,7 +13,7 @@ RUN dotnet publish src/Worker/WM.Worker/WM.Worker.csproj -c Release -o /app --no
 
 # Plugins are mounted at runtime (see compose), not baked into the image, so a
 # customer can add a payroll/connector plugin without rebuilding.
-FROM mcr.microsoft.com/dotnet/runtime:9.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine AS runtime
 WORKDIR /app
 
 # ICU + tzdata: payroll periods and schedules are timezone- and culture-sensitive.

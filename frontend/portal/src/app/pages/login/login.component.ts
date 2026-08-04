@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
@@ -6,6 +6,7 @@ import { AuthService } from '../../core/auth/auth.service';
 @Component({
   selector: 'wm-login',
   imports: [FormsModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
       <!-- brand panel: the pulse, before you even log in -->
