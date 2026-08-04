@@ -127,7 +127,7 @@ so P2's migration can be validated against today's semantics rather than a movin
 sees both), empty-dimension-matches-nothing, null-discriminator-never-widens, unknown → empty.
 **Risk:** low — no callers yet.
 
-### [ ] P2 — Persist composed scope + migrate existing groups
+### [x] P2 — Persist composed scope + migrate existing groups
 **Touches:** `Identity/Domain/SecurityGroup.cs`, `IdentityDbContext`, new migration, `IdentitySeeder`
 **Done when:** a group persists multiple dimension constraints; the migration maps every
 existing row to its exact current meaning (`ScopeKind = Sites` → a Site dimension with the same

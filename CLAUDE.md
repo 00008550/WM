@@ -56,7 +56,7 @@ cd frontend/portal && npm run build
 cd frontend/portal && npm run test       # ng test
 ```
 
-**Test coverage is thin — check what actually ran.** `src/SharedKernel/WM.SharedKernel.Tests/` (xUnit) is currently the only test project. A green `dotnet test` therefore proves very little about a module. When a slice adds behaviour to a module that has no test project, create `src/<Area>/<Area>.Tests/` and wire it into `WM.sln`; never report tests as passing for code that has none.
+**Test coverage is thin — check what actually ran.** `src/SharedKernel/WM.SharedKernel.Tests/` and `src/Modules/Identity/WM.Modules.Identity.Tests/` (xUnit) are currently the only test projects. A green `dotnet test` therefore proves very little about a module. When a slice adds behaviour to a module that has no test project, create `src/<Area>/<Area>.Tests/` and wire it into `WM.sln`; never report tests as passing for code that has none.
 
 For UI work, run the portal via preview_start (`.claude/launch.json` → `portal`, port 4200) and verify in the browser. Never ask the user to check manually.
 
