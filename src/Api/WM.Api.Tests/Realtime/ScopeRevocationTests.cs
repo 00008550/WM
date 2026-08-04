@@ -16,6 +16,7 @@ public sealed class ScopeRevocationTests
     private static readonly Guid SiteA = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid SiteB = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Manager = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid Colleague = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000007");
     private const string Connection = "conn-manager";
 
     private sealed class Harness
@@ -112,6 +113,57 @@ public sealed class ScopeRevocationTests
         await harness.Audience.SubscribeAsync(Connection, Manager);
 
         Assert.Equal(2, harness.Hub.GroupManager.GroupsOf(Connection).Count);
+    }
+
+    [Fact]
+    public async Task Two_overlapping_re_groupings_of_one_socket_do_not_interleave()
+    {
+        var harness = new Harness();
+        harness.Scopes[Manager] = AttendanceScopeGroupTests.Sites(SiteA);
+
+        // Hold the first call at the moment it has computed its delta and is applying it. That
+        // window — registry already says "site A", socket has not joined it yet — is where a
+        // second, unserialized call diffs against a state the socket is not actually in.
+        var pause = harness.Hub.GroupManager.PauseNextJoin();
+        var first = harness.Audience.SubscribeAsync(Connection, Manager);
+        await pause.Reached;
+
+        // An administrator moves them to site B while the first call is mid-apply.
+        harness.Scopes[Manager] = AttendanceScopeGroupTests.Sites(SiteB);
+        var second = harness.Audience.SubscribeAsync(Connection, Manager);
+
+        pause.Release();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        // The socket ends in the last-resolved scope's groups and nothing else. Unserialized it
+        // ends in *both* sites: the second call's "leave site A" runs before the first call's
+        // "join site A", so it undoes a join that has not happened yet and site A sticks — a
+        // connection sitting in a group it should have left, which is exactly A1's leak.
+        Assert.Equal(new[] { AttendanceScopeGroups.Site(SiteB) }, harness.Hub.GroupManager.GroupsOf(Connection));
+        Assert.Equal(new[] { AttendanceScopeGroups.Site(SiteB) }, harness.Registry.GroupsFor(Connection));
+    }
+
+    [Fact]
+    public async Task One_stalled_socket_does_not_hold_up_another_connections_re_grouping()
+    {
+        var harness = new Harness();
+        harness.Scopes[Manager] = AttendanceScopeGroupTests.Sites(SiteA);
+        harness.Scopes[Colleague] = AttendanceScopeGroupTests.Sites(SiteB);
+
+        var pause = harness.Hub.GroupManager.PauseNextJoin();
+        var stalled = harness.Audience.SubscribeAsync(Connection, Manager);
+        await pause.Reached;
+
+        // The critical section is per connection. A single lock over the audience would fix the
+        // race above by turning one socket's database round trip into a stall for every other
+        // socket, so this asserts the cure is not worse than the disease.
+        await harness.Audience.SubscribeAsync("conn-colleague", Colleague).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(
+            new[] { AttendanceScopeGroups.Site(SiteB) },
+            harness.Hub.GroupManager.GroupsOf("conn-colleague"));
+
+        pause.Release();
+        await stalled.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]

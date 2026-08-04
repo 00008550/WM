@@ -51,33 +51,81 @@ internal sealed record Delivery(string ConnectionId, string Method, object?[] Ar
 internal sealed class FakeGroupManager : IGroupManager
 {
     private readonly Dictionary<string, HashSet<string>> _groups = new(StringComparer.Ordinal);
+    // The concurrency tests drive two callers at once, so the bookkeeping needs its own lock —
+    // otherwise the fake, not the code under test, is what fails intermittently.
+    private readonly object _sync = new();
+    private AddPause? _pause;
 
-    public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+    public async Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
     {
-        if (!_groups.TryGetValue(groupName, out var members))
-            _groups[groupName] = members = new HashSet<string>(StringComparer.Ordinal);
-        members.Add(connectionId);
-        return Task.CompletedTask;
+        if (Interlocked.Exchange(ref _pause, null) is { } pause)
+            await pause.EnterAsync();
+
+        lock (_sync)
+        {
+            if (!_groups.TryGetValue(groupName, out var members))
+                _groups[groupName] = members = new HashSet<string>(StringComparer.Ordinal);
+            members.Add(connectionId);
+        }
     }
 
     public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
     {
-        if (_groups.TryGetValue(groupName, out var members))
-            members.Remove(connectionId);
+        lock (_sync)
+        {
+            if (_groups.TryGetValue(groupName, out var members))
+                members.Remove(connectionId);
+        }
         return Task.CompletedTask;
     }
 
-    public IReadOnlyCollection<string> Members(string groupName) =>
-        _groups.TryGetValue(groupName, out var members) ? [.. members] : [];
+    public IReadOnlyCollection<string> Members(string groupName)
+    {
+        lock (_sync)
+            return _groups.TryGetValue(groupName, out var members) ? [.. members] : [];
+    }
 
     /// <summary>Every group this connection is in — the server-side view of its audience.</summary>
-    public IReadOnlyCollection<string> GroupsOf(string connectionId) =>
-        [.. _groups.Where(g => g.Value.Contains(connectionId)).Select(g => g.Key)];
+    public IReadOnlyCollection<string> GroupsOf(string connectionId)
+    {
+        lock (_sync)
+            return [.. _groups.Where(g => g.Value.Contains(connectionId)).Select(g => g.Key)];
+    }
 
     internal IEnumerable<string> Expand(IReadOnlyList<string> groupNames) =>
         // Deliberately not de-duplicated across groups: this is what SignalR's default lifetime
         // manager does, so a connection in two addressed groups really would be sent two copies.
         groupNames.SelectMany(Members);
+
+    /// <summary>
+    /// Suspends the <i>next</i> join, so a test can hold one caller mid-apply and let a second
+    /// one run into it. That window — between "the delta was computed" and "the delta was
+    /// applied" — is the one where an unserialized re-group corrupts a connection's audience,
+    /// and it cannot be hit reliably by starting threads and hoping.
+    /// </summary>
+    internal AddPause PauseNextJoin()
+    {
+        var pause = new AddPause();
+        Interlocked.Exchange(ref _pause, pause);
+        return pause;
+    }
+}
+
+/// <summary>A single suspended join: <see cref="Reached"/> completes when a caller hits it.</summary>
+internal sealed class AddPause
+{
+    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task Reached => _reached.Task;
+
+    public void Release() => _released.TrySetResult();
+
+    internal Task EnterAsync()
+    {
+        _reached.TrySetResult();
+        return _released.Task;
+    }
 }
 
 internal sealed class FakeHubClients(FakeGroupManager groups) : IHubClients
