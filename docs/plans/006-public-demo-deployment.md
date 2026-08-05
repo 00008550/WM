@@ -1,6 +1,8 @@
 # 006 — A public demo, kept current by CI/CD
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: approved         <!-- draft → approved → in-progress → in-review → merged -->
+Approved by user 2026-08-06, all 7 portions. **P2 and P3 are ordered ahead of 003 P2b** — they fix
+defects in shipped code and are worth having whether or not a demo ever exists.
 Roadmap: ARCHITECTURE.md §13A — *"Consequence: rollout tooling is a first-class deliverable"*
 (`:683-692`), the running workstream named in §14 `:505`. This is its first instalment, and the
 demo box is the first WM deployment that runs unattended.
