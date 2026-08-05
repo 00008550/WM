@@ -31,8 +31,16 @@ on top of it. This is the cheapest it will ever be to fix.
 `ManagedDepartments`, `ManagedLocations`, `ManagedBuildings`, `ManagedWorkingActivities`,
 `ManagedCostCentres`, `ManagedCaterers` (EPOS — dropped vertical), plus `ManagedEmployees`.
 Buildings / working activities / cost centres are read by *other* call sites, so enforcement
-is scattered across the codebase rather than centralised — which is precisely why legacy
-needed `DataAccessScopeDiagnostics` to explain its own decisions.
+is scattered across the codebase rather than centralised.
+
+> **Correction 2026-08-05.** This paragraph used to end *"— which is precisely why legacy needed
+> `DataAccessScopeDiagnostics` to explain its own decisions."* **That is false.**
+> `DataAccessScopeDiagnostics` is `DataContext` create/dispose accounting for connection leaks
+> (`Logic/DAL/DataContextTracking/DataAccessScopeDiagnostics.cs:10-55`;
+> `DataAccessScopeDiagnosticsController.cs:70-87` renders `ActiveScopes`, `TotalDisposalErrors`,
+> `AutoDisposalRate`). Legacy ships **no** tool that explains an access decision. The scatter is
+> real and centralising it is still right; the cited evidence was not.
+> See [`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md) §11 C2.
 
 **Three fail-open behaviours, all deliberate in legacy, all to be rejected in WM:**
 
@@ -137,7 +145,34 @@ resolves to the identical employee set post-migration.
 **Risk:** **high** — this is the one that can silently widen access. Reviewer should treat any
 row whose post-migration employee set differs from its pre-migration set as a blocking finding.
 
-### [ ] P3 — Resolver + query filter honour the composed rule
+### [ ] P3 — Resolver + query filter honour the composed rule  ·  ⛔ **ON HOLD**
+
+> **Blocked 2026-08-05 by the authorization survey. Do not build this portion yet.**
+> [`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md)
+>
+> P3's central act is **union across a user's groups**. The survey measured that
+> **legacy has no union, because a legacy user belongs to exactly one group**:
+> `GetUserRole` is `SingleOrDefault` (`AuthorizationService.cs:1265-1280`), the resolution cache
+> is `Dictionary<userId, roleId>` (`:773-786`), and `AddUserToRole` **deletes the existing
+> assignment before inserting the new one** (`:1008-1041`). The "several groups, union, mirroring
+> TLW" sentence in `ARCHITECTURE.md` §4 — which this portion implements — describes a model TLW
+> does not have. WM's multi-membership is a WM choice that was never made deliberately.
+>
+> That decision (`TLW-AUTHORIZATION-MODEL.md` §13, option **A** one-group-per-user vs option **B**
+> multi-membership with explicit precedence) determines whether P3 exists at all:
+> - Under **A**, P3 shrinks to "resolve one group's constraints" — no union, no cross-group
+>   leakage, and `IsSelfOnly` becomes a group *mode* rather than something a union must be taught
+>   to lose to. The three sanctioned deviations below mostly evaporate.
+> - Under **B**, P3 proceeds broadly as written, **but must additionally encode two precedence
+>   rules the plan does not currently have**: a `SelfOnly` group collapses the union (legacy's
+>   `IsSelfOnly` short-circuit, `AuthorizationService.cs:220-224, 236-240, 275-279`), and screen
+>   rights — when they arrive — resolve **deny-over-allow**, not most-permissive-wins
+>   (`AuthorizationService.cs:695-718`).
+>
+> **The user's approval of this plan stands; it is the model underneath the portion that is now
+> in question.** Nothing here is unapproved unilaterally — it is paused pending a ruling that
+> only the user can give.
+
 **Touches:** `Identity/Services/DataScopeResolver.cs`, `People/Services/EmployeeScopeExtensions.cs`,
 `SecurityGroupService`
 **Done when:** `WithinScope()` applies intersection within a group and union across groups;
@@ -191,6 +226,22 @@ intersecting correctly with the other dimensions.
 **Tests:** employee-list scope; employee-list ∩ site; a group whose employee list is empty
 matches nobody (the fourth fail-open, `RoleBasedEmployeeFilterService.cs:50`).
 **Risk:** low–medium — no new entity now that Building is out.
+
+> **Amended 2026-08-05 by the authorization survey — "intersecting correctly with the other
+> dimensions" has no legacy analogue, and that is fine, but say so.**
+> Legacy's two management types are **mutually exclusive, enforced on save**:
+> `UpdateRole` wipes `managedEmployees` when the type is `ByDepartments`, and wipes
+> `managedDepartments` **and** `managedLocations` when it is `ByEmployees`
+> (`AuthorizationService.cs:872-883`). The SQL agrees — `dbo.EmployeeIdsManagedByRole` takes one
+> branch or the other, never both (`80.V5.26.0.0.sql:895-931`). A legacy role therefore **cannot**
+> say "the Warehouse department *and also* these three named contractors".
+>
+> WM's intersecting employee-list dimension is a genuine **Improve**, not a port. Two consequences
+> for the builder:
+> 1. There is **no legacy behaviour to preserve** for employee-list ∩ site. Choose the semantics
+>    deliberately and test them; do not look for a precedent.
+> 2. The migration story is trivial in the other direction: any legacy role maps to *either* a
+>    department/location constraint pair *or* an employee-list constraint, never both.
 
 > **Amended 2026-08-04 by the phase audit — Building is removed from this portion.**
 > The original note hedged ("if Building looks like scope creep at review time, split it out").
@@ -283,3 +334,18 @@ and a migration to P4 — the cost the Building half was going to carry. **User'
 say "this role sees *only* its own record, whatever else it was granted". WM's union cannot
 express a narrowing, by design. The question is whether that configuration is one customers use,
 in which case it needs a home (a group flag, or a role property) rather than a shrug.
+
+> **Reframed 2026-08-05 by the authorization survey.** This question was posed as "can WM's union
+> express a narrowing?" The measured answer is that **the union is the anomaly, not the
+> narrowing**. Legacy needs no narrowing *operator* because a user has one group, so `IsSelfOnly`
+> is simply that group's mode — a lookup, not an override that must defeat other grants
+> (`AuthorizationService.cs:220-224, 236-240, 275-279`).
+>
+> `IsSelfOnly` is unambiguously **live** — six call sites, plus the group editor narrows its own
+> employee picker by it (`GroupsController.cs:616-619`) — and it is how legacy expresses the
+> self-service user. WM needs it. **How** it is expressed depends on the §4 decision, which is now
+> the real open question: `TLW-AUTHORIZATION-MODEL.md` §13.
+>
+> Also settled: `CanModifySelf` is live and is the *only* read/write asymmetry in legacy's record
+> layer (`:281-286`). `IsDepartmentOnly` is **dead** — written, localized, never read. Do not
+> model it.

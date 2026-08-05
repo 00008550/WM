@@ -22,23 +22,86 @@ Findings: [`../PHASE-AUDIT.md`](../PHASE-AUDIT.md). Headline:
 - **21 claims were verified correct** and are listed, so "not mentioned" never again reads as
   "not checked".
 
+## Authorization survey — 2026-08-05
+
+The user's read of the cycle: *"we don't get correct groups and we have only a vague idea about
+groups and what an employee can see and edit."* A focused survey of legacy's **entire**
+authorization surface answered that, and produced
+[`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md) — now the single place that
+question is answered, replacing five partial accounts.
+
+Headline, all measured with `file:line`:
+
+- **`/Groups` edits exactly one `dbo.Role`**, carrying screen rights *and* all seven managed
+  dimensions *and* nav icons, dashboard widgets and exclusions. §4's "one object, mirroring TLW"
+  is **correct**.
+- **A legacy user belongs to exactly one of them.** §4's "several groups, union, mirroring TLW"
+  is **wrong and was never TLW** (`AuthorizationService.cs:1265-1280`, `:773-786`, `:1008-1041`).
+  WM's multi-membership is a WM choice nobody made deliberately.
+- **Screen rights resolve deny-over-allow, default deny** (`:695-718`) — the opposite of the
+  "most permissive wins" WM's docs promise.
+- **`AccessType.Read` vs `.Edit` changes the answer in exactly one case** — your own record under
+  `CanModifySelf = false`. Legacy's read scope *is* its write scope. `AccessType` is not
+  vestigial, but it is nearly so.
+- **`Role.IsDepartmentOnly` is dead** — written, localized, never read. Settled; do not model it.
+- **`dbo.WebPages` is a localization table** and `FormAccess`/`SiteItemPermission` are C# types.
+  The screen-rights store is `dbo.AccessControlEntry`. §13 named the wrong things for three
+  revisions.
+- **Twelve fail-opens in the in-scope surface, not four.**
+- **`DataAccessScopeDiagnostics` has nothing to do with authorization** — it counts
+  `DataContext` disposals to find connection leaks. It was cited in **five** places (three docs,
+  two code comments) as the evidence for two design decisions. Corrected in the docs; the two
+  code comments (`ScopeModel.cs:223`, `SecurityGroupEndpoints.cs:61`) need a one-line fix from
+  whichever portion next touches those files.
+
+### Decisions taken (user, 2026-08-05)
+
+1. **Option A — one object, one membership.** A security group carries screen rights, data scope,
+   a mode (`Normal` / `SelfOnly`) and `CanEditOwnRecord`; a user belongs to exactly one, non-null.
+   `ARCHITECTURE.md` §4 **has been rewritten** to match, including *why* exclusivity is part of the
+   design rather than an accident of it. Plan 004's ⛔ block is cleared.
+2. **Adopt `CanEditOwnRecord`** (legacy `CanModifySelf`): a user may see their own record without
+   being able to edit it. 003 P2b already carries the named seam for it.
+
+**What A costs, and what it does not.** 001 P1/P2 survive intact — intersection-within-a-group is
+still the right shape and is shipped under test. What dies is the *union across groups*: D2, and
+with it 001 P3's premise. P3 must be **rewritten smaller**, not amended. `003 P1`'s
+`AttendanceAudience` simplifies but is not wrong.
+
+**The prerequisite nobody has planned yet:** the one-membership refactor — `User.Roles` →
+`User.SecurityGroupId`, the JWT claim shape, `IdentitySeeder` + `DemoUserSeeder`,
+`DataScopeResolver` collapsing to a lookup, and the users screen. It blocks both plan 004 and the
+001 P3 rewrite, and it needs a plan of its own. **Next survey job.**
+
 ## Active plan
 
-**003 — Enforcement gaps** (`003-enforcement-gaps.md`) — `in-progress`, approved 2026-08-04, all 4
-portions, and **ordered ahead of 001 P3 by the user**. A1 and A2 are defects in running code; 001 P3
-corrects a model no endpoint consults yet. Fix what is bleeding first.
+**003 — Enforcement gaps** (`003-enforcement-gaps.md`) — `in-progress`, approved 2026-08-04, and
+**ordered ahead of 001 P3 by the user**. A1 and A2 are defects in running code; 001 P3 corrects a
+model no endpoint consults yet. Fix what is bleeding first.
 
 **P1 passed review 2026-08-05 and is open as [#18](https://github.com/00008550/WM/pull/18)** — A1 is
 closed: the punch feed addresses scope groups instead of broadcasting, the hub requires
 `attendance.view`, and a scope change re-groups the user's open sockets within the session.
 
-**Next portion:** 003 P2 — fail closed by default, and scope the writes (A2).
+**P2 was split into P2a + P2b on 2026-08-05 at the user's direction** — same scope, two branches.
+The plan now has 5 portions; the approval as given still covers it.
+
+**Next portion:** **003 P2a — fail closed by default** (`FallbackPolicy`). Identity module only,
+correct under every access model, independent of everything below.
+
+**Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
+read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
+is cleared: reuse `WithinScope`, do not invent a write-scope model, and leave a named
+`CanEditOwnRecord` seam for legacy's `CanModifySelf` should the user want it.
 
 **001 — Compositional data scope** (`001-compositional-data-scope.md`) — `in-progress`, paused
-after P2. Approved by user 2026-08-03, all 5 portions. **P3, P4 and P5 were amended in place by
-the audit** (behaviour-change list for P3; Building removed from P4; departments-endpoint
-prerequisite for P5) — no portion was added or removed, and the approval still stands as given.
-Resumes at P3 once 003 P1–P2 have landed.
+after P2. Approved by user 2026-08-03, all 5 portions. **P3 is now ⛔ on hold** — it implements
+union-across-groups, and the survey measured that legacy has no union because it has no
+multi-membership. P3 is not wrong so much as *undecided*: option A shrinks it to a lookup, option
+B keeps it but adds two precedence rules the plan does not have. **P4 was amended** — legacy's
+`ByDepartments` and `ByEmployees` are mutually exclusive on save (`UpdateRole:872-883`), so P4's
+"intersecting with the other dimensions" is a WM improvement with no legacy precedent, which the
+builder needs to know before hunting for one. No portion added or removed; the approval stands.
 
 **⚠️ The baseline in this file was wrong.** It said *"admin sees 40 employees, manager sees 16"*.
 The seeded manager belongs to **no security group** — `DemoUserSeeder.cs` assigns roles and never
@@ -50,18 +113,21 @@ P3 changes resolution, or the regression test asserts a number nobody produced.
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 003 | Enforcement gaps found by the phase audit | 4 (P1 done, P2 next) | **in-progress — active** |
-| 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, P3 next) | in-progress, paused after P2 |
+| 003 | Enforcement gaps found by the phase audit | 5 (P1 done, **P2a next**) | **in-progress — active** |
+| 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⛔ on hold**) | in-progress, paused after P2 |
+| 004 | Screen-level rights (the second half of Phase 1b) | 4 | **draft — not approvable until §4 is decided** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
 host and the People endpoints, 001 touches the resolver and the filter.
+**Reinforced 2026-08-05:** 003 P2a and P2b are correct under either access model, so they can
+proceed while the §4 question is open. 001 P3 cannot.
 
 Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`):
-**004** — tariffs, employee contracts, calculation settings and the counter formula language;
-**005** — per-install configuration (`SoftwareMainOptions`).
-*(Renumbered from 003/004 by the audit, which took 003.)*
+**005** — tariffs, employee contracts, calculation settings and the counter formula language;
+**006** — per-install configuration (`SoftwareMainOptions`).
+*(Renumbered again 2026-08-05: 004 is now the screen-rights plan.)*
 
 ## Shipped
 
@@ -105,3 +171,13 @@ stacking note in `CLAUDE.md` → Git for why #11 went astray.
 - **A WM-only capability has no row in the coverage matrix, so nothing prompts anyone to check
   it.** The realtime feed is better than legacy — legacy has no push at all — which is exactly
   why it escaped scrutiny for three phases. §13 now carries rows for WM additions.
+- **"Mirroring TLW" is a claim, and it needs a `file:line` like any other.** §4 asserted that
+  TLW users belong to several groups whose access unions. TLW does the opposite, and the claim
+  survived into two plans, the screen tree, the coverage matrix and two code comments before
+  anyone opened `GetUserRole`. Ditto `DataAccessScopeDiagnostics`, cited five times as evidence
+  for two design decisions, which turned out to be a connection-leak counter. **If a doc says
+  legacy does X, either it cites the line or it is a hypothesis.**
+- **Check what a legacy identifier actually names before planning against it.** Three of the four
+  things §13 listed as the screen-rights schema were not tables: `WebPages` is localization,
+  `FormAccess` is a static class, `SiteItemPermission` is a DTO. One `Glob` for the file name
+  would have caught it in any of three earlier passes.

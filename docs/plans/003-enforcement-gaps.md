@@ -3,6 +3,10 @@
 Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
 Approved by user 2026-08-04, all 4 portions, and **ordered ahead of 001 P3** — A1 and A2 are
 defects in running code, 001 P3 corrects a model no endpoint consults yet.
+
+> **P2 was split into P2a + P2b on 2026-08-05, at the user's direction.** Same scope, same
+> "Done when" conditions, two branches instead of one — nothing was added or removed, so the
+> approval as given still covers it. The plan now has **5 portions**.
 Roadmap: ARCHITECTURE.md §14 Phase 1b — Access model (this is the enforcement half; plan 001 is
 the model half). Also repairs defects merged in Phase 1 (PRs #3, #7, #8).
 Legacy sources surveyed:
@@ -43,8 +47,15 @@ Legacy comparison points actually opened:
 - `AuthorizationService.cs:291-302` — legacy's authoritative per-employee check is the SQL TVF
   `dbo.EmployeeIdsManagedByRole`, i.e. one filter used by every path, not a per-call-site choice.
 - `AuthorizationService.cs:266-289` `CanCurrentUserAccessEmployee(employeeId, AccessType)` — legacy
-  takes an **access type** (`View` / `Edit`), so read and write scope are distinct decisions. WM
-  reuses the read filter for writes where it checks at all.
+  takes an **access type** (`Read` / `Edit`). WM reuses the read filter for writes where it checks
+  at all.
+  > **Re-measured 2026-08-05 — this line overstated the split.** The enum is `Read`/`Edit`
+  > (`Enums.cs:9-13`), it has three call sites (`ApiAuthorizer.cs:45`,
+  > `AuthorizingControllerBase.cs:76, 82`), and it changes the answer in exactly **one** case:
+  > your own record when `CanModifySelf = false` (`:281-286`). Otherwise both resolve through the
+  > same `dbo.EmployeeIdsManagedByRole` call. **Legacy's read scope and write scope are the same
+  > set.** So WM needs no separate write-scope *model* — only the post-image check P2 already
+  > specifies. See `../TLW-AUTHORIZATION-MODEL.md` §5.
 - `AuthorizationService.cs:245-264` — legacy's permitted-employee set is additionally filtered by
   `IsActive` and `dbo.IsActiveEmployment(DischargeDate, getdate())`. WM's `WithinScope` has no
   status filter; that is a defensible improvement but it is undocumented.
@@ -58,9 +69,14 @@ a row for it.
 
 For the rest, legacy's shape is a warning rather than a model: enforcement scattered across
 `RoleBasedEmployeeFilterService` (three overloads), the SQL TVF, `WebsiteAccessFilter` and
-per-controller checks, which is why it needed `DataAccessScopeDiagnostics` to explain its own
-answers. WM's single `WithinScope()` is the right answer — it just has to be reached from
-every path, including the ones that are not queries.
+per-controller checks. WM's single `WithinScope()` is the right answer — it just has to be
+reached from every path, including the ones that are not queries.
+
+> **Correction 2026-08-05.** This paragraph used to end *"…which is why it needed
+> `DataAccessScopeDiagnostics` to explain its own answers."* **False.**
+> `DataAccessScopeDiagnostics` counts `DataContext` create/dispose to find connection leaks
+> (`Logic/DAL/DataContextTracking/DataAccessScopeDiagnostics.cs:10-55`). Legacy has no tool that
+> explains an access decision. See `../TLW-AUTHORIZATION-MODEL.md` §11 C2.
 
 ## Keep / Improve / Invert / Drop
 
@@ -68,7 +84,7 @@ every path, including the ones that are not queries.
 |---|---|---|
 | One central employee filter (`WithinScope`) | **Keep** | Right idea; legacy's scatter is the counter-example. |
 | Realtime push of punches | **Improve** | Genuinely better than legacy (which has none) — but it must be a *scoped* fan-out, not a broadcast. Per-user groups keyed on resolved scope. |
-| Read scope reused as write scope | **Invert** | Legacy distinguishes `AccessType.View` from `AccessType.Edit` (`AuthorizationService.cs:266`). WM must at minimum check both the pre-image *and* the post-image of a write, which legacy does not do either — a legacy manager can move an employee out of their own scope too. |
+| Read scope reused as write scope | **Keep the set, add the post-image check** *(reclassified 2026-08-05)* | Measured: legacy's `AccessType.Read` and `AccessType.Edit` resolve through the **same** `dbo.EmployeeIdsManagedByRole` call and differ in exactly one case — your own record under `CanModifySelf = false` (`AuthorizationService.cs:281-286`). So reusing the read set for writes is *correct*, not a defect. What legacy genuinely lacks is any check on the **post-image**: a legacy manager can move an employee out of their own scope. That check is WM's addition (003 decision 3), and it is the whole of P2b. |
 | Endpoint-by-endpoint opt-in to authorization | **Invert** | An unannotated endpoint being anonymous is a fail-open of exactly the kind §14 decision 5 rejects. A `FallbackPolicy` makes the default deny. |
 | Site list readable by anyone with `employees.view` | **Improve** | Legacy has `Locations` behind personnel setup. A scoped user should see the sites their scope reaches, not the estate. |
 | `AccessRightsExclusions` deny-lists | **Drop** | Already decided; now recorded in §14 decision 7 rather than only in a code comment. |
@@ -111,8 +127,10 @@ every path, including the ones that are not queries.
 
 ## Out of scope for this plan
 
-- Screen-level (`WebPage` / `FormAccess`) permissions — the other half of Phase 1b, and its own
-  plan.
+- Screen-level permissions (legacy `dbo.AccessControlEntry`) — the other half of Phase 1b, now
+  surveyed and drafted as **plan 004**. *(This line previously named `WebPage`/`FormAccess`;
+  neither is the store — `dbo.WebPages` is localization and `FormAccess` is a C# helper class.
+  See `../TLW-AUTHORIZATION-MODEL.md` §1.)*
 - Building/implementing the API-key auth surface. P4 produces a **design note only**; the
   implementation belongs with Flutter in phase 9.
 - Anything in plan 001's P3–P5. This plan must not touch `ScopeModel.cs`, `DataScopeResolver.cs`
@@ -134,17 +152,49 @@ employee nobody can see reaches nobody.
 **Risk:** **high** — it is the live data leak, and it is the only portion where a mistake is
 silent (nothing errors; the wrong people just keep seeing things).
 
-### [ ] P2 — Fail closed by default, and scope the writes
+### ~~[ ] P2 — Fail closed by default, and scope the writes~~ — **split 2026-08-05 into P2a and P2b**
+
+> **Why it was split.** The user directed that the `FallbackPolicy` half proceed while the
+> write-scoping half waited on a measurement of whether legacy's read scope and write scope are
+> genuinely different decisions. **That measurement is now done and it clears both halves** — but
+> they are still better as two portions, because they touch different modules (Identity vs People)
+> and have different risk profiles, which is exactly the "split if it crosses two modules" rule.
+
+### [ ] P2a — Fail closed by default
 **Touches:** `src/Modules/Identity/WM.Modules.Identity/IdentityModule.cs`,
-`src/Modules/People/WM.Modules.People/PeopleModule.cs`, `WM.Modules.Identity.Tests`
+`WM.Modules.Identity.Tests`
 **Done when:** `FallbackPolicy` requires an authenticated user, the three `AllowAnonymous` auth
-endpoints still work, `/health` still answers unauthenticated; `POST /api/employees` refuses a
-site the caller's scope does not contain; `PUT /api/employees/{id}` refuses a *post-image* the
-caller's scope does not contain, in addition to today's pre-image check.
-**Tests:** an endpoint mapped without `RequireAuthorization` returns 401; create-out-of-scope
-returns 403; edit-into-out-of-scope returns 403; edit within scope still succeeds.
+endpoints still work, `/health` still answers unauthenticated.
+**Tests:** an endpoint mapped without `RequireAuthorization` returns 401; `/health` still 200
+anonymously; the three auth endpoints still 200 anonymously.
 **Risk:** medium — the fallback policy can break an endpoint that was quietly relying on being
 anonymous. There is only one candidate (`/health`) and it is asserted.
+**Independent of the §4 decision.** Correct under every model.
+
+### [ ] P2b — Scope the employee writes
+**Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs`, People tests
+**Done when:** `POST /api/employees` refuses a site the caller's scope does not contain;
+`PUT /api/employees/{id}` refuses a *post-image* the caller's scope does not contain, in addition
+to today's pre-image check.
+**Tests:** create-out-of-scope returns 403; edit-into-out-of-scope returns 403; edit within scope
+still succeeds; the pre-image check still 404s an invisible employee (not 403).
+**Risk:** medium.
+
+**Cleared to proceed — measurement 2026-08-05** ([`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md) §5):
+
+- **Legacy's write scope *is* its read scope.** `CanCurrentUserAccessEmployee` resolves both
+  through the same `dbo.EmployeeIdsManagedByRole(roleId)` call; the `AccessType` argument alters
+  the result in exactly one case (`AuthorizationService.cs:281-286`). WM does **not** need a
+  second scope model for writes, and P2b must not invent one — reuse `WithinScope`.
+- **Legacy never checks the post-image at all.** A legacy manager can edit someone they can see
+  and move them out of their own scope. P2b's post-image check is a WM improvement (003 decision
+  3), correct under every §4 option, and has no legacy behaviour to preserve.
+- **One deferred addition, not a blocker.** Legacy's `Role.CanModifySelf` says "may see your own
+  record, may not edit it" — the only genuine read/write asymmetry in the record layer. WM has no
+  equivalent. If the §4 decision adopts it (`TLW-AUTHORIZATION-MODEL.md` open question 3), P2b's
+  write check gains a self carve-out. Additive; do not block P2b on it. **Leave a named seam**
+  (a single `CanEditOwnRecord` predicate, defaulting to `true`) rather than hard-coding the
+  current behaviour, so the carve-out is a one-line change later.
 
 ### [ ] P3 — Scoped site and department lists
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs`,
@@ -234,3 +284,27 @@ the code.
 backing tables, then bring back a concrete §4 amendment plus an honest cost for reconciling it
 with the shipped `SecurityGroup`. Until then §13/§14 carry the contradiction as `⚠️`, and plan
 001's orthogonality claim stands as *provisional*, not settled.
+
+> ### ✅ **That survey ran early, on 2026-08-05.** [`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md)
+>
+> It did not settle §4 — it changed what the question is.
+>
+> - **§4's "one object" claim is right.** `/Groups` edits exactly one `dbo.Role`
+>   (`GroupsModel { Role, Roles, SiteItems }`, `Models/Security/GroupsModel.cs:6-12`;
+>   `GroupsController.cs:76-108`), carrying screen rights **and** all seven managed-dimension
+>   lists **and** navigation icons, dashboard widgets and exclusions, saved by one
+>   `UpdateRole(...16 args...)` + `SetBulkPermissions` pair.
+> - **§4's "several groups, union" claim is wrong and was never TLW.** A legacy user holds
+>   exactly **one** role (`AuthorizationService.cs:1265-1280`, `:773-786`, `:1008-1041`).
+> - **Screen rights resolve deny-over-allow, default deny** (`:695-718`) — the opposite of
+>   most-permissive-wins, though unreachable in practice for the same reason.
+>
+> So "adapt TLW's strategy" resolves to a real fork, and it is the user's call:
+> **(A)** one object *and* one group per user, which is what makes legacy's model answerable
+> without any resolution rules; or **(B)** keep WM's multi-membership and write down two
+> precedence rules legacy never needed. The survey recommends **(A)**, gives the concrete §4
+> replacement text for it, and lists the eight parts of legacy's model that should **not** be
+> adapted — see §12–§14 there.
+>
+> **This plan is unaffected.** P1 shipped, P2a and P2b are correct under either option.
+> Plan 001 P3 is not: it implements the union, and it is on hold pending the ruling.

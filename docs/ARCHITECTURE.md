@@ -154,7 +154,9 @@ Legend: ✅ built · ▢ planned.
 ## 4. Security
 
 - **Auth**: OAuth2/OIDC (Auth Code + PKCE for SPA/mobile; client credentials for integrations). Short-lived JWT access tokens + rotating refresh tokens with **reuse detection** (family revocation on theft). TOTP 2FA, WebAuthn/passkeys, lockout, breached-password check, strong hashing. Enterprise SSO (Entra ID, Google, SAML). *WM today: self-contained JWT + refresh rotation + lockout are live; OpenIddict/2FA/SSO are the Phase-3 upgrade.*
-- **Authorization**: **Groups** carry per-screen rights (none / read / edit) **and** employee scope, in one object — mirroring TLW, where `/Groups` edits a role holding both. A user may belong to several groups; access combines as a union. Scope is applied as query filters, never per endpoint. See [`SCREEN-TREE.md`](./SCREEN-TREE.md) for the tree and the permission rules. **Multi-tenancy-ready** (tenant id + filter).
+- **Authorization**: **one object, one membership.** A **security group** carries per-screen rights (none / read / edit), employee data scope, a mode (`Normal` / `SelfOnly`) and `CanEditOwnRecord`. **A user belongs to exactly one group**, non-null — the built-in `Employee` group is the floor. This mirrors TLW, where `/Groups` edits a single `dbo.Role` holding rights and all managed dimensions together, and where a user holds exactly one role (`AuthorizationService.cs:161` selects with `SingleOrDefault`; `AddUserToRole` deletes the prior assignment). Scope is applied as query filters, never per endpoint. See [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md) for the measured legacy model and [`SCREEN-TREE.md`](./SCREEN-TREE.md) for the tree. **Multi-tenancy-ready** (tenant id + filter).
+  > **Why exclusivity is part of the design, not an accident of it** (decided 2026-08-05). Legacy can put rights and scope in one object *because* membership is exclusive: there is never a union to resolve, no precedence to remember, and `IsSelfOnly` is a mode rather than an override that must beat a grant. Conflating the objects while allowing several memberships is the worst of the available shapes — it forces WM to answer questions legacy never poses, and every answer becomes a rule somebody has to hold in their head. If exclusivity later proves too rigid, a group may be **composed from another at edit time** (copy-on-write, as TLW's `DuplicateGroup` does) without reintroducing runtime resolution.
+  > **Rights resolve fail-closed**: a new group denies everything, `edit` implies `read`, and an ancestor branch gates its children. Legacy's deny-overrides-allow loop exists but is dead in practice, because exclusivity means at most one role ever matches.
   > Naming note: TLW's `SecurityGroup` is a *different, physical* concept — which employees may open which door readers. That is out of scope for WM and the name is deliberately not reused. Likewise TLW's `SiteStructure` is the application's page tree, not the site/department hierarchy.
 - **Audit**: every mutation emits an audit event to Kafka `wm.audit`; an append-only, hash-chained store makes it tamper-evident and queryable (replaces `Logic/AuditTrail`). Admin module ships an audit browser.
 - **Hardening**: CSP, HSTS, secure cookies, gateway rate limiting, FluentValidation, secrets in env/Key Vault, field-level encryption for special-category data (GDPR), dependency + SAST scanning in CI.
@@ -419,12 +421,17 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | Users / user management (`Logic/Users`) | Identity (user mgmt) | ✅ built — list/search, create, edit roles + employee link, reset password, lockout (`UserEndpoints.cs`, `UserManagementService.cs`) |
 | User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ✅ built — `User.EmployeeId`, one-to-one enforced, `/api/me/employee` |
 | Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ◐ partial — punches/timesheet/profile live; absences, documents, expenses follow their phases |
-| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; **legacy's `Role.IsSelfOnly` / `IsDepartmentOnly` / `CanModifySelf` not modelled** — see `PHASE-AUDIT.md` B3 |
+| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; **legacy's `Role.IsSelfOnly` and `CanModifySelf` not modelled** (`IsDepartmentOnly` is dead code in legacy — do not model it) — see `TLW-AUTHORIZATION-MODEL.md` §6 |
+| **One role per user** (`UsersInRoles`, `GetUserRole`) | Identity | ⚠️ **WM diverges and the doc claimed otherwise.** Legacy users hold **exactly one** role (`AuthorizationService.cs:1265-1280` `SingleOrDefault`; `:1008-1041` replaces on assign). WM has many roles *and* many groups per user. §4's "union, mirroring TLW" was never TLW. Decision pending — `TLW-AUTHORIZATION-MODEL.md` §13 |
 | Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) — **department scope is unreachable from the UI and employee writes are unscoped**, see `PHASE-AUDIT.md` A2/A4 |
 | Realtime punch feed (no legacy equivalent — WM addition) | Api SignalR hub | ⚠️ **built but unscoped** — broadcasts every punch to every authenticated client; plan 003 P1 |
 | API/integration auth (`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`) | Identity | ▢ **not started** — legacy authenticates the mobile app as an *employee* with a revocable per-device token, not as a user; plan 003 P4 |
-| Screen-level rights (`FormAccess`, `SiteItemPermission`, `WebPages`, `NavigationIcons`) | Identity groups | ▢ **not started** — §14 Phase 1b promises these; plan 001 explicitly excludes them |
-| Access deny-lists (`AccessRightsExclusions` + 2 child tables) | — | ⏹ dropped by design — WM narrows by removing group membership, never by deny rules (`ScopeModel.cs:176-180`). Recorded here because it was previously only a code comment |
+| Screen-level rights (**`dbo.AccessControlEntry`** — 6 cols, ~1,000 rows/role) | Identity groups | ▢ **not started** — measured 2026-08-05: 49 branches / 382 forms / 75 tabs, tri-state none·read·edit, **deny-overrides-allow, default deny**. See `TLW-AUTHORIZATION-MODEL.md` §4 and plan 004 |
+| Navigation icons / dashboard categories per role (`RoleNavigationIcons`, `RoleDashboardCategories`) | Identity groups | ▢ **not started** — presentation allow-lists on the group, never a security boundary (`AuthorizationService.cs:511-526, 1423-1432`) |
+| HR document-type rights (`RoleHrDocumentSecurity`, `Deny`/`ReadOnly`/`ReadWrite`) | Documents | ▢ **not started** — a *third* rights vocabulary in legacy; WM should have one (`RoleHrDocumentSecurityService.cs:64-87`) |
+| ~~`WebPages`~~ | — | ⏹ **not an authorization table.** `WebPage(PageId, Name, Description)` + `LocalizationKeys` — it is localization (`HorioDB.designer.cs:27642-27654`). Previously listed here in error |
+| ~~`FormAccess`, `SiteItemPermission`~~ | — | ⏹ **not tables.** A static helper class and an in-memory DTO (`FormAccess.cs:7`, `SiteItemPermission.cs:5-23`); both persist as `AccessControlEntry`. Previously listed as schema in error |
+| Access deny-lists (`AccessRightsExclusions` + 2 child tables) | — | ⏹ dropped by design — WM narrows by removing group membership, never by deny rules (`ScopeModel.cs:176-180`). **The requirement it met is unmet:** hiding named individuals' Salary/Bank/Disciplinary tabs from managers who legitimately hold the tab (`GroupsController.cs:463-466`) — open question 4 in `TLW-AUTHORIZATION-MODEL.md` |
 | User action logging (`UserActionLogsService`) | Admin + `wm.audit` | ▢ planned |
 | SSO | Identity | ▢ planned (local JWT live) |
 | 2FA (`TwoFactorAuthenticationService`) | Identity | ▢ planned |
@@ -443,6 +450,13 @@ Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentio
 > merged in PR #3), and four rows were missing entirely — the realtime feed, the API-auth
 > surface, screen-level rights and the deny-list drop. Findings, evidence and disposition:
 > [`PHASE-AUDIT.md`](./PHASE-AUDIT.md).
+>
+> **Authorization surface re-measured 2026-08-05.** The `▢ not started` screen-rights row named
+> four things, and **two of them were not authorization at all** (`WebPages` is localization;
+> `FormAccess`/`SiteItemPermission` are C# types, not tables). The real table is
+> `dbo.AccessControlEntry`. A new row records the one-role-per-user divergence, which §4 had
+> backwards. Full measurement and citations:
+> [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md).
 
 ---
 
@@ -545,14 +559,56 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
      appears only on devices, doors, ANPR, EPOS tills and muster points. A building scope
      dimension over employees would be a WM invention, not a legacy behaviour. See
      `PHASE-AUDIT.md` B4.
+
+   **Authorization-survey addenda (2026-08-05) — measured, and three of these correct the
+   addenda above.** Full evidence: [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md).
+   - **There are twelve fail-opens of this shape in the in-scope surface, not four** — the four
+     already recorded, plus `FilterDepartments`, `FilterLocations`, `FilterBuildings`,
+     `FilterClockingActivities`, `FilterClockingScheduledActivities`,
+     `CanViewDailyPeriodicTemplate` (commented `//no departments to manage - allow all`) in
+     `WebSite/Controllers/AuthorizingControllerBase.cs:101-114, 216-221, 280-322, 444-454`;
+     `UserHasLimitedBySelfPermissions` returning `false` from a `catch` (`:572-585`); and
+     `FormAccess.cs:64, 131, 199, 231`, where an **unlicensed** tab layer grants every tab.
+     Ten more sit in dropped verticals. The pattern is uniform: *no configuration means no
+     restriction*. WM's inversion is the single largest behavioural difference between the
+     products.
+   - **`AccessType` is `Read`/`Edit`, not `View`/`Edit`** (`Enums.cs:9-13`), it has exactly three
+     call sites, and it changes the answer in exactly **one** case: your own record when
+     `CanModifySelf = false` (`AuthorizationService.cs:281-286`). **Legacy's read scope and write
+     scope are otherwise the same set.**
+   - **`Role.IsDepartmentOnly` is dead**, settled: written by `UpdateRole` (`:866`), localized,
+     rendered as a checkbox — and never read, in `Logic`, `WebSite` or SQL. WM must not model it.
+     Supersedes the "unverified" in `PHASE-AUDIT.md` B3.
+   - **Legacy does not expand the department tree when filtering employees.**
+     `dbo.EmployeeIdsManagedByRole` matches `e.DepartmentId = dr.DepartmentId` exactly
+     (`80.V5.26.0.0.sql:911`). WM's `IncludeDescendants` has no legacy precedent on this path;
+     it is a WM improvement and should be labelled as one.
+   - **`ByDepartments` and `ByEmployees` are mutually exclusive**, enforced on save —
+     `UpdateRole:872-883` wipes the other lists. Legacy cannot say "these departments *and also*
+     these named people". WM's intersecting employee-list dimension is an improvement without a
+     legacy analogue (affects plan 001 P4's wording).
 6. **No per-template custom SQL** — replaced by a safe rules expression language, so WM does not recreate legacy's un-dismantlable core.
 7. **No deny rules** *(recorded 2026-08-04 by the phase audit; the decision itself is older)*.
    Legacy's `AccessRightsExclusions` + `AccessRightsExclusionEmployees` +
    `AccessRightsExclusionResources` let a role's access be *subtracted* per resource, wired
    through `AuthorizationService.SaveExclusionListForRole`. WM narrows only by removing group
-   membership — deny rules interacting across several groups are what forced legacy to ship a
-   diagnostics subsystem to explain its own answers. This was previously stated only in a code
-   comment (`ScopeModel.cs:176-180`); it is a decision and belongs here.
+   membership. This was previously stated only in a code comment (`ScopeModel.cs:176-180`); it is
+   a decision and belongs here.
+
+   > **Correction (2026-08-05).** This decision was justified here, and in three other WM
+   > documents, by the claim that *"deny rules interacting across several groups are what forced
+   > legacy to ship a diagnostics subsystem to explain its own answers."* **That claim is false.**
+   > `DataAccessScopeDiagnostics` counts LINQ-to-SQL `DataContext` creation and disposal to find
+   > connection leaks — `TotalScopesCreated`, `ActiveScopes`, `TotalDisposalErrors`,
+   > `AutoDisposalRate` (`Logic/DAL/DataContextTracking/DataAccessScopeDiagnostics.cs:10-55`,
+   > `WebSite/Controllers/DataAccessScopeDiagnosticsController.cs:70-87`). It has nothing to do
+   > with authorization, and **legacy ships no tool that explains an access decision at all.**
+   > The decision to drop deny rules may still be right, but it no longer has this evidence
+   > behind it. Two measured facts that do bear on it: legacy's deny rows are only reachable
+   > because a user holds exactly one role, so deny-over-allow never actually arbitrates between
+   > two grants; and the *requirement* the exclusion list met — hiding named individuals'
+   > sensitive Personnel/HR tabs — is currently unmet in WM.
+   > See [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md) §11 C2.
 
 Migration: old TLW keeps running. A `TlwLegacyConnectorPlugin` reading the existing SQL Server database bridges data during transition — worth building early (Phase 2–3) so WM can run alongside on real data.
 

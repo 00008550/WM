@@ -94,8 +94,17 @@ Two holes, both in `src/Modules/People/WM.Modules.People/PeopleModule.cs`:
    an employee out of their own scope, or into someone else's.
 
 Legacy distinguishes these: `AuthorizationService.CanCurrentUserAccessEmployee(int employeeId,
-AccessType accessType)` (`:266-289`) takes `View` vs `Edit` as an argument. It does not check the
+AccessType accessType)` (`:266-289`) takes `Read` vs `Edit` as an argument. It does not check the
 post-image either — so WM inverting this is an improvement, not a port.
+
+> **Re-measured 2026-08-05 — the distinction is thinner than this reads.** The enum is
+> `Read`/`Edit`, not `View`/`Edit` (`Enums.cs:9-13`); there are exactly three call sites
+> (`ApiAuthorizer.cs:45`, `AuthorizingControllerBase.cs:76, 82`); and the argument changes the
+> answer in exactly **one** case — your own record when `CanModifySelf = false`
+> (`AuthorizationService.cs:281-286`). Otherwise `Read` and `Edit` resolve through the identical
+> `dbo.EmployeeIdsManagedByRole` call. **Legacy's read scope and write scope are the same set.**
+> WM therefore needs the post-image check (003 P2) but does **not** need a separate write-scope
+> *model*. See `TLW-AUTHORIZATION-MODEL.md` §5.
 
 **Fix:** plan **003 P2**.
 
@@ -160,7 +169,7 @@ endpoint if it lands first.
 |---|---|---|
 | `IsSelfOnly` | **Overrides everything**: `GetPermittedEmployeeIdsForUser` returns only the linked employee and never consults the managed lists (`AuthorizationService.cs:220-224`); same at `:236-240` and `:275-279` | no equivalent |
 | `CanModifySelf` | May *see* your own record but not *edit* it (`AuthorizationService.cs:281-286`) | no equivalent |
-| `IsDepartmentOnly` | Persisted (`:866`), set through `UpdateRole`; no read path found in `Logic` — **unverified whether it is live** | no equivalent |
+| `IsDepartmentOnly` | ~~Persisted (`:866`), set through `UpdateRole`; no read path found in `Logic` — **unverified whether it is live**~~ **Settled 2026-08-05: dead code.** | do not model |
 
 `IsSelfOnly` matters because it is a **narrowing** override, and WM's composed model is
 union-only by design (`ScopeModel.cs:174-180`) — a union cannot express "and nothing else". If
@@ -168,6 +177,26 @@ customers use this configuration, WM has no way to represent it.
 
 **Fix:** recorded in ARCHITECTURE.md §14 decision 5 addenda and in plan 001's *Still open*.
 Needs a user ruling before Phase 1c.
+
+> **Closed out 2026-08-05 by the authorization survey**
+> ([`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md)):
+>
+> - **`IsDepartmentOnly` is dead.** Searched all of `E:\Tlw\Source` and `E:\Tlw\Database`. In
+>   TLW's web product it is only ever *written* — the designer property
+>   (`HorioDB.designer.cs:6287, 6394-6409`), the `UpdateRole` parameter
+>   (`IAuthorizationService.cs:55`, `AuthorizationService.cs:828, 866`) and the editor checkbox
+>   (`GroupsController.cs:135, 164`). No read in `Logic`, no read in `WebSite`, no SQL predicate;
+>   `dbo.EmployeeIdsManagedByRole` never references it. The only reads in the repository are in
+>   *other* products (`HealthWebSite`, `HorioMigration`). **WM must not model it.**
+> - **`IsSelfOnly` and `CanModifySelf` are confirmed live**, with the call sites above verified,
+>   plus `IsReadonlyForUser:544-570`, `UserCanModifySelf:539-542`,
+>   `EmployeeUserCanModifySelf:528-537`, `UserHasLimitedBySelfPermissions:572-585` and the group
+>   editor's own employee picker (`GroupsController.cs:616-619`).
+> - **The framing "WM's composed model is union-only" is now the live question, not a footnote.**
+>   A TLW user holds exactly one role, so `IsSelfOnly` never has to beat a union — there is
+>   nothing to beat. WM's union exists because WM chose multi-membership, which the docs
+>   attributed to TLW in error. B3's real content is therefore §4's model decision, which is
+>   open for the user in `TLW-AUTHORIZATION-MODEL.md` §13–§14.
 
 ---
 
@@ -362,7 +391,7 @@ Two structural lessons:
 | A2 employee writes unscoped | blocking | **plan 003 P2** |
 | B1 no authorization fallback policy | material | **plan 003 P2** |
 | B2 department dimension unreachable | material | **plan 001 P5** (amended) / **003 P3** |
-| B3 `IsSelfOnly` / `CanModifySelf` unmodelled | material | user decision — plan 001 *Still open*, §14 addenda |
+| B3 `IsSelfOnly` / `CanModifySelf` unmodelled | material | user decision — plan 001 *Still open*, §14 addenda. **`IsDepartmentOnly` half closed 2026-08-05: dead code, do not model.** The remainder is now §4's model decision — `TLW-AUTHORIZATION-MODEL.md` §13 |
 | B4 P4's Building has no legacy basis | material | **plan 001 P4 amended in place** |
 | B5 editor wipes department + phone | material | **plan 003 P3** |
 | B6 `GET /api/sites` unscoped | material | **plan 003 P3** |
