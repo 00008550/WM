@@ -86,8 +86,13 @@ closed: the punch feed addresses scope groups instead of broadcasting, the hub r
 **P2 was split into P2a + P2b on 2026-08-05 at the user's direction** — same scope, two branches.
 The plan now has 5 portions; the approval as given still covers it.
 
-**Next portion:** **003 P2a — fail closed by default** (`FallbackPolicy`). Identity module only,
-correct under every access model, independent of everything below.
+**P2a passed review 2026-08-05 and is open as [#21](https://github.com/00008550/WM/pull/21)** — A2 is
+closed: an endpoint mapped without `RequireAuthorization` now answers 401, the anonymous surface is
+exactly four transports (`/api/auth/login`, `/refresh`, `/logout`, `/health`) and a test asserts that
+list against the composed host, so adding a fifth is a decision with a reviewer attached.
+
+**Next portion:** **003 P2b — scope the employee writes.** People module; see the clearance note
+below.
 
 **Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
 read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
@@ -113,7 +118,7 @@ P3 changes resolution, or the regression test asserts a number nobody produced.
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 003 | Enforcement gaps found by the phase audit | 5 (P1 done, **P2a next**) | **in-progress — active** |
+| 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⛔ on hold**) | in-progress, paused after P2 |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | **draft — not approvable until §4 is decided** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
@@ -142,6 +147,7 @@ Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`
 | 001 | P2 — persist composed scope + migrate | [#16](https://github.com/00008550/WM/pull/16) | ✅ merged to master (`a9fdcc3`) |
 | — | phase audit + plan 003 + doc corrections | [#17](https://github.com/00008550/WM/pull/17) | ✅ merged to master (`2557921`) |
 | 003 | P1 — scope the realtime punch feed | [#18](https://github.com/00008550/WM/pull/18) | open — reviewed and passed 2026-08-05 |
+| 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | open — reviewed and passed 2026-08-05 |
 
 ## In flight
 
