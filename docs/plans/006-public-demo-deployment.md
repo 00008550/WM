@@ -434,11 +434,34 @@ starts and records a punch** with `Kafka__BootstrapServers` set — the librdkaf
 anything is deployed.
 **Tests:** **none in the test suite** — this portion's evidence is the build output and the punch,
 pasted into the PR. Say so; do not report it as covered.
-**Risk:** **high, and partly unverifiable from the dev machine.** The Docker daemon was not running
-when this was surveyed, so the multi-arch availability of `apache/kafka:3.8.0`,
-`rabbitmq:3-management-alpine` and the .NET 10 alpine images is **assumed, not measured** — the
-first step of this portion is to check each with `docker manifest inspect`. The librdkafka
-musl-arm64 question is the single most likely first-deploy failure in the whole plan.
+**Risk:** **medium — downgraded from high on 2026-08-06, measured rather than assumed.** The
+Docker daemon was still not running, so this was taken from the registries and the local package
+cache instead, which answers the same question:
+
+| Base image | `linux/arm64` published? |
+|---|---|
+| `postgres:17-alpine`, `redis:7-alpine`, `rabbitmq:3-management-alpine` | ✅ `arm64/v8` |
+| `apache/kafka:3.8.0` | ✅ `arm64` (amd64 + arm64 only — no `arm/v7`) |
+| `nginx:alpine`, `caddy:alpine`, `node:24-alpine` | ✅ `arm64/v8` |
+| `mcr.microsoft.com/dotnet/{sdk,aspnet,runtime}:10.0-alpine` | ✅ `arm64` |
+
+**The librdkafka musl-arm64 question is answered, and the answer is better than this plan
+assumed.** `librdkafka.redist` **2.15.0** — the version `Confluent.Kafka` 2.15.0 resolves — ships
+`runtimes/linux-arm64/native/`**`alpine-librdkafka.so`** (10.45 MB) alongside the glibc
+`librdkafka.so`. A musl arm64 build exists and is packaged; it is *not* the unsupported target
+this plan feared. Note the RID list is `linux-arm64` / `linux-x64` / `linux-s390x` with the musl
+variants shipped as *files inside* those RIDs, not as separate `linux-musl-*` RIDs — which is why
+a search for `linux-musl-arm64` finds nothing and reads as absence.
+
+**What is still unverified, and why the punch check stays:** a packaged `.so` is not proof it
+loads. The musl version on the Ampere host, the loader's musl detection, and the lazy singleton
+construction (`EventStreamProducers.cs:29-35`) all still mean a failure would surface as a 500 on
+the first punch with everything else green. **Keep the punch in the Done-when.** The glibc base
+image remains the fallback, but it is now the contingency rather than the expectation.
+
+Also confirmed while measuring: `frontend/portal/Dockerfile:2` pins **`node:20-alpine`, EOL April
+2026**, while `ci.yml` builds the portal on Node 24 — the shipped image uses a runtime no CI job
+exercises. The Node 20 → 24 move in *Touches* is a real fix, not housekeeping.
 
 ### [ ] P5 — The demo stack and the box
 **Touches:** new `deploy/docker-compose.demo.yml`, new `deploy/.env.demo.example` (placeholders
