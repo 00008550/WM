@@ -7,10 +7,20 @@ namespace WM.Modules.Identity.Domain;
 /// A named bundle of data visibility. Users are added to groups; the groups decide
 /// which employees they can see.
 ///
-/// Deliberately orthogonal to <see cref="Role"/>: roles say what a user may *do*
-/// (permissions), groups say which records they may *see*. Legacy conflated the two
-/// across Role, SecurityGroup, FormAccess and SiteItemPermission, which is why it
-/// needed a diagnostics subsystem to explain itself.
+/// Today a group is separate from <see cref="Role"/>, which carries permissions. That split is a
+/// state of the code, not a principle: ARCHITECTURE.md §4 (ruled 2026-08-05) puts rights and
+/// scope in <em>one</em> object with <em>one</em> membership per user, which is what legacy does —
+/// <c>/Groups</c> edits a single <c>dbo.Role</c> and a user holds exactly one of them
+/// (<c>AuthorizationService.cs:161</c>). Plan 005 merges the two here; until it lands, treat the
+/// separation as legacy-of-WM rather than design.
+///
+/// This comment previously said the split was "deliberately orthogonal" because legacy had
+/// conflated the two "across Role, SecurityGroup, FormAccess and SiteItemPermission, which is why
+/// it needed a diagnostics subsystem to explain itself". Measured 2026-08-05, none of that holds:
+/// <c>FormAccess</c> is a static helper class and <c>SiteItemPermission</c> an in-memory DTO
+/// (neither is a table to conflate anything across), and <c>DataAccessScopeDiagnostics</c> counts
+/// <c>DataContext</c> create/dispose to find connection leaks. See TLW-AUTHORIZATION-MODEL.md §1
+/// and §11 C2.
 /// </summary>
 public sealed class SecurityGroup : AuditableEntity
 {

@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -65,6 +66,13 @@ public sealed class IdentityModule : IModule
 
         services.AddAuthorization(o =>
         {
+            // Default deny. Without a fallback policy an endpoint mapped without
+            // RequireAuthorization is anonymous — the fail-open ARCHITECTURE.md §14 decision 5
+            // rejects, and PHASE-AUDIT.md A2. The exceptions are now deliberate and visible:
+            // /api/auth/login, /refresh, /logout and /health carry AllowAnonymous, which the
+            // authorization middleware honours ahead of this policy.
+            o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+
             foreach (var permission in WmPermissions.All)
                 o.AddPolicy(permission, p => p.RequireClaim(WmPermissions.ClaimType, permission));
         });

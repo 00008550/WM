@@ -73,12 +73,8 @@ app.UseAuthorization();
 foreach (var module in modules)
     module.MapEndpoints(app);
 
-// The hub is a transport like any endpoint, and it gets a permission policy like any endpoint.
-// The [Authorize] attribute on the hub class says the same thing; both are kept because the
-// audit found this leak by reading the two places independently and finding neither.
-app.MapHub<AttendanceHub>("/hubs/attendance")
-    .RequireAuthorization(WmPermissions.AttendanceView);
-app.MapHealthChecks("/health");
+// The hub and /health — see PlatformEndpoints for why they are not inline here.
+app.MapPlatformEndpoints();
 
 // Bootstrap. Schema migration runs in every environment — on-prem installs
 // upgrade themselves on start, which is how a customer's server stays current

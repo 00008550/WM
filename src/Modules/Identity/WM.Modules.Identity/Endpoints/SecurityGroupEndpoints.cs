@@ -58,8 +58,11 @@ internal static class SecurityGroupEndpoints
                 : Results.Problem(result.Error, statusCode: StatusCodes.Status400BadRequest);
         });
 
-        // Access diagnostics — legacy shipped DataAccessScopeDiagnostics because
-        // "why can't this user see this employee?" is otherwise unanswerable.
+        // Access diagnostics — "why can't this user see this employee?", answered from the
+        // resolved scope. A WM addition, not a port: legacy ships no tool that explains an access
+        // decision. (This comment used to cite legacy's DataAccessScopeDiagnostics as the
+        // precedent. Measured 2026-08-05: it counts DataContext create/dispose to find connection
+        // leaks and has nothing to do with authorization — TLW-AUTHORIZATION-MODEL.md §11 C2.)
         endpoints.MapGet("/api/access-diagnostics/{userId:guid}", async (
             Guid userId, IDataScopeResolver resolver, CancellationToken ct) =>
         {
