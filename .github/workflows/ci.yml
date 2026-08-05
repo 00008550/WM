@@ -1,0 +1,104 @@
+name: CI
+
+# The gate that stops a red build reaching master. Until this existed, "dotnet test
+# passed" was a claim in a PR description rather than something the repo checked.
+#
+# Note CLAUDE.md's warning: test coverage is thin and uneven. A green run here proves
+# the solution builds and that the three test projects pass -- it does NOT prove a
+# module is covered. Modules with no test project still have none.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# A new push to a PR makes the previous run irrelevant. Cancelling keeps us well
+# inside the free-tier minutes on a private repo.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: .NET build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Matches Directory.Build.props <TargetFramework>net10.0</TargetFramework>.
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        # Restore is where NU1903 (vulnerable transitive package) surfaces. WM.Api.Tests
+        # pins SQLitePCLRaw.bundle_e_sqlite3 to 2.1.12 for exactly that reason, so a
+        # regression here should fail rather than scroll past in a log.
+        run: dotnet restore WM.sln
+
+      - name: Build
+        # The repo builds clean today -- every portion report since 003 P1 has said
+        # "0 Warning(s)". -warnaserror keeps it that way. If this turns out to be too
+        # strict on an SDK patch bump, drop the flag rather than suppressing warnings.
+        run: dotnet build WM.sln --no-restore --configuration Release -warnaserror
+
+      - name: Test
+        run: dotnet test WM.sln --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: ./TestResults
+          retention-days: 7
+
+  frontend:
+    name: Angular build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/portal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Angular 22 requires Node 20.19+ / 22.12+ / 24+. 24 matches the dev machine.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/portal/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        # ng build type-checks the whole app, so this is the frontend's real gate today.
+        run: npm run build
+
+      - name: Test
+        # frontend/portal currently contains zero *.spec.ts files, so `ng test` would
+        # prove nothing -- the reviewer flagged this on 003 P1 and P2a. Rather than run
+        # a meaningless step or drop testing silently, detect specs and run them the
+        # moment the first one lands. Remove this guard once specs are routine.
+        run: |
+          if find src -name '*.spec.ts' -print -quit | grep -q .; then
+            echo "Spec files found -- running ng test headless."
+            npm run test -- --watch=false --browsers=ChromeHeadless
+          else
+            echo "::warning title=No frontend tests::frontend/portal has no *.spec.ts files; ng test skipped. See docs/plans/ -- standing up the first spec harness is queued work."
+          fi
