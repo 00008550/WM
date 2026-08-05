@@ -136,8 +136,10 @@ attached. *(Plan 006 P2 adds `/health/ready` and will trip that test on purpose.
 to `master`. **Branch protection is not enabled**, so nothing enforces it yet; raised as 006 open
 question 5.
 
-**Next portion:** **003 P2b — scope the employee writes.** People module; see the clearance note
-below.
+**Next portion:** **006 P3 — the public edge: real client IPs, rate limits, configurable lockout.**
+The user pulled 006 P2 and P3 ahead of 003 P2b (006 decision 1) because they fix defects in shipped
+code; P2 is open as [#40](https://github.com/00008550/WM/pull/40). **003 P2b — scope the employee
+writes** is next in lane A after that; see the clearance note below.
 
 **Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
 read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
@@ -167,9 +169,12 @@ the running stack**; do not copy 16 forward into any test.
 
 ## The demo deployment is planned — 006, drafted 2026-08-05
 
-[`006-public-demo-deployment.md`](./006-public-demo-deployment.md) — `draft`, 7 portions. A
-publicly reachable demo on Oracle Cloud Always Free (arm64), kept current by CD on every merge to
-`master`. **No legacy was surveyed and none should be** — TLW has no analogue; the plan says so in
+[`006-public-demo-deployment.md`](./006-public-demo-deployment.md) — `in-progress`, 7 portions,
+**approved by the user 2026-08-06**. **P2 passed review 2026-08-06 and is open as
+[#40](https://github.com/00008550/WM/pull/40)**, so the first of the four security facts below is
+closed: the image no longer ships a signing key or an administrator password, and outside
+Development it refuses to boot on one this repository publishes. A publicly reachable demo on
+Oracle Cloud Always Free (arm64), kept current by CD on every merge to `master`. **No legacy was surveyed and none should be** — TLW has no analogue; the plan says so in
 its *Legacy sources surveyed* line. Everything in it was measured against WM's own tree.
 
 Four things it found while measuring, all in shipped code:
@@ -198,7 +203,7 @@ the access model.
 |---|---|---|---|
 | 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
-| 006 | A public demo, kept current by CI/CD | 7 | **draft — awaiting approval** |
+| 006 | A public demo, kept current by CI/CD | 7 (**P2 in review as [#40](https://github.com/00008550/WM/pull/40)**, P3 next in lane B) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
@@ -238,7 +243,14 @@ fix what is bleeding first. But the lanes barely touch:
 - **006 P4–P7 touch `src/**` only in the four Dockerfiles.** They are the portions with no unit
   test and a smoke check instead, and they can proceed whenever lane A is waiting on a decision.
 
-**Next portion:** **003 P2b — scope the employee writes.** P2a merged as `e948481`.
+**Next portion:** **006 P3 — the public edge.** Lane B, pulled ahead by the user's 006 decision 1.
+006 P2 is open as [#40](https://github.com/00008550/WM/pull/40); **003 P2b — scope the employee
+writes** follows it in lane A (P2a merged as `e948481`).
+
+**One thing 006 P2's review handed to P3, beyond P3's own Done-when:** the readiness endpoint it
+added is anonymous, uncached, and costs roughly three database round-trips per module per request.
+P3's rate limiter names only the three anonymous auth endpoints — `/api/health/ready` should join
+it or take a short cache before the demo URL is public.
 
 Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`) — **names, not
 numbers**, per the convention below:
@@ -266,12 +278,23 @@ them.)*
 | — | plan 005 + 001 P3 superseded + §4A corrections | [#20](https://github.com/00008550/WM/pull/20) | ✅ merged to master (`3f05071`) |
 | 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | ✅ merged to master (`e948481`) |
 | — | CI: build + test gate on `master` | [#22](https://github.com/00008550/WM/pull/22) | ✅ merged to master (`18ca773`) |
+| — | 006 measured against the tree; arm64 and librdkafka answered | [#39](https://github.com/00008550/WM/pull/39) | ✅ merged to master (`1a7e292`) |
+| 006 | P2 — a host that can be verified from outside | [#40](https://github.com/00008550/WM/pull/40) | 🔍 review passed 2026-08-06, open against `master` |
 
 ## In flight
 
-Nothing open.
+**[#40](https://github.com/00008550/WM/pull/40) — 006 P2, open against `master`.** Review passed
+2026-08-06 with no findings. It closes the worst defect the repo was carrying: `appsettings.json`
+shipped a working `Jwt:SigningKey` and a `Bootstrap:AdminPassword` inside the `wm-api` image and
+nothing refused to boot on them, so anyone holding this repo or an image could mint administrator
+tokens against an install that had not overridden the key. Both values now live in
+`appsettings.Development.json` (not in the image), and outside Development the host refuses to
+start on a missing, under-32-byte or repository-published key — verified by mutation, and against
+the real host rather than only the test host. `/health` stays liveness; `/api/health/ready` is new
+and is the **fifth** anonymous transport, added deliberately through
+`EndpointAuthorizationInventoryTests`.
 
-`master` is at `18ca773`.
+`master` is at `1a7e292`.
 
 `docs/scope-model-corrections` is fully contained in `master` and can be deleted. See the
 stacking note in `CLAUDE.md` → Git for why #11 went astray.
