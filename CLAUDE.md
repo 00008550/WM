@@ -1,6 +1,6 @@
 # WM — working agreement
 
-**Workforce Management Platform** — .NET 9 + Angular rebuild of the legacy TLW (Time & Labour Workforce) suite.
+**Workforce Management Platform** — .NET 10 + Angular 22 rebuild of the legacy TLW (Time & Labour Workforce) suite.
 Repo: `E:\Work\GitProjects\WM` → `github.com/00008550/WM` (private). Default branch: `master`.
 
 ## Source of truth
