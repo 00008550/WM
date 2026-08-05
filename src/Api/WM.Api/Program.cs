@@ -43,7 +43,9 @@ builder.Services.Replace(ServiceDescriptor.Singleton<IScopeChangeNotifier>(
     sp => sp.GetRequiredService<AttendanceAudience>()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHealthChecks();
+// Liveness plus the readiness checks behind /api/health/ready — see WmHealthChecks for why the
+// two are separate and why readiness sits under the prefix nginx proxies.
+builder.Services.AddWmHealthChecks();
 
 // Event stream: Kafka when configured, and always fan out to SignalR for live UI.
 builder.Services.AddSingleton<KafkaEventStreamProducer>();
@@ -73,7 +75,7 @@ app.UseAuthorization();
 foreach (var module in modules)
     module.MapEndpoints(app);
 
-// The hub and /health — see PlatformEndpoints for why they are not inline here.
+// The hub, /health and /api/health/ready — see PlatformEndpoints for why they are not inline here.
 app.MapPlatformEndpoints();
 
 // Bootstrap. Schema migration runs in every environment — on-prem installs

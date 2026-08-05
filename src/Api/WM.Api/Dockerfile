@@ -33,7 +33,14 @@ ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 EXPOSE 8080
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
+# Readiness, not liveness: /health cannot fail (it runs no checks by design), so pointing the
+# container health check at it meant Docker reported a broken API as healthy and every
+# `depends_on: service_healthy` really meant "the process started". /api/health/ready answers only
+# once the database is reachable and migrated.
+#
+# The start period covers first-boot migrations, which run inside this process before it serves —
+# on a small arm64 host with a cold database that is comfortably more than the previous 30s.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=5 \
+  CMD wget -qO- http://127.0.0.1:8080/api/health/ready || exit 1
 
 ENTRYPOINT ["dotnet", "WM.Api.dll"]

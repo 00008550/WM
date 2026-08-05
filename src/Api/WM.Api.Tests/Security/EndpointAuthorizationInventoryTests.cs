@@ -21,6 +21,17 @@ public sealed class EndpointAuthorizationInventoryTests
     /// <summary>
     /// The complete anonymous surface. Sign-in cannot require a token, and /health is asked by
     /// things that hold no credentials (load balancers, probes, uptime monitors).
+    ///
+    /// <para>
+    /// <b>Grown by one on 2026-08-06 (plan 006 P2), deliberately.</b> <c>/api/health/ready</c> is
+    /// the fifth entry. It is anonymous for the same reason as the fourth — it is asked by an
+    /// external smoke check running from GitHub against the public URL, which holds no
+    /// credentials, and by a container health check that holds none either — and it is under
+    /// <c>/api/</c> because that is the only prefix the portal's nginx proxies. What it may
+    /// disclose was decided with it: status and per-database migration counts, plus a build
+    /// identity that is <em>empty unless a deployment sets it</em>, and never an exception
+    /// message. <see cref="ReadinessEndpointTests"/> holds those assertions.
+    /// </para>
     /// </summary>
     private static readonly string[] DeliberatelyAnonymous =
     [
@@ -28,6 +39,7 @@ public sealed class EndpointAuthorizationInventoryTests
         "/api/auth/refresh",
         "/api/auth/logout",
         "/health",
+        "/api/health/ready",
     ];
 
     [Fact]
