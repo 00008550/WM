@@ -160,9 +160,15 @@ silent (nothing errors; the wrong people just keep seeing things).
 > they are still better as two portions, because they touch different modules (Identity vs People)
 > and have different risk profiles, which is exactly the "split if it crosses two modules" rule.
 
-### [ ] P2a — Fail closed by default
+### [x] P2a — Fail closed by default  ·  reviewed 2026-08-05, [#21](https://github.com/00008550/WM/pull/21)
 **Touches:** `src/Modules/Identity/WM.Modules.Identity/IdentityModule.cs`,
 `WM.Modules.Identity.Tests`
+> **Built against `src/Api/WM.Api.Tests` instead**, because the behaviour is the host pipeline's: a
+> 401 from the fallback policy is produced by middleware, and the Identity test project has no host
+> to run it in. `/health`'s `AllowAnonymous` is likewise required by the *Done when* and lives in
+> the API host, so the "Touches" line above was under-specified. The hub and `/health` moved to a
+> new `PlatformEndpoints.cs` so the inventory test enumerates the host's real composition — those
+> two transports being exactly what "count transports, not routes" missed.
 **Done when:** `FallbackPolicy` requires an authenticated user, the three `AllowAnonymous` auth
 endpoints still work, `/health` still answers unauthenticated.
 **Tests:** an endpoint mapped without `RequireAuthorization` returns 401; `/health` still 200

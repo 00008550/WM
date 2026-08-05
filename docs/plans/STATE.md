@@ -125,8 +125,13 @@ session. §13's `⚠️ built but unscoped` row for the realtime feed is correct
 **P2 was split into P2a + P2b on 2026-08-05 at the user's direction** — same scope, two branches.
 The plan now has 5 portions; the approval as given still covers it.
 
-**Next portion:** **003 P2a — fail closed by default** (`FallbackPolicy`). Identity module only,
-correct under every access model, independent of everything below.
+**P2a passed review 2026-08-05 and is open as [#21](https://github.com/00008550/WM/pull/21)** — A2 is
+closed: an endpoint mapped without `RequireAuthorization` now answers 401, the anonymous surface is
+exactly four transports (`/api/auth/login`, `/refresh`, `/logout`, `/health`) and a test asserts that
+list against the composed host, so adding a fifth is a decision with a reviewer attached.
+
+**Next portion:** **003 P2b — scope the employee writes.** People module; see the clearance note
+below.
 
 **Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
 read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
@@ -158,7 +163,7 @@ the running stack**; do not copy 16 forward into any test.
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 003 | Enforcement gaps found by the phase audit | 5 (P1 done, **P2a next**) | **in-progress — active** |
+| 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first** |
@@ -177,7 +182,7 @@ live defect and because it carries the `CanEditOwnRecord` seam that 005 P4 wires
 built afterwards it would be written against a type that is moving under it. **005 P6 is the only
 irreversible portion and is deliberately detached from the rest of its plan's cadence.**
 
-**Next portion:** **003 P2a — fail closed by default.** Unchanged.
+**Next portion:** **003 P2b — scope the employee writes.** P2a is built, reviewed and open as #21.
 
 Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`):
 **006** — tariffs, employee contracts, calculation settings and the counter formula language;
@@ -199,13 +204,16 @@ refactor, so the two schema-sweep suggestions shift to 006 and 007.)*
 | — | phase audit + plan 003 + doc corrections | [#17](https://github.com/00008550/WM/pull/17) | ✅ merged to master (`2557921`) |
 | 003 | P1 — scope the realtime punch feed | [#18](https://github.com/00008550/WM/pull/18) | ✅ merged to master (`3389525`) |
 | — | authorization survey + §4 rewrite + the one-membership ruling | [#19](https://github.com/00008550/WM/pull/19) | ✅ merged to master (`0613836`) |
+| — | plan 005 + 001 P3 superseded + §4A corrections | [#20](https://github.com/00008550/WM/pull/20) | ✅ merged to master (`3f05071`) |
+| 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | open — reviewed and passed 2026-08-05 |
 
 ## In flight
 
-Nothing. `master` is at `0613836`.
+| PR | What | Status |
+|---|---|---|
+| [#21](https://github.com/00008550/WM/pull/21) | 003 P2a — `FallbackPolicy`, `/health` anonymous, endpoint inventory test | open — review passed, conflict with #20 resolved |
 
-Uncommitted in the working tree (`docs/authorization-model`, 2026-08-05): plan **005**, the 001 P3
-supersession, this file, and the §13/§14 corrections listed in 005's *Ground truth*.
+`master` is at `3f05071`.
 
 `docs/scope-model-corrections` is fully contained in `master` and can be deleted. See the
 stacking note in `CLAUDE.md` → Git for why #11 went astray.

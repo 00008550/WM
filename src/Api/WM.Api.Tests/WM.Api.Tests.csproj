@@ -14,6 +14,19 @@
          Without this pin the test host binds the older assembly and MSB3277 warns on every
          build. Pinned to the version the host is actually compiled against. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <!-- In-memory transport for the API host: the authorization tests have to go through real
+         middleware (a 401 is produced by the pipeline, not by a service), and TestServer is the
+         only way to do that without binding a port or a database. Pinned to the ASP.NET Core
+         runtime the host targets. -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
+    <!-- A real Identity database for the sign-in tests: the three AllowAnonymous endpoints have
+         to be shown returning 200, and a login that never reaches AuthService proves nothing.
+         SQLite rather than the in-memory provider because AuthService.LogoutAsync uses
+         ExecuteUpdateAsync, which the in-memory provider does not implement. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <!-- EF 10.0.10 pulls bundle_e_sqlite3 2.1.11, which carries NU1903 (GHSA-2m69-gcr7-jv3q).
+         2.1.12 is the fix; without this pin the build is no longer warning-free. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
   <ItemGroup>
