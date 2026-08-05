@@ -179,7 +179,7 @@ This is how TLW is actually *used*: a person signs in as a **user account**, and
 | **Manager** | Scoped to the employees/departments they manage (row-level scope on the site hierarchy). Approves absences/timesheets, views team dashboards. TLW: `ManagedDepartmentsAuthorizer`, `ManagedRelatedEmployeeRecordsAuthorizer`, `RoleBasedEmployeeFilterService`. |
 | **Employee** | **Self-service on their own linked record only**: their timesheet, punches, absence requests, documents to sign, expenses. Cannot see other employees. |
 
-Custom roles (bundles of fine-grained permissions) layer on top of these — an Administrator can define e.g. a "Payroll Officer" role.
+These three are **built-in security groups**, not a separate "role" concept — see §4. An Administrator can define custom groups (e.g. "Payroll Officer") carrying their own screen rights and data scope. A user belongs to **exactly one** group; there is no layering, because there is no union to resolve. To give someone the Payroll Officer rights *and* northern-region scope, you author a group that carries both — copy an existing group and edit it, rather than granting two.
 
 ### Self-service (`/api/me/*`)
 An employee-linked user with limited permissions gets a **self-service surface** scoped to *their own* employee id (never an arbitrary one — the id comes from their token, not the request):
@@ -191,11 +191,11 @@ An employee-linked user with limited permissions gets a **self-service surface**
 This is what makes WM "usable as TLW": create an employee, create a user linked to that employee with the Employee role, and that person logs in to a self-service portal showing only their data. Managers get the team view; admins get everything. The **web UI and Flutter app share these same `/api/me/*` endpoints.**
 
 ### User management (`/api/users/*`, permission `users.manage`)
-Admin CRUD: list/search users, create (optionally linked to an employee, with roles), edit roles/active state/employee link, reset password, deactivate. **User action logging** (TLW `UserActionLogsService`) feeds the audit stream. Password reset and invite emails go through the Notifications hub (§9).
+Admin CRUD: list/search users, create (optionally linked to an employee, assigned to one security group), edit group/active state/employee link, reset password, deactivate. **User action logging** (TLW `UserActionLogsService`) feeds the audit stream. Password reset and invite emails go through the Notifications hub (§9).
 
 ### Access enforcement
-- **Roles → permissions → policies** (already live in WM) for *what actions* a user may perform.
-- **Row-level scope** for *which records* — a Manager's queries are filtered to their managed departments/employees; an Employee's to their own id. Implemented as EF Core query filters keyed on scope claims (successor to TLW `RoleBasedEmployeeFilterService` + `SiteItemPermission` + `FormAccess`).
+- **Group → screen rights → policies** for *what actions* a user may perform. (Permissions are live in WM today as a per-role claim set; plan 005 merges roles into the group and plan 004 replaces the flat permission list with tri-state screen rights.)
+- **Row-level scope** for *which records* — a Manager's queries are filtered to their managed departments/employees; an Employee's to their own id. Implemented as EF Core query filters keyed on the resolved scope (successor to TLW `RoleBasedEmployeeFilterService` and the `dbo.AccessControlEntry` rights store — note `FormAccess` and `SiteItemPermission` are C# types, not tables, and `dbo.WebPages` is localization).
 - **2FA** (TOTP + email code — TLW `TwoFactorAuthenticationService`/`TwoFactorEmailCodeSender`) at sign-in for privileged users.
 
 ---
@@ -421,10 +421,10 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | Users / user management (`Logic/Users`) | Identity (user mgmt) | ✅ built — list/search, create, edit roles + employee link, reset password, lockout (`UserEndpoints.cs`, `UserManagementService.cs`) |
 | User ↔ employee linking (`UserFromEmployeeIdProvider`) | Identity + People | ✅ built — `User.EmployeeId`, one-to-one enforced, `/api/me/employee` |
 | Employee self-service portal (`EmployeeSchedulingPortal`) | `/api/me/*` + portal | ◐ partial — punches/timesheet/profile live; absences, documents, expenses follow their phases |
-| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity roles | ◐ roles live; **legacy's `Role.IsSelfOnly` and `CanModifySelf` not modelled** (`IsDepartmentOnly` is dead code in legacy — do not model it) — see `TLW-AUTHORIZATION-MODEL.md` §6 |
-| **One role per user** (`UsersInRoles`, `GetUserRole`) | Identity | ⚠️ **WM diverges and the doc claimed otherwise.** Legacy users hold **exactly one** role (`AuthorizationService.cs:1265-1280` `SingleOrDefault`; `:1008-1041` replaces on assign). WM has many roles *and* many groups per user. §4's "union, mirroring TLW" was never TLW. Decision pending — `TLW-AUTHORIZATION-MODEL.md` §13 |
+| User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity groups | ◐ roles live; **both `Role.IsSelfOnly` and `CanModifySelf` adopted 2026-08-05** — `SelfOnly` as `ScopeRuleKind.Self` (a mode is a rule kind under exclusivity), `CanEditOwnRecord` as a group flag defaulting to `true`; built in plan **005 P1**. `IsDepartmentOnly` is dead code in legacy — do not model it. See `TLW-AUTHORIZATION-MODEL.md` §6 |
+| **One role per user** (`UsersInRoles`, `GetUserRole`) | Identity | ◐ **decided, not yet built.** Legacy users hold **exactly one** role (`AuthorizationService.cs:1265-1280` `SingleOrDefault`; `:1008-1041` replaces on assign). WM has many roles *and* many groups per user; §4's old "union, mirroring TLW" was never TLW. **User ruled 2026-08-05: option A — one object, one membership**; §4 rewritten. The refactor is plan **005** (`User.Roles` → `User.SecurityGroupId`, `Role`/`RolePermission` merged into `SecurityGroup`, 6 portions) |
 | Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) — **department scope is unreachable from the UI and employee writes are unscoped**, see `PHASE-AUDIT.md` A2/A4 |
-| Realtime punch feed (no legacy equivalent — WM addition) | Api SignalR hub | ⚠️ **built but unscoped** — broadcasts every punch to every authenticated client; plan 003 P1 |
+| Realtime punch feed (no legacy equivalent — WM addition) | Api SignalR hub | ✅ **scoped** — 003 P1 merged 2026-08-05 (`3389525`, #18): the feed addresses SignalR groups derived from resolved scope, the hub requires `attendance.view`, and a scope change re-groups open sockets within the session. **One follow-up:** group fan-out is *union* semantics and a composed rule is an *intersection*, so a multi-dimension group would leak — settled by plan **005 P5** (evaluate the rule per open connection); 005 P4 fails that arm closed in the interim |
 | API/integration auth (`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`) | Identity | ▢ **not started** — legacy authenticates the mobile app as an *employee* with a revocable per-device token, not as a user; plan 003 P4 |
 | Screen-level rights (**`dbo.AccessControlEntry`** — 6 cols, ~1,000 rows/role) | Identity groups | ▢ **not started** — measured 2026-08-05: 49 branches / 382 forms / 75 tabs, tri-state none·read·edit, **deny-overrides-allow, default deny**. See `TLW-AUTHORIZATION-MODEL.md` §4 and plan 004 |
 | Navigation icons / dashboard categories per role (`RoleNavigationIcons`, `RoleDashboardCategories`) | Identity groups | ▢ **not started** — presentation allow-lists on the group, never a security boundary (`AuthorizationService.cs:511-526, 1423-1432`) |
@@ -528,7 +528,13 @@ Explicitly **excluded**: devices (phone-only), EPOS/catering, student registrati
 2. **Free/open-weight model by default**, provider-agnostic, on-prem-safe; hosted API optional. Assistant is a metered licensed feature.
 3. **Everything is a licensable feature** so packaging/pricing is configuration, not code.
 4. **EF Core everywhere** — no Dapper. Optimise measured hot paths only (compiled queries, projections, `FromSql` as a last resort); never split the stack pre-emptively.
-5. **Groups** adopted from legacy `/Groups` (one object carrying per-screen read/edit *and* employee scope, richer than flat roles) and **moved to the front** of the queue. WM allows several groups per user, and makes scope type explicit rather than legacy's fail-open "empty list means everything".
+5. **Groups** adopted from legacy `/Groups` (one object carrying per-screen read/edit *and* employee scope, richer than flat roles) and **moved to the front** of the queue. WM makes scope explicit rather than legacy's fail-open "empty list means everything".
+
+   > **Corrected 2026-08-05.** This decision read *"WM allows several groups per user"*. The user
+   > ruled the opposite on 2026-08-05 — **one object, one membership** (§4:157-160) — and the
+   > sentence is superseded rather than merely stale: multi-membership was the half of the design
+   > nobody chose deliberately, and it is what forced the union, the precedence questions and the
+   > "vague idea about groups" the survey was commissioned to answer. The refactor is plan 005.
 
    **WM deliberately inverts all three of legacy's fail-open behaviours** (measured in `RoleBasedEmployeeFilterService`, 2026-08-03):
    - an **empty managed list applies no filter** in legacy, so a misconfigured role sees every employee — in WM a dimension present with zero ids matches **nothing**;

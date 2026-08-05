@@ -605,7 +605,7 @@ Made directly, this survey. Each was a claim carried forward from a document rat
 | # | Claim | Where it was | Measured truth |
 |---|---|---|---|
 | C1 | "A user may belong to several groups; access combines as a union — **mirroring TLW**" | `ARCHITECTURE.md:157`, `SCREEN-TREE.md:314-315` | **TLW has one role per user** (`GetUserRole:1277` `SingleOrDefault`; `AddUserToRole:1010-1034` replaces). The union is a WM invention attributed to TLW. |
-| C2 | "legacy needed `DataAccessScopeDiagnostics` to explain its own answers/decisions" | `SCREEN-TREE.md:310, 322`, `001:35`, `003:62`, `ARCHITECTURE.md:553-555`, and in code at `ScopeModel.cs:223`, `SecurityGroupEndpoints.cs:61` | **False.** `DataAccessScopeDiagnostics` counts LINQ-to-SQL `DataContext` create/dispose to find connection leaks (`DataAccessScopeDiagnostics.cs:10-55`; `DataAccessScopeDiagnosticsController.cs:70-87` exposes `TotalScopesCreated`, `ActiveScopes`, `TotalDisposalErrors`, `AutoDisposalRate`). It has nothing to do with authorization. **Legacy ships no tool that explains an access decision.** |
+| C2 | "legacy needed `DataAccessScopeDiagnostics` to explain its own answers/decisions" | `SCREEN-TREE.md:310, 322`, `001:35`, `003:62`, `ARCHITECTURE.md:553-555`, and in code at **four** sites (see below) | **False.** `DataAccessScopeDiagnostics` counts LINQ-to-SQL `DataContext` create/dispose to find connection leaks (`DataAccessScopeDiagnostics.cs:10-55`; `DataAccessScopeDiagnosticsController.cs:70-87` exposes `TotalScopesCreated`, `ActiveScopes`, `TotalDisposalErrors`, `AutoDisposalRate`). It has nothing to do with authorization. **Legacy ships no tool that explains an access decision.** |
 | C3 | Screen rights combine as a union / most-permissive-wins | implied by `ARCHITECTURE.md:157` | **Deny overrides allow; no allow means denied** (`UserHasPermission:695-718`). |
 | C4 | `WebPages` is a screen-rights table | `ARCHITECTURE.md:426` | It is localization: `WebPage(PageId, Name, Description)` + `LocalizationKeys` (`HorioDB.designer.cs:27642-27654`). The rights table is `dbo.AccessControlEntry`. |
 | C5 | `FormAccess` / `SiteItemPermission` are tables | `ARCHITECTURE.md:196, 426` | C# helper class and DTO. Persisted as `AccessControlEntry`. |
@@ -615,8 +615,26 @@ Made directly, this survey. Each was a claim carried forward from a document rat
 | C9 | Legacy expands the department/site tree when filtering employees | implied by `IncludeChildSites` "preserving current behaviour" | The TVF matches `e.DepartmentId = dr.DepartmentId` exactly (`80.V5.26.0.0.sql:911`). No expansion on the employee path. |
 
 C2 matters beyond bookkeeping: it was the stated evidence for two of WM's design decisions
-(orthogonal roles/groups, no deny rules). Those decisions may still be right — but they now have
-to stand on their own reasoning, because the evidence cited for them does not exist.
+(orthogonal roles/groups, no deny rules). One of those decisions — orthogonality — the user
+reversed on 2026-08-05. The other may still be right, but it now has to stand on its own
+reasoning, because the evidence cited for it does not exist.
+
+> **C2 undercount, corrected 2026-08-05 while planning 005.** This survey said the claim survived
+> in **two** code comments. Grepping `src/**` for "diagnostic" finds **four**:
+>
+> | Site | What it says |
+> |---|---|
+> | `SharedKernel/Security/ScopeModel.cs:220-223` | "the failure legacy's `DataAccessScopeDiagnostics` existed to chase" |
+> | `Identity/Endpoints/SecurityGroupEndpoints.cs:61-62` | "legacy shipped `DataAccessScopeDiagnostics` because 'why can't this user see this employee?' is otherwise unanswerable" |
+> | `Identity/Domain/SecurityGroup.cs:10-13` | "Legacy conflated the two across Role, SecurityGroup, **FormAccess and SiteItemPermission**, which is why it needed a diagnostics subsystem to explain itself" — **three errors in one sentence**: C2, C5 (neither is a table), and the roles-vs-groups orthogonality the 2026-08-05 ruling reverses |
+> | `People/Services/EmployeeScopeExtensions.cs:9-11` | "which is how legacy ended up needing a diagnostics subsystem to find the gaps" |
+>
+> A fifth, milder instance is `SharedKernel/Security/DataScope.cs:5-6`, which calls
+> `SiteItemPermission` an "authorizer class" (C5); that file is deleted by 005 P4 regardless.
+> Each site is folded into the *Touches* of the 005 portion that opens that file.
+>
+> The lesson is the one this document already carries: a wrong claim propagates as far as somebody
+> finds it useful, and "I corrected the two I happened to see" is not a sweep.
 
 ---
 
@@ -659,6 +677,12 @@ to stand on their own reasoning, because the evidence cited for them does not ex
 > **Everything in this section is a recommendation, not a measurement.** The user's standing
 > direction is *"probably best to adapt strategy from old TLW."* This section says what that
 > implies concretely, and where I think it should **not** be adapted, with the measured reason.
+>
+> ### ✅ **Ruled on 2026-08-05: option (A).** The recommendation below was accepted.
+> `ARCHITECTURE.md` §4 (`:157-160`) is rewritten and normative; `CanEditOwnRecord` is adopted. The
+> refactor — every cost item listed under (A) below, sized against WM's own tree — is planned as
+> [`plans/005-one-membership.md`](./plans/005-one-membership.md), 6 portions, `draft`.
+> **Option (B) below is retained as the record of the path not taken.**
 
 ### The one thing that has to be decided first
 
@@ -777,23 +801,29 @@ policies, plus the fallback policy from 003 P2.
 
 ## 14. Open questions for the user
 
-1. **(A) or (B)?** One group per user, or multi-membership with explicit precedence. This is the
-   §4 decision and it blocks plan 001 P3. My recommendation is (A) with the reasoning above; the
-   cost is a real refactor of shipped Identity code, and it is your call whether that cost is
-   worth the legibility.
-2. **If (B):** confirm the two precedence rules in writing — screen rights resolve
-   deny-over-allow, and a `SelfOnly` group collapses the union. Without them (B) is not a model,
-   it is a set of behaviours.
-3. **`CanEditOwnRecord`.** Cheap, real, and currently unrepresentable. Ship it either way?
-4. **The exclusion-list requirement.** Deny rules stay dropped, but "hide the directors' Salary
+> **Questions 1–3 and 5 were answered on 2026-08-05.** Kept with their answers rather than deleted,
+> so the reasoning that produced the ruling stays attached to it.
+
+1. ~~**(A) or (B)?**~~ **Answered: (A)** — one object, one membership. `ARCHITECTURE.md` §4
+   (`:157-160`) rewritten to match. The refactor is planned as
+   [`plans/005-one-membership.md`](./plans/005-one-membership.md); its measured cost is 22 source
+   files, 5 frontend files, 7 test files and 3 migrations, in 6 portions.
+2. ~~**If (B):** confirm the two precedence rules.~~ **Moot.** (B) was not taken, so neither
+   precedence rule is needed. That is the point of (A).
+3. ~~**`CanEditOwnRecord`.**~~ **Answered: adopted.** Built in 005 P1 as a group flag defaulting to
+   `true` (today's WM behaviour, so the migration cannot narrow anyone); wired into the write check
+   by 005 P4, through the seam 003 P2b leaves.
+4. **The exclusion-list requirement.** *Still open.* Deny rules stay dropped, but "hide the directors' Salary
    tab from the regional manager who legitimately holds it" is a real customer need
    (`GroupsController.cs:463-466` restricts exclusions to exactly the Personnel and HR Documents
    tabs). Options: a sensitivity flag on the employee that requires a distinct right; a separate
    group for sensitive personnel with the tab withheld; or accept the gap. Not urgent — no screen
    rights exist yet — but it should not be discovered during Phase 1b's second half.
-5. **`ScopeModel.cs:223` and `SecurityGroupEndpoints.cs:61` carry correction C2 in code comments.**
-   `src/**` is read-only to this survey. They need a one-line edit whenever the next portion
-   touches those files.
+5. ~~**`ScopeModel.cs:223` and `SecurityGroupEndpoints.cs:61` carry correction C2 in code
+   comments.**~~ **Re-measured 2026-08-05: there are four, not two** — see the boxed table in §11.
+   Each is assigned to the 005 portion that opens that file (P1 for `SecurityGroup.cs` and
+   `SecurityGroupEndpoints.cs`, P4 for `ScopeModel.cs` and `EmployeeScopeExtensions.cs`);
+   `DataScope.cs` is deleted by P4 outright.
 
 ---
 
