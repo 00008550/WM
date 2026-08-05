@@ -531,32 +531,51 @@ to code that is merged and running, worth having whether or not a demo ever exis
 the useful thing to build whenever lane A is waiting on a decision. **P4–P7 touch `src/**` only in
 the four Dockerfiles**, so they never collide with lane A at all.
 
-## Open questions for the user
+## Decisions (user, 2026-08-05)
 
-1. **What hostname does the demo answer on?** Caddy's automatic TLS needs a name pointing at the
-   box, and P5 cannot be built without an answer. Options: a domain you own (cleanest — an `A`
-   record to the instance's public IP); a free dynamic-DNS name such as DuckDNS (works, needs
-   Caddy's DNS-challenge build); or a wildcard-resolver name like `<ip>.sslip.io` (no registration,
-   but Let's Encrypt rate-limits the shared parent domain and issuance can fail unpredictably).
-   **Recommendation: a real domain.** Plain HTTP is not on the list: a public sign-in form over
-   `http://` is indefensible even when the credentials are published.
-2. **May the four demo images be public GHCR packages?** Public packages have no storage limit
-   and no token requirement; private ones are metered and may not fit the free allowance (decision
-   3). Public means anyone can `docker pull` and decompile the compiled product. My read: keep them
-   **private**, prune hard, and revisit if the measurement in P6 says the allowance cannot hold one
-   set — but it is a commercial call, not a technical one.
-3. **Does the demo publish a `manager` login only, or an employee login too?** Two accounts show
-   the self-service story and the manager story, which is most of the product. Three is what
-   `DemoUserSeeder` creates today. The `admin` account is not published under any option.
-4. **Proposal, not applied — two version claims outside a surveyor's remit.** §13A's were corrected
-   in this pass (it is a deployment record); these two are not mine to edit. Concrete diff:
-   - `CLAUDE.md:3` — *"**Workforce Management Platform** — .NET 9 + Angular rebuild"* →
-     *".NET 10 + Angular"*. The repo moved in [#14](https://github.com/00008550/WM/pull/14);
-     `Directory.Build.props:3` says `net10.0`.
-   - `ARCHITECTURE.md:96` (§2 tech stack) — *"Angular 19 (standalone, signals, zoneless)"* →
-     *"Angular 22"*. `frontend/portal/package.json:13-19` pins `^22.1.0`, and `ci.yml:80-82`
-     builds it on Node 24. §2's .NET row is already correct at 10.
-5. **Should branch protection be enabled on `master` now?** CI has been green since #22 but nothing
-   enforces it, and this plan adds a workflow that deploys whatever lands there. A demo that
-   auto-publishes from an unprotected branch is a strange combination. Not part of any portion —
-   it is a repository setting, and yours to make.
+1. **P2 and P3 are pulled ahead of 003 P2b.** They fix defects in shipped code — a committed
+   signing key that lets anyone holding this repo or an image mint administrator tokens, a
+   `/health` that cannot fail, a missing `UseForwardedHeaders`, and a lockout threshold that is a
+   `const`. 003 P2b (a manager creating outside their own scope) is real but narrower. **Fix the
+   key first.** P2 and P3 are worth having whether or not a demo ever exists, which is why they
+   move without waiting for the rest of this plan to be approved.
+
+2. **GHCR packages stay private.** Prune to the last five commit SHAs plus `demo`; P6 measures the
+   first push against the allowance rather than assuming. Note that **GHCR package visibility is
+   independent of repository visibility** — a public package on a private repo is downloadable by
+   anyone, so "the repo is private" is not a defence. If the measurement says the free allowance
+   cannot hold one set, the fix is a paid plan, **not** making the packages public.
+
+3. **Both a `manager` and an employee login are published.** Two accounts show the manager story
+   and the self-service story, which between them are most of the shipped product. `admin` is
+   never published.
+
+4. **Version claims corrected** — applied, not proposed: `CLAUDE.md:3` now reads .NET 10 +
+   Angular 22, and `ARCHITECTURE.md:96` now reads Angular 22.
+
+## Still open
+
+**The hostname (blocks P5 only).** Everything in P1–P4 and most of P6 is host-agnostic and can be
+built first. Ruled out: **Heroku** — its free tier ended November 2022, and a `herokuapp.com` name
+only ever addressed an app hosted *on* Heroku, never an Oracle box. Live options:
+
+- **A domain you own** — cleanest, an `A` record to the instance IP. A `.xyz`/`.top` is a few
+  dollars a year and is the right spend if a prospect will ever see the link.
+- **DuckDNS** — free, you pick the label (`something.duckdns.org`). Correcting an earlier caution
+  in this plan and in the orchestrator's summary: `duckdns.org` is on the **Public Suffix List**,
+  so Let's Encrypt rate limits are counted **per subdomain, not shared across the parent**. The
+  shared-rate-limit objection applies to resolvers like `sslip.io`, not to DuckDNS.
+- Plain HTTP remains off the list: a public sign-in form over `http://` is indefensible even when
+  the credentials are published.
+
+**Branch protection cannot be enabled on this repository.** Both the classic
+`branches/master/protection` API and the newer `rulesets` API return **HTTP 403 — "Upgrade to
+GitHub Pro or make this repository public"**. GitHub Free does not offer either on a private repo.
+Attempted 2026-08-05; this is a plan limitation, not an oversight.
+
+The consequence for **P6** is specific and must be designed for: since nothing can stop a red
+build from reaching `master`, **the deploy job must refuse to deploy a SHA whose CI did not pass**,
+by depending on the CI result rather than trusting the branch. That check is free and enforceable
+in the workflow, and it protects the thing that actually matters here — what reaches the public
+box. The merge gate itself needs a paid plan (which would also raise the metered package allowance
+that decision 2 is pruning around); worth knowing, but not a blocker for any portion.
