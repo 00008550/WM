@@ -93,7 +93,7 @@ All containerized (Docker Compose for dev, Kubernetes-ready for prod). **Object 
 | Commands & jobs | **RabbitMQ** via **MassTransit** (retry, outbox, sagas) |
 | Event streaming | **Kafka** (Confluent.Kafka) — punch/clocking log, audit, notifications, integration feed |
 | Realtime to UI | SignalR (WebSockets) — live boards, notification centre, mustering |
-| Frontend | Angular 19 (standalone, signals, zoneless), Tailwind, "Control Room" design system |
+| Frontend | Angular 22 (standalone, signals, zoneless), Tailwind, "Control Room" design system |
 | Charts/viz | ECharts |
 | Mobile (later) | Flutter, same OpenAPI + SignalR + FCM push |
 | Reporting | QuestPDF + ClosedXML (DevExpress optional later) |
@@ -424,6 +424,8 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | User types Administrator/Employee/Manager (`BuiltinRoles`) | Identity groups | ◐ roles live; **both `Role.IsSelfOnly` and `CanModifySelf` adopted 2026-08-05** — `SelfOnly` as `ScopeRuleKind.Self` (a mode is a rule kind under exclusivity), `CanEditOwnRecord` as a group flag defaulting to `true`; built in plan **005 P1**. `IsDepartmentOnly` is dead code in legacy — do not model it. See `TLW-AUTHORIZATION-MODEL.md` §6 |
 | **One role per user** (`UsersInRoles`, `GetUserRole`) | Identity | ◐ **decided, not yet built.** Legacy users hold **exactly one** role (`AuthorizationService.cs:1265-1280` `SingleOrDefault`; `:1008-1041` replaces on assign). WM has many roles *and* many groups per user; §4's old "union, mirroring TLW" was never TLW. **User ruled 2026-08-05: option A — one object, one membership**; §4 rewritten. The refactor is plan **005** (`User.Roles` → `User.SecurityGroupId`, `Role`/`RolePermission` merged into `SecurityGroup`, 6 portions) |
 | Manager row-level scope (`RoleBasedEmployeeFilterService`) | Identity/People query filters | ◐ partial (shipped PR #7; composed multi-dimension scope in plan 001) — **department scope is unreachable from the UI and employee writes are unscoped**, see `PHASE-AUDIT.md` A2/A4 |
+| Version rollout to servers (`AutoSiteUpdater`, `AutoScriptExecutor` — **claimed at §13A `:685` with no `file:line`, i.e. a hypothesis**) | Deploy (`deploy/`, `.github/`) | ◐ **partial.** Containers + `docker-compose.prod.yml` + migrate-on-start built; **CI** merged 2026-08-05 (#22). No CD, no registry (`WM_REGISTRY` defaults to the literal `wm`), no arm64 build, no hosted instance — plan **006** |
+| Hosted public demo (no legacy equivalent — WM addition) | Deploy + `src/Demo` | ▢ **not started.** Demo data is Development-only (`Program.cs:89-95`), so a Production boot has no employees, no punches and no `manager` login. Plan **006 P1** moves the seeders out of the shipping assemblies entirely |
 | Realtime punch feed (no legacy equivalent — WM addition) | Api SignalR hub | ✅ **scoped** — 003 P1 merged 2026-08-05 (`3389525`, #18): the feed addresses SignalR groups derived from resolved scope, the hub requires `attendance.view`, and a scope change re-groups open sockets within the session. **One follow-up:** group fan-out is *union* semantics and a composed rule is an *intersection*, so a multi-dimension group would leak — settled by plan **005 P5** (evaluate the rule per open connection); 005 P4 fails that arm closed in the interim |
 | API/integration auth (`ApiKeys`, `RsaKeys`, `SynergyAppAuthenticationTokens`) | Identity | ▢ **not started** — legacy authenticates the mobile app as an *employee* with a revocable per-device token, not as a user; plan 003 P4 |
 | Screen-level rights (**`dbo.AccessControlEntry`** — 6 cols, ~1,000 rows/role) | Identity groups | ▢ **not started** — measured 2026-08-05: 49 branches / 382 forms / 75 tabs, tri-state none·read·edit, **deny-overrides-allow, default deny**. See `TLW-AUTHORIZATION-MODEL.md` §4 and plan 004 |
@@ -657,7 +659,7 @@ The `IEventStreamProducer` / MassTransit abstractions stay — **but the justifi
 
 ### Ship as Linux containers — the legacy constraints are already gone
 
-An earlier draft worried about "Windows Server + IIS + SQL Server" sites. **That is a legacy constraint WM has already escaped:** WM is .NET 9 (Kestrel — no IIS) on PostgreSQL (no SQL Server), with an Angular SPA served by nginx. Nothing in the stack requires Windows.
+An earlier draft worried about "Windows Server + IIS + SQL Server" sites. **That is a legacy constraint WM has already escaped:** WM is .NET 10 (Kestrel — no IIS) on PostgreSQL (no SQL Server), with an Angular SPA served by nginx. Nothing in the stack requires Windows.
 
 **Target: a Linux host running Docker (or Podman). The host OS is otherwise an implementation detail** — the same Linux images run on Windows Server via Docker if a customer's IT insists.
 
@@ -667,16 +669,31 @@ This is also a **commercial advantage worth stating in the sales conversation**:
 
 | Image | Base | Size | Notes |
 |---|---|---|---|
-| `wm/wm-api` | `dotnet/aspnet:9.0-alpine` | ~194 MB | non-root, health-checked, migrates on start |
-| `wm/wm-worker` | `dotnet/runtime:9.0-alpine` | ~165 MB | non-root; plugins mounted at runtime, not baked in |
+| `wm/wm-api` | `dotnet/aspnet:10.0-alpine` | ~194 MB | non-root, health-checked, migrates on start |
+| `wm/wm-worker` | `dotnet/runtime:10.0-alpine` | ~165 MB | non-root; plugins mounted at runtime, not baked in |
 | `wm/wm-portal` | `nginx:1.27-alpine` | ~49 MB | serves the SPA, proxies `/api` + `/hubs` |
+
+> **Corrected 2026-08-05.** The base images read `9.0-alpine` here long after
+> [#14](https://github.com/00008550/WM/pull/14) moved the repo to .NET 10; the Dockerfiles say
+> `10.0-alpine` (`src/Api/WM.Api/Dockerfile:2,18`, `src/Worker/WM.Worker/Dockerfile:2,16`). Sizes
+> are the pre-.NET-10 measurements and have not been re-measured. **None of the three Dockerfiles
+> pins a platform**, so they build for whatever the builder is — plan 006 P4 adds `linux/arm64`.
 
 Deployment properties this buys us:
 - **Single origin** — nginx proxies the API and SignalR, so there is no CORS and no API URL baked into the JS bundle.
 - **Only the portal is exposed**; API, worker, database and brokers stay on the internal network.
 - **Versioned rollout and instant rollback** — pin `WM_VERSION` per customer, `docker compose pull && up -d` to upgrade, repin to roll back.
 - **Schema upgrades itself** — the API applies EF Core migrations on start in every environment, which is how an on-prem install stays current without us reaching it.
-- **Secrets are required, not defaulted** — compose refuses to start without `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY` and `WM_ADMIN_PASSWORD`. There is no hard-coded administrator password in a production build.
+- **Secrets are required by the compose file, not by the image** — `docker-compose.prod.yml:99,101` refuses to start without `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY` and `WM_ADMIN_PASSWORD`.
+
+> **Corrected 2026-08-05.** This bullet used to end *"There is no hard-coded administrator password
+> in a production build."* **That is false.** `src/Api/WM.Api/appsettings.json:17` ships a working
+> `Jwt:SigningKey` and `:25` a `Bootstrap:AdminPassword`, both inside the `wm-api` image —
+> `.dockerignore:12` excludes only `appsettings.Development.json`. Nothing refuses to boot on them
+> (`IdentityModule.cs:41-51`), so a container started without `Jwt__SigningKey` runs on a key
+> published in this repository and anyone who can read it can mint an administrator token. The
+> compose guard protects only deployments that use that compose file. **Plan 006 P2 makes the
+> image itself fail closed**; until it lands, treat the guard as the only thing standing there.
 
 Two Alpine-specific requirements learned by actually running it: **ICU must be installed** (`icu-libs`, `icu-data-full`) because WM is multi-language and invariant globalization is not acceptable; and container health checks must target **`127.0.0.1`, not `localhost`**, since `localhost` resolves to IPv6 first and nginx binds IPv4.
 

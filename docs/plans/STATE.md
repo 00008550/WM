@@ -125,10 +125,16 @@ session. §13's `⚠️ built but unscoped` row for the realtime feed is correct
 **P2 was split into P2a + P2b on 2026-08-05 at the user's direction** — same scope, two branches.
 The plan now has 5 portions; the approval as given still covers it.
 
-**P2a passed review 2026-08-05 and is open as [#21](https://github.com/00008550/WM/pull/21)** — A2 is
-closed: an endpoint mapped without `RequireAuthorization` now answers 401, the anonymous surface is
-exactly four transports (`/api/auth/login`, `/refresh`, `/logout`, `/health`) and a test asserts that
-list against the composed host, so adding a fifth is a decision with a reviewer attached.
+**P2a passed review and merged 2026-08-05 as [#21](https://github.com/00008550/WM/pull/21)
+(`e948481`)** — A2 is closed: an endpoint mapped without `RequireAuthorization` now answers 401, the
+anonymous surface is exactly four transports (`/api/auth/login`, `/refresh`, `/logout`, `/health`) and
+a test asserts that list against the composed host, so adding a fifth is a decision with a reviewer
+attached. *(Plan 006 P2 adds `/health/ready` and will trip that test on purpose.)*
+
+**CI landed 2026-08-05 as [#22](https://github.com/00008550/WM/pull/22) (`18ca773`)** —
+`.github/workflows/ci.yml` builds and tests the solution and builds the portal on every push and PR
+to `master`. **Branch protection is not enabled**, so nothing enforces it yet; raised as 006 open
+question 5.
 
 **Next portion:** **003 P2b — scope the employee writes.** People module; see the clearance note
 below.
@@ -159,12 +165,40 @@ leaves alone because they are still the group editor's contract.
 005 P3 gives the demo manager a real `Site managers` group and **re-measures the number against
 the running stack**; do not copy 16 forward into any test.
 
+## The demo deployment is planned — 006, drafted 2026-08-05
+
+[`006-public-demo-deployment.md`](./006-public-demo-deployment.md) — `draft`, 7 portions. A
+publicly reachable demo on Oracle Cloud Always Free (arm64), kept current by CD on every merge to
+`master`. **No legacy was surveyed and none should be** — TLW has no analogue; the plan says so in
+its *Legacy sources surveyed* line. Everything in it was measured against WM's own tree.
+
+Four things it found while measuring, all in shipped code:
+
+- **The image ships a working JWT signing key and an admin password.** `appsettings.json:17,25`
+  are baked into `wm-api` (`.dockerignore:12` excludes only the *Development* file), and nothing
+  refuses to boot on them. `docker-compose.prod.yml:99,101` guards this for people who use that
+  compose file; the image is fail-open. This also makes §13A's *"no hard-coded administrator
+  password in a production build"* false — **corrected in this pass**.
+- **`/health` cannot fail** — `Program.cs:46` registers no checks, so it answers `Healthy` with the
+  database down, and the container `HEALTHCHECK` believes it. It is also unreachable from outside
+  (`nginx.conf:32,42` proxy only `/api/` and `/hubs/`), so no smoke check can use it as-is.
+- **No rate limiting and no `UseForwardedHeaders`** anywhere in `src/**`. The second makes the
+  first a trap rather than an omission: without it every request looks like it came from the nginx
+  container, so an IP-keyed limiter would bucket the whole internet together.
+- **Published credentials plus a five-strike lockout** (`AuthService.cs:17-18,36-41`, `const`, not
+  configuration) means the demo locks itself out of itself on day one.
+
+Its three code portions (demo data out of the product; refuse to boot on the shipped dev secrets;
+the public edge) are worth building **whether or not a demo ever exists**, and are independent of
+the access model.
+
 ## Queue
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
 | 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
+| 006 | A public demo, kept current by CI/CD | 7 | **draft — awaiting approval** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
@@ -175,20 +209,45 @@ host and the People endpoints, 001 touches the resolver and the filter.
 **Reinforced 2026-08-05:** 003 P2a and P2b are correct under either access model, so they can
 proceed while the §4 question is open. 001 P3 cannot — and it no longer exists (005 P4).
 
-**Full sequence recommended by 005:**
-**003 P2a → 003 P2b → 005 P1…P5 → 003 P3 → 001 P4 → 001 P5 → 005 P6 → 004.**
-003 P2a is model-independent and is next regardless. 003 P2b lands before 005 P4 because it is a
-live defect and because it carries the `CanEditOwnRecord` seam that 005 P4 wires to the real flag —
-built afterwards it would be written against a type that is moving under it. **005 P6 is the only
-irreversible portion and is deliberately detached from the rest of its plan's cadence.**
+**Full sequence, updated 2026-08-05 when 006 was drafted. It is now two lanes, not one line** —
+006 is a platform plan and only one of its portions touches anything the model work touches.
 
-**Next portion:** **003 P2b — scope the employee writes.** P2a is built, reviewed and open as #21.
+**Lane A — the access model (unchanged):**
+**003 P2b → 005 P1…P5 → 003 P3 → 001 P4 → 001 P5 → 005 P6 → 004.**
+003 P2b lands before 005 P4 because it is a live defect and because it carries the
+`CanEditOwnRecord` seam that 005 P4 wires to the real flag — built afterwards it would be written
+against a type that is moving under it. **005 P1–P5 stay contiguous:** between P3 and P4 the system
+is half-refactored (the group carries permissions, the resolver still walks the old union), which
+is not a state to park in. **005 P6 is the only irreversible portion and is deliberately detached.**
 
-Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`):
-**006** — tariffs, employee contracts, calculation settings and the counter formula language;
-**007** — per-install configuration (`SoftwareMainOptions`).
-*(Renumbered again 2026-08-05: 004 is the screen-rights plan and 005 is the one-membership
-refactor, so the two schema-sweep suggestions shift to 006 and 007.)*
+**Lane B — the demo platform:**
+**006 P2 → 006 P3 → 006 P1 → 006 P4 → 006 P5 → 006 P6 → 006 P7.**
+
+**006 runs alongside lane A, not ahead of it** — 003 P2b is a live defect and a demo is a nicety;
+fix what is bleeding first. But the lanes barely touch:
+
+- **One hard constraint between them: 006 P1 must land after 005 P3**, because both rewrite
+  `DemoUserSeeder.cs` — 005 P3 gives the demo manager a real `Site managers` group, 006 P1 moves
+  the file out of the shipping assembly. In this order the seeder moves once, with its final
+  content. The reverse also works and ships the demo weeks sooner, at the cost of re-targeting
+  005 P3's *Touches* line; that is the user's call.
+- **006 P2 and P3 may be pulled forward at any time** — including ahead of 003 P2b. They are
+  security fixes to shipped code (a published signing key that boots, no rate limiting, a health
+  check that cannot fail) and touch no part of the access model. The only file they share with 005
+  is `IdentityModule.RegisterServices` — a guard at `:41-51` versus `AddAuthorization` at `:67-78`.
+- **006 P4–P7 touch `src/**` only in the four Dockerfiles.** They are the portions with no unit
+  test and a smoke check instead, and they can proceed whenever lane A is waiting on a decision.
+
+**Next portion:** **003 P2b — scope the employee writes.** P2a merged as `e948481`.
+
+Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`) — **names, not
+numbers**, per the convention below:
+**"Tariffs and the calculation core"** — tariffs, employee contracts, calculation settings and the
+counter formula language;
+**"Per-install configuration"** — `SoftwareMainOptions` (227 cols).
+*(These were twice renumbered while carrying reserved numbers they had not earned — 004/005, then
+006/007. 006 is now the demo plan, which is a written file. They keep names until someone writes
+them.)*
 
 ## Shipped
 
@@ -205,15 +264,14 @@ refactor, so the two schema-sweep suggestions shift to 006 and 007.)*
 | 003 | P1 — scope the realtime punch feed | [#18](https://github.com/00008550/WM/pull/18) | ✅ merged to master (`3389525`) |
 | — | authorization survey + §4 rewrite + the one-membership ruling | [#19](https://github.com/00008550/WM/pull/19) | ✅ merged to master (`0613836`) |
 | — | plan 005 + 001 P3 superseded + §4A corrections | [#20](https://github.com/00008550/WM/pull/20) | ✅ merged to master (`3f05071`) |
-| 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | open — reviewed and passed 2026-08-05 |
+| 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | ✅ merged to master (`e948481`) |
+| — | CI: build + test gate on `master` | [#22](https://github.com/00008550/WM/pull/22) | ✅ merged to master (`18ca773`) |
 
 ## In flight
 
-| PR | What | Status |
-|---|---|---|
-| [#21](https://github.com/00008550/WM/pull/21) | 003 P2a — `FallbackPolicy`, `/health` anonymous, endpoint inventory test | open — review passed, conflict with #20 resolved |
+Nothing open.
 
-`master` is at `3f05071`.
+`master` is at `18ca773`.
 
 `docs/scope-model-corrections` is fully contained in `master` and can be deleted. See the
 stacking note in `CLAUDE.md` → Git for why #11 went astray.
@@ -222,6 +280,11 @@ stacking note in `CLAUDE.md` → Git for why #11 went astray.
 
 - **Status:** `draft` → `approved` (user signed off) → `in-progress` → `in-review` → `merged`.
 - A plan is only executable when its status is `approved`. `wm-builder` refuses `draft`.
+- **A plan number is claimed when the plan *file* is written — never when a plan is merely
+  suggested. Suggestions get names, not numbers.** Two schema-sweep ideas held reserved numbers
+  they had not earned and were renumbered twice as real plans overtook them (004/005 → 006/007 →
+  names). Every renumbering is an opportunity for a stale cross-reference in another document, and
+  a number that points at nothing is worse than no number. If it is worth a number, write the file.
 - One portion = one branch = one PR. Never batch portions into a single PR.
 - `wm-reviewer` updates the Shipped table when it opens a PR, and again when you merge.
 - **The review pass is not optional and the builder never opens its own PR.** P2 was built,
