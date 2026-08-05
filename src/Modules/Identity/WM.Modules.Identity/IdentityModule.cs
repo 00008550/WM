@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
@@ -39,7 +40,27 @@ public sealed class IdentityModule : IModule
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-                  ?? throw new InvalidOperationException("Jwt configuration section is missing.");
+                  ?? throw new InvalidOperationException(
+                      "Jwt configuration section is missing. Set Jwt__Issuer, Jwt__Audience and "
+                      + "Jwt__SigningKey before starting this host.");
+
+        // Fail closed, here, before anything else is composed. Two properties are worth stating
+        // because both were paid for:
+        //
+        //  * It throws during RegisterServices, not from a startup validator, so the process dies
+        //    before Program.cs opens a connection to migrate. A container missing its key exits in
+        //    milliseconds with this message rather than after a database timeout.
+        //  * "Outside Development" is read from configuration rather than IHostEnvironment because
+        //    IModule.RegisterServices is handed only the configuration — and the host resolves its
+        //    own environment from the very same key. Absent means Production, matching the host's
+        //    default, so an unusual hosting shape fails closed rather than open.
+        var isDevelopment = string.Equals(
+            configuration[HostDefaults.EnvironmentKey] ?? Environments.Production,
+            Environments.Development,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (JwtOptions.DescribeSigningKeyFault(jwt.SigningKey, isDevelopment) is { } fault)
+            throw new InvalidOperationException(fault);
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(o =>

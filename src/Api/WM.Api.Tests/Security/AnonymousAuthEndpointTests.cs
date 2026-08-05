@@ -18,7 +18,7 @@ namespace WM.Api.Tests.Security;
 public sealed class AnonymousAuthEndpointTests
 {
     private static Task<ApiTestHost> StartAsync() =>
-        ApiTestHost.StartAsync(withIdentityDatabase: true);
+        ApiTestHost.StartAsync(withDatabases: true);
 
     [Fact]
     public async Task Login_answers_an_anonymous_caller()

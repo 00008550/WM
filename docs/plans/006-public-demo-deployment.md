@@ -1,6 +1,8 @@
 # 006 — A public demo, kept current by CI/CD
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
+Approved by user 2026-08-06, all 7 portions. **P2 and P3 are ordered ahead of 003 P2b** — they fix
+defects in shipped code and are worth having whether or not a demo ever exists.
 Roadmap: ARCHITECTURE.md §13A — *"Consequence: rollout tooling is a first-class deliverable"*
 (`:683-692`), the running workstream named in §14 `:505`. This is its first instalment, and the
 demo box is the first WM deployment that runs unattended.
@@ -383,7 +385,7 @@ no longer references the seeder types**, so a later merge cannot quietly put the
 README in the same commit.
 **Sequencing:** see the note below — this portion and 005 P3 both rewrite `DemoUserSeeder.cs`.
 
-### [ ] P2 — A host that can be verified from outside
+### [x] P2 — A host that can be verified from outside  ·  reviewed 2026-08-06, [#40](https://github.com/00008550/WM/pull/40)
 **Touches:** `src/Modules/Identity/…/IdentityModule.cs:41-51` (guard),
 `src/Modules/Identity/…/Services/TokenService.cs:12-22` (`JwtOptions` validation),
 `src/Api/WM.Api/appsettings.json:14-26` → `appsettings.Development.json`,
@@ -405,6 +407,32 @@ anonymous transport, and that test exists so adding one is a decision with a rev
 (003 P2a). Update it deliberately and say so in the PR.
 **Risk:** medium. It can stop the app booting — which is the point — but a wrong guard breaks
 every developer at once. Keep Development untouched.
+
+**Reviewed 2026-08-06 — what was decided, so P3 does not rediscover it.** Every claim below was
+re-run, not read. The guard is load-bearing by mutation: removing it fails 6 tests, forcing it to
+`isDevelopment: true` fails exactly one (`A_production_host_refuses_every_signing_key_this_repository_publishes`),
+so the published-key block list is doing real work. Two deliberate departures from the literal
+Done-when, both accepted: **missing and under-32-byte keys are refused in *every* environment**
+(such a key throws IDX10653 at the first sign-in anyway, so boot is the better place to fail —
+`dotnet run` with nothing set still boots, checked against the real host), and **the new
+development key is on the block list**, with a test that reads the committed
+`appsettings.Development.json` so editing it cannot silently make its value production-usable.
+`/health` keeps `Predicate = _ => false` and stays genuine liveness (dropping the predicate fails
+`Liveness_still_answers_when_no_database_is_reachable`).
+
+The **anonymous surface is now five**, and what readiness may disclose was settled with it: status,
+per-database `applied`/`pending` counts, and a build identity only when `Build__Id` is set. No host,
+database name, user, `Npgsql` or exception text — the response body is hand-written rather than
+serialized from `HealthReport` for exactly that reason. The migration counts are a coarse
+schema-version fingerprint and that is accepted, because the count is what makes "migrated" a
+checkable claim.
+
+**Carried into P3:** `/api/health/ready` is anonymous, uncached, and costs ~3 database round-trips
+per module per request. P3's Done-when names only the three anonymous auth endpoints; **readiness
+should join that limiter or take a short cache** before the URL is public.
+**Unexercised, and P4/P5 must close it:** the Docker daemon was down, so the `HEALTHCHECK`'s
+`wget … || exit 1` was never run — only the endpoint's in-process 200/503. And the healthy
+readiness path is SQLite; there is still no Postgres test harness in this repo.
 
 ### [ ] P3 — The public edge: real client IPs, rate limits, configurable lockout
 **Touches:** `src/Api/WM.Api/Program.cs` (forwarded headers before auth; `AddRateLimiter`),

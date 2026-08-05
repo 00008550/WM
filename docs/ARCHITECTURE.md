@@ -684,16 +684,20 @@ Deployment properties this buys us:
 - **Only the portal is exposed**; API, worker, database and brokers stay on the internal network.
 - **Versioned rollout and instant rollback** — pin `WM_VERSION` per customer, `docker compose pull && up -d` to upgrade, repin to roll back.
 - **Schema upgrades itself** — the API applies EF Core migrations on start in every environment, which is how an on-prem install stays current without us reaching it.
-- **Secrets are required by the compose file, not by the image** — `docker-compose.prod.yml:99,101` refuses to start without `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY` and `WM_ADMIN_PASSWORD`.
+- **Secrets are required by the image itself, not only by the compose file** — the image carries no signing key and no administrator password, and outside Development the host **refuses to start** without a `Jwt:SigningKey` of its own (`JwtOptions.DescribeSigningKeyFault`, enforced at `IdentityModule.cs:57-63`). `docker-compose.prod.yml:99,101` still refuses to start without `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY` and `WM_ADMIN_PASSWORD`, but it is now the second line of defence rather than the only one.
+- **Readiness is separate from liveness** — `/health` answers "this process is answering" and cannot fail, which is what an orchestrator should restart on; `/api/health/ready` answers "connected and migrated" per module database and is what the container `HEALTHCHECK` and any `depends_on: service_healthy` use. It sits under `/api/` because that is the only prefix the portal's nginx proxies, so an external smoke check reaches it as a visitor would. It reports a build identity **only when `Build__Id` is set**, so a customer install discloses nothing.
 
-> **Corrected 2026-08-05.** This bullet used to end *"There is no hard-coded administrator password
-> in a production build."* **That is false.** `src/Api/WM.Api/appsettings.json:17` ships a working
-> `Jwt:SigningKey` and `:25` a `Bootstrap:AdminPassword`, both inside the `wm-api` image —
-> `.dockerignore:12` excludes only `appsettings.Development.json`. Nothing refuses to boot on them
-> (`IdentityModule.cs:41-51`), so a container started without `Jwt__SigningKey` runs on a key
-> published in this repository and anyone who can read it can mint an administrator token. The
-> compose guard protects only deployments that use that compose file. **Plan 006 P2 makes the
-> image itself fail closed**; until it lands, treat the guard as the only thing standing there.
+> **Corrected 2026-08-05, closed 2026-08-06 by plan 006 P2.** This bullet used to end *"There is no
+> hard-coded administrator password in a production build."* **That was false**:
+> `src/Api/WM.Api/appsettings.json` shipped a working `Jwt:SigningKey` and a
+> `Bootstrap:AdminPassword` inside the `wm-api` image (`.dockerignore` excludes only
+> `appsettings.Development.json`), and nothing refused to boot on them — a container started
+> without `Jwt__SigningKey` ran on a key published in this repository, and anyone who could read it
+> could mint an administrator token. **006 P2 removed both values from that file** (they now live
+> in `appsettings.Development.json`, which is not in the image) **and made the host fail closed**:
+> missing or under-32-byte keys are refused everywhere, and every key this repository publishes is
+> refused outside Development. The claim above is now true, and asserted by
+> `WM.Api.Tests/Security/SigningKeyGuardTests.cs`.
 
 Two Alpine-specific requirements learned by actually running it: **ICU must be installed** (`icu-libs`, `icu-data-full`) because WM is multi-language and invariant globalization is not acceptable; and container health checks must target **`127.0.0.1`, not `localhost`**, since `localhost` resolves to IPv6 first and nginx binds IPv4.
 
