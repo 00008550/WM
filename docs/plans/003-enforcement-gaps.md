@@ -308,3 +308,18 @@ with the shipped `SecurityGroup`. Until then §13/§14 carry the contradiction a
 >
 > **This plan is unaffected.** P1 shipped, P2a and P2b are correct under either option.
 > Plan 001 P3 is not: it implements the union, and it is on hold pending the ruling.
+>
+> ### ✅ **Ruled 2026-08-05: option (A).** `ARCHITECTURE.md` §4 (`:157-160`) rewritten and normative.
+>
+> The refactor it requires is [`005-one-membership.md`](./005-one-membership.md), which
+> **supersedes 001 P3**. Consequences for *this* plan, all sequencing rather than scope:
+>
+> - **P2a stays next.** Model-independent; it registers a `FallbackPolicy` and 005 P3 edits a
+>   different statement in the same method. Landing it first means 005 starts from default-deny.
+> - **P2b should land before 005 P4.** It is a live defect, and its `CanEditOwnRecord` seam is now
+>   a real feature the user has adopted rather than a hypothetical — 005 P1 adds the group flag and
+>   005 P4 wires it to this predicate. Built after 005 P4, P2b would be written against a
+>   `WithinScope` signature that is moving under it.
+> - **P3 may run either side of 005.** If it lands first, 005 P4 retypes two more `WithinScope`
+>   call sites; if after, nothing changes. It remains 001 P5's prerequisite.
+> - **P4 is unaffected** — documentation only.

@@ -13,8 +13,16 @@ Roadmap: ARCHITECTURE.md §14 Phase 1b — Access model. Plan 001 is the *scope*
 >
 > **Still `draft`, and still not executable**, for a different reason: option A requires the
 > one-membership refactor (`User.Roles` → `User.SecurityGroupId`, the JWT claim shape, both
-> seeders, `DataScopeResolver`) which is *not* in this plan. That work must land first — it is
-> the prerequisite for both this plan and the rewrite of 001 P3.
+> seeders, `DataScopeResolver`) which is *not* in this plan. **That work is now planned as
+> [`005-one-membership.md`](./005-one-membership.md)** (6 portions, `draft`) and must land first.
+>
+> **What 005 changes for this plan.** 005 merges `Role`/`RolePermission` into `SecurityGroup`, so
+> the group already carries a set of `WmPermissions` values by the time this plan starts. P2 below
+> therefore becomes *"extend the rights a group already holds"* rather than *"introduce rights
+> beside roles"* — a materially smaller change — and open question 2 ("do `WmPermissions`
+> survive?") is half-answered: they survive as the group's rights at today's granularity, and this
+> plan decides whether to refine them into a `None/Read/Edit` catalogue. 005 deliberately does
+> **not** invent a second vocabulary first.
 
 Legacy sources surveyed (all read in full unless noted):
 - `E:\Tlw\Source\WebSite\Controllers\Security\GroupsController.cs` (845 lines)

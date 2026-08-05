@@ -145,79 +145,44 @@ resolves to the identical employee set post-migration.
 **Risk:** **high** — this is the one that can silently widen access. Reviewer should treat any
 row whose post-migration employee set differs from its pre-migration set as a blocking finding.
 
-### [ ] P3 — Resolver + query filter honour the composed rule  ·  ⛔ **ON HOLD**
+### ~~[ ] P3 — Resolver + query filter honour the composed rule~~  ·  ⏹ **SUPERSEDED by 005 P4**
 
-> **Blocked 2026-08-05 by the authorization survey. Do not build this portion yet.**
-> [`../TLW-AUTHORIZATION-MODEL.md`](../TLW-AUTHORIZATION-MODEL.md)
+> **Resolved 2026-08-05. Do not build this portion — build [`005-one-membership.md`](./005-one-membership.md) P4 instead.**
 >
-> P3's central act is **union across a user's groups**. The survey measured that
-> **legacy has no union, because a legacy user belongs to exactly one group**:
-> `GetUserRole` is `SingleOrDefault` (`AuthorizationService.cs:1265-1280`), the resolution cache
-> is `Dictionary<userId, roleId>` (`:773-786`), and `AddUserToRole` **deletes the existing
-> assignment before inserting the new one** (`:1008-1041`). The "several groups, union, mirroring
-> TLW" sentence in `ARCHITECTURE.md` §4 — which this portion implements — describes a model TLW
-> does not have. WM's multi-membership is a WM choice that was never made deliberately.
+> P3 was put on hold because its central act was **union across a user's groups**, and the
+> authorization survey measured that legacy has no union because a legacy user belongs to exactly
+> one group (`AuthorizationService.cs:1265-1280` `SingleOrDefault`; `:773-786`; `:1008-1041`
+> replaces on assign). **The user ruled on 2026-08-05: option A — one object, one membership.**
+> `ARCHITECTURE.md` §4 (`:157-160`) is rewritten and normative.
 >
-> That decision (`TLW-AUTHORIZATION-MODEL.md` §13, option **A** one-group-per-user vs option **B**
-> multi-membership with explicit precedence) determines whether P3 exists at all:
-> - Under **A**, P3 shrinks to "resolve one group's constraints" — no union, no cross-group
->   leakage, and `IsSelfOnly` becomes a group *mode* rather than something a union must be taught
->   to lose to. The three sanctioned deviations below mostly evaporate.
-> - Under **B**, P3 proceeds broadly as written, **but must additionally encode two precedence
->   rules the plan does not currently have**: a `SelfOnly` group collapses the union (legacy's
->   `IsSelfOnly` short-circuit, `AuthorizationService.cs:220-224, 236-240, 275-279`), and screen
->   rights — when they arrive — resolve **deny-over-allow**, not most-permissive-wins
->   (`AuthorizationService.cs:695-718`).
+> **Why superseded rather than amended.** Under option A, "the resolver honours the composed rule"
+> and "the resolver reads one membership" are the same edit to the same method
+> (`DataScopeResolver.cs:25-70`). Doing them separately means writing a one-membership resolver
+> that still switches on `ScopeKind`, then rewriting it — two migrations of one method, and a
+> middle state nobody would want to review. So the work moved wholesale into 005 P4, which
+> additionally does what P3 could not: deletes `DataScopeKind`/`EffectiveDataScope`, retypes the
+> People and realtime consumers, and collapses `DataScope` from a list of rules to one.
 >
-> **The user's approval of this plan stands; it is the model underneath the portion that is now
-> in question.** Nothing here is unapproved unilaterally — it is paused pending a ruling that
-> only the user can give.
+> **What survives from this portion, and where it went:**
+>
+> | P3 said | Under option A |
+> |---|---|
+> | intersection **within** a group | **survives unchanged** — it is the whole model now (005 P4) |
+> | union **across** groups (fixes D2) | **deleted.** There is one group, so there is nothing to union. D2 cannot recur because it cannot be configured. |
+> | deviation 1 — "`Self` stops being outranked" | **cancelled.** A `Constrained` rule grants exactly its constraints, so a site-scoped manager still does not see their own record unless they fall inside it — which is also what legacy's TVF does. 005 P4 asserts the cancellation. |
+> | deviation 2 — site ids stop leaking between groups | **resolved by construction** — no other group to leak from. 005 P2's collapse *preserves* today's leaked ids as data, so nobody loses visibility, and the shape then makes it unrepresentable. |
+> | deviation 3 — `IncludeChildSites` stops leaking between groups | same as deviation 2. The collapse carries `true` onto the generated Site constraint whenever any contributing group had it (`SecurityGroup.cs:30` defaults it to `true`). |
+> | the baseline warning (manager sees **1**, not 16, because `DemoUserSeeder.cs` assigns roles and never groups) | **still true, and now owned by 005 P3**, which finally gives the demo manager a real group and re-measures the number. |
+> | the 003 P1 duplicate-delivery warning | **inverted and owned by 005 P5.** Under a union the hazard was a punch delivered twice; under one membership with an *intersection* rule it becomes a punch delivered to someone who should not see it, because SignalR group fan-out is union semantics. 005 P5 settles it (evaluate the rule per open connection) and rewrites the assertion rather than deleting it. |
+>
+> **The user's approval of this plan stands.** This portion is not being cancelled for want of
+> approval — it is being executed elsewhere, in a form the same ruling requires.
 
-**Touches:** `Identity/Services/DataScopeResolver.cs`, `People/Services/EmployeeScopeExtensions.cs`,
-`SecurityGroupService`
-**Done when:** `WithinScope()` applies intersection within a group and union across groups;
-D1 and D2 both demonstrably fixed end-to-end; existing scoped endpoints and the punch feed
-still behave (out-of-scope reads still 404, not 403).
-**Tests:** integration — a user in two groups of different dimensions sees the union; a group
-with departments ∩ site sees only the intersection; the existing 1b assertions still hold
-(manager 16 employees / admin 40, 0 out-of-scope punches).
-**Risk:** medium.
-
-**Amended 2026-08-04 by the phase audit.** P2's per-group mapping is faithful, but *resolution*
-is not, and P3 is where the difference lands. Three deviations from today's behaviour are
-**sanctioned** — a reviewer must not treat them as regressions — and each needs a test that
-names it:
-
-1. **`Self` stops being outranked.** Today `DataScopeResolver.cs:50, 57` seeds `widest = Self`
-   for an employee-linked user and then lets `Sites` (3) beat `Self` (1), so a site-scoped
-   manager cannot see their own record unless they happen to be at one of their sites. Under the
-   union, `Self` becomes an independent rule and they always can. That is a **widening**, it is
-   correct, and it is the behaviour `DataScope.cs:22-26` always claimed.
-2. **Site ids stop leaking between groups.** Today `DataScopeResolver.cs:58-59` unions
-   `SiteIds` from *every* group regardless of that group's `ScopeKind`, so a Departments-kind
-   group carrying stray site rows widens a *different* Sites-kind group. Under the composed
-   model each group's constraints stay its own. That is a **narrowing** and it is a bug fix.
-3. **`IncludeChildSites` stops leaking between groups.** Today `DataScopeResolver.cs:60` ORs the
-   flag across all groups, and it defaults to `true` (`SecurityGroup.cs:30`), so in practice
-   almost every user gets descendant expansion. Per Decision 1 it becomes per-dimension. Also a
-   **narrowing**, also intended.
-
-**Additional test:** the audit's baseline (admin 40 / manager 16) must hold *because* the rule is
-right. The seeded manager belongs to no security group at all (`DemoUserSeeder.cs` assigns roles,
-never groups), so today they resolve to `Self` and see **1**, not 16. Establish the real number
-before changing the resolver, or the regression test is measuring nothing.
-
-**Warning left by 003 P1 — this portion turns a passing test red, on purpose.**
-`WM.Api.Tests/Realtime/AttendanceScopeGroupTests.A_connection_never_receives_the_same_event_twice`
-asserts that a punch matches **at most one** of the groups a connection is in. That holds only
-because today's resolver collapses a user to a single `DataScopeKind`, so their groups all sit on
-one axis. The moment P3 unions rules across groups, a user in a Sites group *and* a Departments
-group joins both axes, a punch at their site in their department is addressed to both, and
-SignalR's default lifetime manager does **not** de-duplicate across the groups a message is sent
-to — the client renders the punch twice. **P3 must decide how the hub de-duplicates** (address a
-single per-user group, de-duplicate connections before sending, or make the client idempotent on
-punch id) and update that test to encode the decision. Do not simply delete the assertion: it is
-the only thing standing between the composed rule and duplicate rows on the dashboard.
+**P4 and P5 below are unaffected in substance but move in the queue: both now run after plan 005.**
+P4's employee-list dimension and P5's multi-dimension editor both build on the resolver 005 P4
+rewrites. P5 additionally inherits one task 005 deliberately leaves undone — dropping
+`SecurityGroup.ScopeKind`, `IncludeChildSites`, `SecurityGroupSite` and `SecurityGroupDepartment`,
+which remain the group editor's contract until P5 replaces it.
 
 ### [ ] P4 — Explicit employee list ~~+ Building dimension~~
 **Touches:** `SecurityGroup` dimensions, `WithinScope()`, `SecurityGroupService`
