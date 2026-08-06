@@ -136,10 +136,12 @@ attached. *(Plan 006 P2 adds `/health/ready` and will trip that test on purpose.
 to `master`. **Branch protection is not enabled**, so nothing enforces it yet; raised as 006 open
 question 5.
 
-**Next portion:** **006 P3 — the public edge: real client IPs, rate limits, configurable lockout.**
-The user pulled 006 P2 and P3 ahead of 003 P2b (006 decision 1) because they fix defects in shipped
-code; P2 is open as [#40](https://github.com/00008550/WM/pull/40). **003 P2b — scope the employee
-writes** is next in lane A after that; see the clearance note below.
+**Next portion:** **003 P2b — scope the employee writes** (lane A), or **006 P1 — demo data leaves
+the product** (lane B, but constrained: it must land after 005 P3). The user pulled 006 P2 and P3
+ahead of 003 P2b (006 decision 1) because they fix defects in shipped code; **both are now
+reviewed and open — P2 as [#40](https://github.com/00008550/WM/pull/40), P3 as
+[#47](https://github.com/00008550/WM/pull/47)** — so lane B's security work is done and the
+argument for staying in it has run out. See the clearance note below.
 
 **Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
 read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
@@ -170,10 +172,13 @@ the running stack**; do not copy 16 forward into any test.
 ## The demo deployment is planned — 006, drafted 2026-08-05
 
 [`006-public-demo-deployment.md`](./006-public-demo-deployment.md) — `in-progress`, 7 portions,
-**approved by the user 2026-08-06**. **P2 passed review 2026-08-06 and is open as
-[#40](https://github.com/00008550/WM/pull/40)**, so the first of the four security facts below is
-closed: the image no longer ships a signing key or an administrator password, and outside
-Development it refuses to boot on one this repository publishes. A publicly reachable demo on
+**approved by the user 2026-08-06**. **P2 and P3 both passed review 2026-08-06 and are open as
+[#40](https://github.com/00008550/WM/pull/40) and [#47](https://github.com/00008550/WM/pull/47)**,
+which closes **all four** of the security facts below: the image no longer ships a signing key or
+an administrator password and refuses to boot outside Development on one this repository
+publishes (P2); `/health` is real liveness with a separate readiness check (P2); forwarded headers
+and rate limiting both exist, as one mechanism (P3); and lockout is configuration with the shipped
+values as defaults (P3). A publicly reachable demo on
 Oracle Cloud Always Free (arm64), kept current by CD on every merge to `master`. **No legacy was surveyed and none should be** — TLW has no analogue; the plan says so in
 its *Legacy sources surveyed* line. Everything in it was measured against WM's own tree.
 
@@ -190,8 +195,13 @@ Four things it found while measuring, all in shipped code:
 - **No rate limiting and no `UseForwardedHeaders`** anywhere in `src/**`. The second makes the
   first a trap rather than an omission: without it every request looks like it came from the nginx
   container, so an IP-keyed limiter would bucket the whole internet together.
+  **Closed by P3 ([#47](https://github.com/00008550/WM/pull/47))** — both ship as one mechanism,
+  and the review measured that an *empty* trust list makes the framework skip its trust check
+  altogether, so the host now refuses to compose on one.
 - **Published credentials plus a five-strike lockout** (`AuthService.cs:17-18,36-41`, `const`, not
   configuration) means the demo locks itself out of itself on day one.
+  **Closed by P3** — `AccountLockoutOptions`, defaults unchanged at 5 / 15 min, validated at
+  composition, with no value that disables lockout.
 
 Its three code portions (demo data out of the product; refuse to boot on the shipped dev secrets;
 the public edge) are worth building **whether or not a demo ever exists**, and are independent of
@@ -203,7 +213,7 @@ the access model.
 |---|---|---|---|
 | 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
-| 006 | A public demo, kept current by CI/CD | 7 (**P2 in review as [#40](https://github.com/00008550/WM/pull/40)**, P3 next in lane B) | **in-progress — approved 2026-08-06** |
+| 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both in review**; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
@@ -243,14 +253,16 @@ fix what is bleeding first. But the lanes barely touch:
 - **006 P4–P7 touch `src/**` only in the four Dockerfiles.** They are the portions with no unit
   test and a smoke check instead, and they can proceed whenever lane A is waiting on a decision.
 
-**Next portion:** **006 P3 — the public edge.** Lane B, pulled ahead by the user's 006 decision 1.
-006 P2 is open as [#40](https://github.com/00008550/WM/pull/40); **003 P2b — scope the employee
-writes** follows it in lane A (P2a merged as `e948481`).
+**Next portion:** **003 P2b — scope the employee writes** (lane A, P2a merged as `e948481`), with
+**006 P1** the lane B alternative once 005 P3 has landed. 006 P2 and P3 are open as
+[#40](https://github.com/00008550/WM/pull/40) and [#47](https://github.com/00008550/WM/pull/47).
 
-**One thing 006 P2's review handed to P3, beyond P3's own Done-when:** the readiness endpoint it
-added is anonymous, uncached, and costs roughly three database round-trips per module per request.
-P3's rate limiter names only the three anonymous auth endpoints — `/api/health/ready` should join
-it or take a short cache before the demo URL is public.
+**006 P2's carry-over to P3 is closed.** The readiness endpoint P2 added is anonymous, uncached and
+costs roughly three database round-trips per module per request; P3 chose the limiter over a cache,
+so `/api/health/ready` now shares the anonymous bucket with the three sign-in transports. A cache
+would have needed invalidating on migration state and would have made the smoke check's build
+identity stale, while the real callers — the container `HEALTHCHECK` at 4/min from loopback and the
+6-hourly smoke run — sit an order of magnitude inside the 30/min default.
 
 Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`) — **names, not
 numbers**, per the convention below:
@@ -280,8 +292,35 @@ them.)*
 | — | CI: build + test gate on `master` | [#22](https://github.com/00008550/WM/pull/22) | ✅ merged to master (`18ca773`) |
 | — | 006 measured against the tree; arm64 and librdkafka answered | [#39](https://github.com/00008550/WM/pull/39) | ✅ merged to master (`1a7e292`) |
 | 006 | P2 — a host that can be verified from outside | [#40](https://github.com/00008550/WM/pull/40) | 🔍 review passed 2026-08-06, open against `master` |
+| 006 | P3 — the public edge: real client IPs, rate limits, configurable lockout | [#47](https://github.com/00008550/WM/pull/47) | 🔍 review passed 2026-08-06, open against `master` |
 
 ## In flight
+
+**[#47](https://github.com/00008550/WM/pull/47) — 006 P3, open against `master`.** Review passed
+2026-08-06 with no findings. It closes the last two of the four security facts 006 measured in
+shipped code: there was **no rate limiting and no `UseForwardedHeaders`** anywhere in `src/**`, and
+the second made the first a trap rather than an omission — an IP-keyed limiter added on its own
+would have bucketed the entire internet together. Both now ship as one mechanism in
+`PublicEdge.cs`. Lockout thresholds become `AccountLockoutOptions` with the shipped 5 / 15 min as
+defaults, so nothing changes for existing installs.
+
+**The subtlest thing in it, and it is right:** `ForwardedHeadersMiddleware` **skips its
+chain-of-trust check entirely when both known lists are empty**, so an empty trust list means
+"trust everybody", not "trust nobody". Measured against the framework, not reasoned about. The host
+therefore refuses to compose on an empty list. The trust boundary is enforced rather than merely
+configured — adding `0.0.0.0/0` to the list fails two tests, including
+`An_untrusted_caller_cannot_choose_its_own_address`.
+
+Limits land on `/api/auth/login`, `/refresh`, `/logout` **per endpoint rather than on the group**
+(`/me` shares it), plus `/api/health/ready` — which closes P2's recorded carry-over below.
+`/health`, the hub and authenticated traffic stay unlimited, asserted by a second inventory test in
+the shape of `EndpointAuthorizationInventoryTests`. **The anonymous surface stays at five and that
+test needed no edit.**
+
+**Carried forward from this review:** IPv6 is bucketed per address rather than per /64 (acceptable
+until an IPv6-reachable edge exists); **P5 should narrow the `172.16.0.0/12` default** to the demo
+box's real bridge subnet; and the container pipeline is still unexercised because Docker and
+Postgres were both down.
 
 **[#40](https://github.com/00008550/WM/pull/40) — 006 P2, open against `master`.** Review passed
 2026-08-06 with no findings. It closes the worst defect the repo was carrying: `appsettings.json`

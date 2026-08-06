@@ -434,7 +434,7 @@ should join that limiter or take a short cache** before the URL is public.
 `wget … || exit 1` was never run — only the endpoint's in-process 200/503. And the healthy
 readiness path is SQLite; there is still no Postgres test harness in this repo.
 
-### [ ] P3 — The public edge: real client IPs, rate limits, configurable lockout
+### [x] P3 — The public edge: real client IPs, rate limits, configurable lockout  ·  reviewed 2026-08-06, [#47](https://github.com/00008550/WM/pull/47)
 **Touches:** `src/Api/WM.Api/Program.cs` (forwarded headers before auth; `AddRateLimiter`),
 `src/Modules/Identity/…/Services/AuthService.cs:17-18,36-41` (options-bound thresholds),
 `src/Api/WM.Api.Tests/`
@@ -450,6 +450,57 @@ threshold and a raised threshold changes it.
 **Risk:** medium. Forwarded-headers misconfiguration is a spoofing surface, not just a bug — a
 trusted-proxy list that is too broad lets a caller forge their own client IP.
 **This portion must land before the URL is shared**, not merely before P6.
+
+**Reviewed 2026-08-06 — what was decided, so P4/P5 do not rediscover it.** No findings. Every
+framework claim below was measured in a standalone .NET 10 app outside WM's code, and every
+mutation was re-run in a throwaway worktree; the reviewed tree was never edited.
+
+**The empty trust list is the fail-open, and the guard against it is the best thing in this
+portion.** `ForwardedHeadersMiddleware` computes its chain-of-trust check as *"is either known
+list non-empty"* and **skips the check entirely when both are empty** — measured: with both lists
+cleared, a forged `X-Forwarded-For` from an untrusted loopback peer was honoured; with a list
+naming a range that excludes the peer it was ignored. **"Trust nobody" is spelled identically to
+"trust everybody",** so refusing an empty list at composition is not defensive noise.
+
+**`172.16.0.0/12` is broad and was accepted, with the reason recorded.** It is RFC 1918, so an
+internet visitor can never *be* a trusted peer; `docker-compose.prod.yml` declares no network so
+the bridge subnet is genuinely unknown at build time; and the property that actually holds the
+boundary is **`ForwardLimit` == the number of appending proxies**, which bounds the unwind however
+broad the list is. Residual exposure is a co-located container on the same Docker host forging its
+client IP. **P5 should narrow it** to the box's real subnet via
+`ForwardedHeaders__KnownNetworks__0` from `docker network inspect` — the override is tested to
+*replace* the default list rather than merge with it.
+
+**Two framework behaviours pinned, both load-bearing:** the rate limiter's `RejectionStatusCode`
+defaults to **503**, so 429 must be set explicitly; and `System.Net.IPNetwork.TryParse` **accepts**
+a CIDR with host bits set, normalising `172.20.0.1/16` to `172.20.0.0/16` and matching on the
+prefix. Also measured: configuration arrays overlay **by index** (a base list of three plus a
+deployment setting only `__0` yields three entries), which is why no default belongs in
+`appsettings.json` — a deployment could add to a trust list but never shrink it.
+
+**`ForwardLimit` is genuinely load-bearing now.** The builder found and fixed a weak test of its
+own: the old "beyond the forward limit" case used a forged chain whose unwind halted on the trust
+check, so it passed at `ForwardLimit = 3` and the limit proved nothing. Raising
+`DefaultForwardLimit` to 3 now fails
+`The_forward_limit_stops_the_unwind_when_every_forged_hop_looks_internal`, where the forged hop is
+itself inside the trusted range.
+
+**Readiness took the limiter rather than a cache**, closing P2's carry-over: a cache would need
+invalidating on migration state and would make the smoke check's "which build answered" stale,
+while the real callers (container `HEALTHCHECK` at 4/min from loopback, the 6-hourly smoke run)
+sit an order of magnitude inside 30/min. `/health`, `/hubs/attendance` and authenticated traffic
+are confirmed unlimited by an inventory test plus two behavioural ones. Limits are attached
+**per endpoint, not to the `/api/auth` group**, because `/me` shares that group.
+
+**Carried into later portions:** **IPv6 is bucketed per address, not per /64**, so one residential
+allocation yields many buckets — acceptable to defer (no IPv6 listener exists yet, and sign-in is
+also protected by lockout) but it must be closed before an IPv6-reachable edge fronts the product.
+And the anonymous limit of **30/min is a shared budget for an office behind one NAT** — deliberate
+and configurable, worth revisiting for a large single-egress customer.
+**Still unexercised:** no Docker and no Postgres, so the container pipeline is proven only
+in-process. The test host sharing `UseWmPublicEdge` with `Program.cs` was verified genuine —
+mutating `UseRateLimiter` inside `PublicEdge` fails four tests, which a hand-copied pipeline could
+not do.
 
 ### [ ] P4 — arm64 images
 **Touches:** `src/Api/WM.Api/Dockerfile`, `src/Worker/WM.Worker/Dockerfile`,
