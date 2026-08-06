@@ -193,6 +193,33 @@ Three consequences, all real:
    time-boxed fact with a lifecycle state; the moment the Absence module exists there will be two
    contradicting answers.
 
+> ### ⚠️ Correction, 2026-08-06 — this survey under-reported the leaver record
+> The user pushed back on point 3 with *"there is a counterpart in Legacy called LeaveDate so we
+> can know if person is a leaver and we also have Leave where Leave Reason can be selected"*, and
+> they were right about the substance. This section mentions `LeaveReasonId` only in passing at
+> `:179`, as an argument that setting a leaver differs from deactivating. It never carried the
+> **reason** into the model, the column classification in §3, or the plan. Two of the 153 columns
+> and one whole table were missed:
+>
+> | Legacy | Where |
+> |---|---|
+> | `Employees.DischargeDate` — `Date`, nullable | `HorioDB.designer.cs:29831` |
+> | `Employees.LeaveReasonId` — nullable FK, association `LeaveReason_Employee` | `:30707`, `:34148` |
+> | `Employees.AdditionalLeaverComments` — `nvarchar(500)` | `:32539` |
+> | `dbo.LeaveReason` — `Id`, `Name`, `IsActive` | `:53138-53148` |
+>
+> So **leaving is a date, a reason chosen from a customer-maintained list, and free-text comments.**
+> `IsActive` on the lookup means a reason is retired rather than deleted, which keeps historical
+> leavers readable — the right pattern, and one WM should copy.
+>
+> Point 3's *conclusion* survives: there is still no **temporary** "on leave" state on the person,
+> and absence remains a separate subsystem. What was wrong was the implication that leaving itself
+> is only a date. Plan 007 P1 now adopts all three fields and the lookup.
+>
+> **Method note for future surveys.** The failure mode here was reading a write path
+> (`SetEmployeesLeaver`) for what it proved about *one* argument, and not following the columns it
+> touched back into the classification. A column seen in passing is not a column classified.
+
 > **Legacy defect worth recording, because it shows the trap.** `dbo.ActiveEmployeesView`
 > (latest revision `Database/Versioning/78.V5.24.0.0.sql:74-80`, unchanged since
 > `76.V5.22.0.0.sql:40-46`) reads:
@@ -590,7 +617,9 @@ should land with or before 003 P3**, or fixing B5 turns a latent hole into a rea
 | A person is one aggregate with an org placement and a lifecycle | **Keep** | Genuine domain truth; every module keys on it. |
 | Employment as **(administrative state × dated discharge)**, evaluated at a reference date | **Keep — and adopt properly** | `IsActiveEmployment(dischargeDate, referenceDate)` (`76.V5.22.0.0.sql:25-38`) is right. WM's undated enum is the regression (§4.1). |
 | `IsActive` and `DischargeDate` as *two* facts | **Keep** | Suspension ≠ leaving. `SetEmployeesLeaver:122-145` deliberately does not touch `IsActive`. |
-| `EmployeeStatus.OnLeave` | **Drop** | No legacy counterpart; absence is a dated subsystem, not a lifecycle state (§4.1). WM invented it. |
+| `EmployeeStatus.OnLeave` | **Drop** | Absence is a dated subsystem, not a lifecycle state (§4.1). WM invented this status. *(Corrected 2026-08-06: dropping it is still right, but not because leaving is unmodelled — see below.)* |
+| **Leaving = `DischargeDate` + `LeaveReasonId` + `AdditionalLeaverComments`** | **Keep — adopt all three** | *(Added 2026-08-06; §4.1's correction block.)* "Why did they leave?" is a question every HR customer asks and legacy answers. WM's `Terminated` discards it. |
+| `dbo.LeaveReason` as a customer-maintained lookup with `IsActive` | **Keep** | Leaving reasons are per-customer vocabulary, not a WM enum, and `IsActive` retires one without orphaning the leavers who used it. |
 | `ActiveEmployeesView`'s `AND … OR …` precedence | **Invert** | A real legacy defect (§4.1). Employment must be computed once, not re-derived per query. |
 | One person table holding six products' columns, keyed on `EmployeeType` | **Improve** | `SCREEN-TREE.md` decision 9 (`PersonType`) already chose this. It also means **visitors are 14 of the 153 columns** — dropping Visitors drops them, not the person. |
 | 24 per-tab **write** permissions (`UpdateEmployeePermissions.cs:5-28`) | **Keep the granularity, improve the mechanism** | Bank/salary/disciplinary must not ride on one `employees.manage`. Field groups on the group, not 24 booleans in a DTO (§5.4). |

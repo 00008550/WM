@@ -1,9 +1,31 @@
 # 007 — The person record: employment as a date, and three defects under it
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: approved         <!-- draft → approved → in-progress → in-review → merged -->
+Approved by user 2026-08-06, all 5 portions. **P1 and P2 are ordered ahead of 003 P2b** — the same
+"fix what is bleeding" rule applied to 006 P2/P3.
 Roadmap: ARCHITECTURE.md §14 phase 1c ("Core depth"), and §13's newly-split People rows
 Legacy sources surveyed: [`../TLW-PEOPLE-MODEL.md`](../TLW-PEOPLE-MODEL.md) — 76 tables / 631
 columns measured, `dbo.Employees`' 153 columns classified one by one. Full file list in its §1.
+
+> ### ⚠️ Correction to this survey, 2026-08-06 — the user caught a miss
+> This plan originally stated that `EmployeeStatus.OnLeave` *"has no legacy counterpart"* and that
+> leaving is only a date. **The leaver model in legacy is richer than that, and the survey missed
+> two of the 153 columns it claimed to have classified, plus a whole lookup table:**
+>
+> | Legacy | |
+> |---|---|
+> | `Employees.DischargeDate` | `Date`, nullable (`HorioDB.designer.cs:29831`) |
+> | `Employees.LeaveReasonId` | nullable FK, association `LeaveReason_Employee` (`:30707`, `:34148`) |
+> | `Employees.AdditionalLeaverComments` | `nvarchar(500)` (`:32539`) |
+> | `dbo.LeaveReason` | `Id, Name, IsActive` (`:53138-53148`) — a **customer-maintained lookup**, deactivatable rather than deleted |
+>
+> So leaving is **a date, a reason chosen from a maintained list, and optional comments**. WM's
+> `Terminated` carries none of the three. P1 adopts all of them.
+>
+> What the survey got right: there is no *temporary* "on leave" state on the person. That is an
+> **absence**, and it belongs to the Absence module (44 tables, still unsurveyed). The two were
+> being conflated. `OnLeave` is still dropped — but because absence is a different subsystem, not
+> because leaving is unmodelled.
 
 ---
 
@@ -109,6 +131,8 @@ Full table in `TLW-PEOPLE-MODEL.md` §8. The entries this plan acts on:
 | Employment as **(administrative state × dated end)**, evaluated at a reference date | **Keep — adopt properly** | `IsActiveEmployment(dischargeDate, referenceDate)` is right, and WM's undated enum is a regression. Every historical question in the product depends on it. |
 | `IsActive` and `DischargeDate` as two separate facts | **Keep** | Suspension ≠ leaving; `SetEmployeesLeaver` proves legacy treats them separately on purpose. |
 | `EmployeeStatus.OnLeave` | **Drop** | WM invented it. Legacy's "on leave" is an *absence* — dated, a 44-table subsystem. Two systems would answer differently the day Absence ships. |
+| **Leaving as date + reason + comments** (`DischargeDate`, `LeaveReasonId`, `AdditionalLeaverComments`) | **Keep — adopt all three** | *(Added 2026-08-06; this survey missed it.)* "Why did they leave?" is an HR question every customer asks, and legacy answers it. WM's `Terminated` is a bare enum value that discards the answer. |
+| `dbo.LeaveReason` as a **customer-maintained lookup** with `IsActive` | **Keep** | Reasons are per-customer vocabulary (resignation, redundancy, TUPE, dismissal…), not a WM enum. `IsActive` retires a reason without orphaning the historical records that used it — the right pattern, and one WM should copy rather than hard-delete. |
 | `ActiveEmployeesView`'s `AND … OR …` | **Invert** | A real legacy defect. Employment is computed once, in a single expression, tested. |
 | Fail closed on employment at every write boundary | **Keep** | Legacy is right and WM is not (defect D1). |
 | Zero-padding-insensitive code uniqueness | **Drop** | Compensates for a decades-old badge format. Carrying it forward would make `42` and `0042` the same person forever. Case-insensitivity is worth keeping; padding is not. *(User decision — open question 1.)* |
@@ -245,8 +269,19 @@ computed, not stored; the migration maps `Active→(not suspended, open)`, `OnLe
 open)` and `Terminated→(not suspended, EmployedUntil = UpdatedAt ?? CreatedAt date)` and says in a
 comment that the terminated date is a **best-effort backfill**, because the information was never
 captured; `IEmployeeDirectory` exposes employment so no consumer reads People's tables.
+
+**Also, per the 2026-08-06 correction — the leaver record:** a new `LeaveReason` entity
+(`Id, Name, IsActive`) with its own table, seeded empty (reasons are customer vocabulary, not
+WM's); `Employee` gains a nullable `LeaveReasonId` FK and a nullable `LeaverComments`
+(`nvarchar(500)`, matching legacy's width). Setting `EmployedUntil` may carry a reason; clearing it
+must clear the reason and comments, so a re-hired employee does not keep a stale leaving reason.
+Deactivating a `LeaveReason` must **not** orphan employees already referencing it — that is the
+whole point of `IsActive` over a delete.
+
 **Tests:** edge cases 1–6 against `IsEmployedOn`, each as a named test; the `Down()` migration; a
-round-trip asserting every pre-migration status maps to an employment window and back.
+round-trip asserting every pre-migration status maps to an employment window and back; a leaver
+keeps its reason and comments through a round-trip; **clearing `EmployedUntil` clears both**;
+deactivating a reason leaves existing references readable and stops it being offered for new ones.
 **Risk:** medium — a contract change plus a lossy-by-necessity backfill.
 
 ### [ ] P2 — The punch boundary fails closed
@@ -308,19 +343,25 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
 
 ---
 
-## Open questions for the user
+## Decisions (user, 2026-08-06)
 
-1. **Employee code uniqueness — case only, or padding too?** Legacy is *both* case-insensitive and
-   leading-zero-insensitive (`right('0000000000' + code, 10)`, `PersonnelService.cs:2697-2709`).
-   This plan proposes **case-insensitive only**, because padding-equivalence is a badge-format
-   workaround and permanently forbids `42` and `0042` as distinct codes. That is a product call,
-   and it is safe either way for imported data — legacy already forbade the collision.
-2. **Does `EmployeeStatus.OnLeave` have a customer behind it?** It has no legacy counterpart and
-   P1's migration maps it to *suspended*. If any WM demo, doc or screen means something else by it,
-   say so before P1 — the migration is where that meaning is decided.
-3. **Should P4 be folded into 003 P3 instead of standing alone?** Same file, same area, and the
-   ordering constraint disappears if they are one portion. The argument against is that 003 is
-   approved and this is not, so folding it in changes the shape of an approved plan.
+1. **Employee code uniqueness: case-insensitive only, not padding.** Padding-equivalence is a
+   badge-format workaround from fixed-width readers, and WM has no physical devices by decision
+   (§14 decision 3) — nothing generates short codes needing padding, and carrying it forward would
+   permanently forbid `42` and `0042` as distinct codes. Safe either way for imported data, because
+   legacy already forbade the collision.
+2. **`OnLeave` is dropped, and the *leaver* record is adopted instead.** The user corrected this
+   plan's original claim that leaving had no model in legacy — see the ⚠️ correction at the top.
+   Leaving is `DischargeDate` + `LeaveReasonId` + `AdditionalLeaverComments`, backed by the
+   customer-maintained `dbo.LeaveReason` lookup, and P1 now adopts all three. `OnLeave` still goes,
+   but because a *temporary* absence belongs to the Absence module — not because leaving was
+   unmodelled.
+3. **P4 stays separate from 003 P3** (orchestrator's call, 2026-08-06). Same file and same area,
+   but 003 is approved and this plan was not at the time; folding an unapproved portion into an
+   approved plan changes the shape of something the user already signed off. The ordering
+   constraint is cheap; rewriting an approved plan is not.
+
+## Open questions for the user
 4. **`ExternalId` in P5, or with the Connectors phase?** It is one nullable unique column and every
    two-way HR sync needs it, but nothing today reads it. Including it now costs almost nothing;
    deferring it means a second migration on a bigger table later.
