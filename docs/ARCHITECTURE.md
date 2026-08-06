@@ -835,6 +835,23 @@ The task is narrow (workforce data), the output is **schema-constrained** (the m
 ### 16.5 Sequencing constraint
 The assistant is a **multiplier on a well-modelled domain, not a shortcut past building one**. Pointed at a half-finished schema it will be confidently wrong. It therefore lands *after* Rules, Absence, Scheduling — never before.
 
+### 16.6 Evaluation — what must be measurable before this ships
+
+*Recorded 2026-08-06. §16.1's permission boundary is the strongest part of this design; **evaluation was the part with nothing written down at all**, which is the standard way AI features fail. Nothing here is scheduled — Phase 6 is far out and the standing convention is to design a module immediately before planning it. This section exists so whoever plans it starts from a stated requirement instead of inventing one.*
+
+**Why this needs saying here rather than being discovered later.** The assistant is a **WM-only capability with no legacy analogue**. §13's coverage matrix is organised by what TLW had, so a WM addition gets no row and nothing prompts anyone to check it — which is exactly how the realtime punch feed broadcast every punch in the estate for three phases (`PHASE-AUDIT.md` A1). §13 now carries rows for WM additions because of that. The assistant is the next such surface, and it is one that talks to users in sentences, which makes a wrong answer look authoritative.
+
+Four things must be measurable, and none of them are model quality in the abstract:
+
+1. **Spec correctness against a golden set.** A fixed corpus of questions with expected `QuerySpec` output, versioned in the repo and run in CI. Compare the *spec*, not the prose — the spec is deterministic and diffable, the prose is not. This is the assistant's equivalent of the mutation testing the build cycle already relies on: it measures whether the harness detects a wrong answer, not whether it produced a nice one.
+2. **Scope leakage — the one that is a defect rather than a quality problem.** Given an employee-role user, no question may produce a spec that touches another employee's data, and no phrasing may talk the model past §16.1. The semantic model handed to the LLM is already filtered, so a leak means the filter is wrong — assert it, do not assume it. Treat this exactly like `EndpointAuthorizationInventoryTests`: adding a field the assistant may see is a decision with a reviewer attached.
+3. **Determinism where it is promised.** §16.2 guarantees a saved report executes identically every time with no model involved. That is a testable claim and it must have a test, because it is the property that makes the assistant acceptable anywhere near payroll.
+4. **Refusal behaviour.** An out-of-bounds, ambiguous or unanswerable question must produce a clean refusal, not a plausible spec against the wrong fields. Measure the refusal rate on a deliberately unanswerable set; a model that never refuses is failing, not excelling.
+
+**Two things deliberately *not* proposed.** No human-in-the-loop approval per query — §16.1 already constrains what a spec can express, and a human approving JSON they cannot evaluate is theatre. And no "is the answer useful" metric: it is unmeasurable, and the three above are proxies that can actually fail a build.
+
+**Rate limiting and audit already exist** — `WmRateLimits` (006 P3) and the `wm.audit` stream (§16.1). The assistant should reuse both rather than inventing its own, and its per-user limit wants to be tighter than the anonymous one, because a question costs a model call and a database query.
+
 ---
 
 ## 17. Emergency & Safety — software-only, better than legacy

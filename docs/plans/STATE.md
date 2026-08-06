@@ -159,7 +159,9 @@ None appears in `PHASE-AUDIT.md` (checked A1–A4, B1–B7, D1–D17).
 WM has `EmployeeStatus { Active, OnLeave, Terminated }` with no date (`Employee.cs:20-25`). So a
 future-dated leaver cannot be recorded, and *"who was employed on 3 March?"* is unanswerable —
 which **plan 002's clocking replay needs and does not currently ask for**. `OnLeave` has no legacy
-counterpart at all; legacy's "on leave" is an *absence*, a dated 44-table subsystem.
+counterpart at all; legacy's "on leave" is an *absence*, a separate dated subsystem.
+*(Measured 2026-08-06 by a narrow dependency check before P1 was built — `TLW-PEOPLE-MODEL.md` §4.1a,
+scope in `COVERAGE-AUDIT.md` §2a. `OnLeave`'s drop is confirmed; Absence itself remains unsurveyed.)*
 
 ### Ranked effect on plans
 
@@ -447,6 +449,33 @@ stacking note in `CLAUDE.md` → Git for why #11 went astray.
   names). Every renumbering is an opportunity for a stale cross-reference in another document, and
   a number that points at nothing is worse than no number. If it is worth a number, write the file.
 - One portion = one branch = one PR. Never batch portions into a single PR.
+- **Survey a module *just before* planning it, not long before — and only the part something
+  depends on now.** (User, 2026-08-06.) Breadth-first surveying was outrunning delivery: by that
+  date the repo held **30 unbuilt portions across 7 plans**, 15 of them in `draft`, against 3
+  portions built in the same stretch. A plan is a depreciating asset — 005's measured blast radius
+  of 22 source files was taken at a commit several merges stale, and every later merge means
+  someone re-verifies it before building. So the default is **build**, and a survey earns its place
+  by one of two tests:
+  1. **A live dependency.** Something already approved or shipped rests on an unmeasured
+     assumption. This is the only case that justifies interrupting delivery — and the scope is the
+     *question*, not the bucket. Example: 007 P1 deletes `EmployeeStatus.OnLeave` on the claim that
+     Absence owns that concept, and Absence had never been measured.
+  2. **The module is next.** Then survey it fully, immediately before writing its plan.
+  Everything else waits. `SoftwareMainOptions` (227 columns, third-largest table in the product) is
+  the standing example of a genuinely important area that is still correctly deferred: nothing
+  shipped depends on it, and it can be added later without unpicking anything.
+- **A subagent's report is a claim, not a result. Verify the load-bearing ones.** Roughly **three
+  in ten** dispatches so far have carried something wrong or materially incomplete, and none were
+  caught by the agent that wrote them:
+  | Claim | What it actually was | Cost of not checking |
+  |---|---|---|
+  | `DataAccessScopeDiagnostics` explains access decisions | It counts `DataContext` create/dispose to find connection leaks | Propagated through **3 docs and 4 code comments** as the evidence for two design decisions |
+  | `OnLeave` has no legacy counterpart, leaving is only a date | Missed `LeaveReasonId`, `AdditionalLeaverComments` and the whole `dbo.LeaveReasons` table — in a survey that claimed to classify all 153 columns | Caught by the **user**, not the process |
+  | Attendance endpoints have no scope filter | False — the filter is on the employee lookup feeding the query | Would have spawned a plan for a defect that does not exist |
+  What catches these is the orchestrator re-running the specific claim: a targeted `Grep` on the
+  cited `file:line`, or a mutation the reviewer runs itself rather than reading about. That is
+  cheaper than a re-dispatch and it is why the reviewer's mutation tests earn their place — they
+  measure whether the suite *detects* the defect, not whether the tests look thorough.
 - `wm-reviewer` updates the Shipped table when it opens a PR, and again when you merge.
 - **The review pass is not optional and the builder never opens its own PR.** P2 was built,
   self-assessed and published without one; the review was run afterwards, retroactively. On P1

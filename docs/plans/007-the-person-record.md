@@ -6,6 +6,8 @@ Approved by user 2026-08-06, all 5 portions. **P1 and P2 are ordered ahead of 00
 Roadmap: ARCHITECTURE.md §14 phase 1c ("Core depth"), and §13's newly-split People rows
 Legacy sources surveyed: [`../TLW-PEOPLE-MODEL.md`](../TLW-PEOPLE-MODEL.md) — 76 tables / 631
 columns measured, `dbo.Employees`' 153 columns classified one by one. Full file list in its §1.
+Plus a **narrow Absence dependency check** for P1's `OnLeave` deletion, 2026-08-06 — §4.1a there,
+scope and non-coverage recorded in [`../COVERAGE-AUDIT.md`](../COVERAGE-AUDIT.md) §2a.
 
 > ### ⚠️ Correction to this survey, 2026-08-06 — the user caught a miss
 > This plan originally stated that `EmployeeStatus.OnLeave` *"has no legacy counterpart"* and that
@@ -23,9 +25,43 @@ columns measured, `dbo.Employees`' 153 columns classified one by one. Full file 
 > `Terminated` carries none of the three. P1 adopts all of them.
 >
 > What the survey got right: there is no *temporary* "on leave" state on the person. That is an
-> **absence**, and it belongs to the Absence module (44 tables, still unsurveyed). The two were
-> being conflated. `OnLeave` is still dropped — but because absence is a different subsystem, not
-> because leaving is unmodelled.
+> **absence**, and it belongs to the Absence module. The two were being conflated. `OnLeave` is
+> still dropped — but because absence is a different subsystem, not because leaving is unmodelled.
+
+> ### ✅ Confirmation, 2026-08-06 — the `OnLeave` drop is now measured, not assumed
+> The claim above ("that is an absence, in a module nobody has surveyed") was an *assumption*: no
+> one had opened Absence. Since P1 deletes `EmployeeStatus.OnLeave` on it, a **narrow dependency
+> check** was run before building — four questions only, **not a survey of Absence**
+> (`TLW-PEOPLE-MODEL.md` §4.1a; scope recorded in `COVERAGE-AUDIT.md` §2). It lands in P1's favour:
+>
+> 1. **No temporary-non-availability state exists on `dbo.Employees`.** All 153 columns re-scanned;
+>    every absence-shaped hit is configuration or an approver role — `AbsenceGroupId` (`:30555`),
+>    `HolidayGroupId` (`:30731`), `HolidaysAmount`/`Period` (`:30667`, `:30687`),
+>    `IsAbsenceManager`/`IsDeputyAbsenceManager` (`:31275`, `:31295`). The instance is dated
+>    elsewhere: `dbo.AbsenceRequests(EmployeeId, StartDate, EndDate, AbsenceId)` (14 cols, `:46542`)
+>    and, per day, `Clockings.MorningAbsenceID`/`AfternoonAbsenceID` (`:21310`, `:21334`).
+>    Legacy's own person-status vocabulary is **three computed values** — active / leaver /
+>    inactive, from `IsActive` × `dbo.IsActiveEmployment` (`PersonnelService.cs:1890-1904`).
+>    **There is nothing for `OnLeave` to mirror. P1 is right.**
+> 2. **The two reason vocabularies are genuinely different tables.** `dbo.LeaveReasons` (3 cols,
+>    `:53137`) is a label under `Menu_Personnel_LeaveReasons`. The absence vocabulary is
+>    **`dbo.Absence` — 35 columns** (`:8743`), a *rule-carrying type*: `Unit`, `Category`
+>    (`Holiday | Sick | MaternityPaternity | OtherEvent`), `AllowOnDayOff`, `CounterId`,
+>    `IsExcludedFromPayrollExport`, `BlockAbsenceRequestOnNegativeBalance` … **No collision — but a
+>    naming risk. See open question 6.**
+> 3. **Accruals confirm P1's shape independently.** `AccrualsCalculationRepository.cs:53-57` selects
+>    `EnterDate, ContinuousServiceDate, DischargeDate, FinalEmploymentDate` and
+>    `EmployeeAccrualCalculationsService.cs:728-741` intersects
+>    `DateTimeInterval(EnterDate, employmentEnd)` with the accrual period to pro-rate entitlement.
+>    The downstream consumer wants **exactly `[EmployedFrom, EmployedUntil]`**, not a status enum —
+>    and reads dates only, never `IsActive`, which confirms keeping suspension separate.
+>    ⚠️ One caveat P1 should record: legacy's window end is **`FinalEmploymentDate ?? DischargeDate`**,
+>    a *second* leaving date with higher precedence. P1 adopts only `DischargeDate`; that is fine
+>    now, but Phase 3 will meet it.
+> 4. **Nothing in Absence writes `IsActive`/`DischargeDate`/`LeaveReasonId`, and nothing reads
+>    `ActiveEmployeesView`.** `PlanningService.cs:32-57` re-derives employment itself — a *sixth*
+>    copy of the predicate, evaluated against `DateTime.Now.Date` rather than the period being
+>    planned. More weight behind P1's single `IsEmployedOn`.
 
 ---
 
@@ -130,7 +166,8 @@ Full table in `TLW-PEOPLE-MODEL.md` §8. The entries this plan acts on:
 |---|---|---|
 | Employment as **(administrative state × dated end)**, evaluated at a reference date | **Keep — adopt properly** | `IsActiveEmployment(dischargeDate, referenceDate)` is right, and WM's undated enum is a regression. Every historical question in the product depends on it. |
 | `IsActive` and `DischargeDate` as two separate facts | **Keep** | Suspension ≠ leaving; `SetEmployeesLeaver` proves legacy treats them separately on purpose. |
-| `EmployeeStatus.OnLeave` | **Drop** | WM invented it. Legacy's "on leave" is an *absence* — dated, a 44-table subsystem. Two systems would answer differently the day Absence ships. |
+| `EmployeeStatus.OnLeave` | **Drop** | WM invented it. Legacy's "on leave" is an *absence* — dated, a separate subsystem. Two systems would answer differently the day Absence ships. **Measured 2026-08-06 (see ✅ block above): no non-availability state exists on `dbo.Employees`, and legacy's person-status vocabulary has exactly three computed values. Confirmed.** |
+| `dbo.Absence` (35 cols) vs `dbo.LeaveReasons` (3 cols) | **Keep both — they are not the same list** | Absence *types* carry pay, accrual and export rules; a leaving reason is a label. WM must not collapse them, and must not name them so they read as synonyms (open question 6). |
 | **Leaving as date + reason + comments** (`DischargeDate`, `LeaveReasonId`, `AdditionalLeaverComments`) | **Keep — adopt all three** | *(Added 2026-08-06; this survey missed it.)* "Why did they leave?" is an HR question every customer asks, and legacy answers it. WM's `Terminated` is a bare enum value that discards the answer. |
 | `dbo.LeaveReason` as a **customer-maintained lookup** with `IsActive` | **Keep** | Reasons are per-customer vocabulary (resignation, redundancy, TUPE, dismissal…), not a WM enum. `IsActive` retires a reason without orphaning the historical records that used it — the right pattern, and one WM should copy rather than hard-delete. |
 | `ActiveEmployeesView`'s `AND … OR …` | **Invert** | A real legacy defect. Employment is computed once, in a single expression, tested. |
@@ -270,19 +307,44 @@ open)` and `Terminated→(not suspended, EmployedUntil = UpdatedAt ?? CreatedAt 
 comment that the terminated date is a **best-effort backfill**, because the information was never
 captured; `IEmployeeDirectory` exposes employment so no consumer reads People's tables.
 
-**Also, per the 2026-08-06 correction — the leaver record:** a new `LeaveReason` entity
+**Also, per the 2026-08-06 correction — the leaver record:** a new **`LeavingReason`** entity
 (`Id, Name, IsActive`) with its own table, seeded empty (reasons are customer vocabulary, not
-WM's); `Employee` gains a nullable `LeaveReasonId` FK and a nullable `LeaverComments`
+WM's); `Employee` gains a nullable **`LeavingReasonId`** FK and a nullable `LeaverComments`
 (`nvarchar(500)`, matching legacy's width). Setting `EmployedUntil` may carry a reason; clearing it
 must clear the reason and comments, so a re-hired employee does not keep a stale leaving reason.
-Deactivating a `LeaveReason` must **not** orphan employees already referencing it — that is the
+Deactivating a `LeavingReason` must **not** orphan employees already referencing it — that is the
 whole point of `IsActive` over a delete.
+
+> **Name decided by the user, 2026-08-06 (was open question 6).** WM's entity is **`LeavingReason`**,
+> *not* `LeaveReason`. In HR English "leave" means *absence* — annual leave, sick leave — so
+> `LeaveReason` beside a future `AbsenceType` would re-create the exact conflation this plan exists
+> to untangle. `LeavingReason` says "why employment ended" and cannot be misread.
+>
+> **Legacy's table stays `dbo.LeaveReasons` in every citation.** That is a fact about TLW, not a
+> name WM chooses; do not rewrite it in the survey documents. The mapping is
+> `dbo.LeaveReasons` → WM `LeavingReason`, and `Employees.LeaveReasonId` → WM
+> `Employee.LeavingReasonId`. Name the divergence in the migration comment so the next reader
+> knows it is deliberate rather than a typo.
 
 **Tests:** edge cases 1–6 against `IsEmployedOn`, each as a named test; the `Down()` migration; a
 round-trip asserting every pre-migration status maps to an employment window and back; a leaver
 keeps its reason and comments through a round-trip; **clearing `EmployedUntil` clears both**;
 deactivating a reason leaves existing references readable and stops it being offered for new ones.
 **Risk:** medium — a contract change plus a lossy-by-necessity backfill.
+
+**Notes added by the 2026-08-06 Absence dependency check** (no change to *Done when*):
+- The "clearing `EmployedUntil` clears both" test now has legacy backing rather than first
+  principles: `PersonnelService.SetEmployeesActive:151-173` un-leaves with
+  `set IsActive = 1, DischargeDate = null, LeaveReasonId = null`.
+- **The entity name is settled: `LeavingReason`** (user, 2026-08-06 — question 6 is closed, see the
+  block above). Raising it before P1 was the point: renaming after the migration ships costs a
+  second migration and a contract change.
+- Do **not** fold `IsSuspended` into the employment window used for entitlement pro-rating. Legacy's
+  accrual calculation reads dates only and never `IsActive`
+  (`EmployeeAccrualCalculationsService.cs:728-741`).
+- `FinalEmploymentDate` — a second, **higher-precedence** leaving date (`:941`) — stays out of P1 as
+  planned. It is already among `TLW-PEOPLE-MODEL.md` §3.1's 33 unowned columns; §4.1a now records
+  why Phase 3 will meet it.
 
 ### [ ] P2 — The punch boundary fails closed
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
@@ -298,6 +360,96 @@ differ between "unknown employee" and "not employed".
 **Risk:** low.
 **Note:** closes defect **D1**. If the user wants it closed before P1 lands, a status-only check is
 a two-line interim — but it cannot answer edge case 8, so it is a stopgap, not the fix.
+
+> ### ⚠️ D4 — punch direction is never validated. Added 2026-08-06, found by the user in the UI.
+> `RecordAsync` (`PunchService.cs:30-38`) validates exactly two things: the employee resolves, and
+> the timestamp is not more than five minutes in the future. **It never compares `request.Direction`
+> against the employee's last punch**, so `IN, IN, IN` is accepted.
+>
+> Observed on the running dev stack, employee `E1000` (`0` = IN, `1` = OUT):
+> ```
+> 2026-08-04 12:43:27  IN
+> 2026-08-04 12:39:49  IN
+> 2026-08-04 12:08:43  IN     ← three consecutive INs, no OUT
+> 2026-07-21 15:07:16  OUT
+> 2026-07-21 08:12:00  IN     ← seeded history is correctly paired
+> ```
+> The seeder produces valid pairs; the unpaired run came from punches made through the UI. The
+> consequence is visible on `/me`: that employee reads *"Clocked in since 17:43"* two days later and
+> **0h this week**, because there is no closing punch to compute against. The page is not broken —
+> it is faithfully reporting corrupt data. **A T&A product that accepts consecutive INs cannot
+> compute worked hours**, which is the whole point of the product.
+>
+> **This is not recorded anywhere else** — grepped across `docs/`; no plan, audit or §13 row mentions
+> direction validation. Three surveys missed it because it is invisible in the schema and only shows
+> up when someone punches twice.
+>
+> **Do not assume "reject the second IN" is the fix — decide it first.** Legacy pairs swipes into
+> `BadgeTime1..12` slots on the clocking (`TLW-CLOCKING-MODEL.md`), so an unpaired IN is a
+> *recognised, correctable state* there, not a refused punch. A real T&A product generally accepts
+> the swipe and flags the day for correction, because refusing it loses the fact that someone was
+> at the door. The options are:
+> 1. **Reject** the out-of-sequence punch — simplest, and loses data.
+> 2. **Accept and flag** the day as needing correction — matches legacy and matches what supervisors
+>    actually do.
+> 3. **Accept and auto-close** the previous IN at a configured time — convenient, and silently
+>    invents a time nobody recorded.
+>
+> Option 2 is the recommendation; it needs the daily-aggregate concept plan **002** owns, so P2 may
+> only be able to land the *detection* and leave the correction workflow to 002. Say which in the
+> PR rather than picking one silently.
+>
+> ---
+>
+> #### Measured 2026-08-06 — the user pointed at legacy's **exceptions**, and option 2 is confirmed
+>
+> This is not an inference any more. TLW has a first-class **exception** concept, configured **per
+> daily model**, listed at `E:\Tlw\Source\Core\Enumeration\Enums.cs:1414-1434`:
+>
+> | Setting | |
+> |---|---|
+> | `EarlyEntryExceptionEnabled` (16), `LateEntryExceptionEnabled` (17) | arrival |
+> | `EarlyExitExceptionEnabled` (18), `LateExitExceptionEnabled` (19) | departure |
+> | `EarlyBreakStart/End`, `LateBreakStart/End` (20–23) | breaks |
+> | **`OddNumberOfSwipesMinusTheoretic` (24)** | **exactly this case — an unpaired swipe run** |
+> | `OneSwipeEnough` (14), `AllowNoSwipes` (25), `SwipesExpected` (30) | how many swipes a day requires |
+> | **`ShouldGenerateBlockingExceptionsOnSwipe` (29)** | exceptions raised **at swipe time**, and *blocking* |
+> | `ShouldHideExceptions` (9) | on the clocking itself |
+>
+> Two report views exist — `UnifiedExceptionsReportViewRecord` and
+> `Unified**Authorized**ExceptionsReportViewRecord` (`HorioDB.designer.cs:5921`, `:5929`) — so an
+> exception carries an **authorised / unauthorised** state that a manager resolves. **Legacy never
+> refuses the swipe.** Option 1 is therefore wrong, and option 2 is what the product this replaces
+> actually does.
+>
+> #### The correction to this finding: these are *two* mechanisms, not one
+>
+> The same symptom has two causes, and conflating them would build the wrong thing:
+>
+> | Observed | Interval | What it is | Where it belongs |
+> |---|---|---|---|
+> | `E1037` 21:32:14, 21:32:25, 21:32:28 IN | **seconds** | a double-click / double-swipe — **noise** | **deduplicate**, 007 P2 |
+> | `E1000` 12:08, 12:39, 12:43 IN | **minutes** | a genuine unpaired run — **an exception** | raise on the day, plan **002** |
+>
+> A rapid repeat must be *ignored*, not recorded and not raised — raising an exception for a
+> double-click trains supervisors to dismiss exceptions, which destroys the value of the whole
+> mechanism. An unpaired run minutes or hours apart is real and must reach a human.
+>
+> **The dedupe window is a WM decision, not a legacy port.** No minimum-interval setting was found:
+> the only anti-passback hits in `E:\Tlw` are Salto and Suprema **device** configuration
+> (`Communication.SaltoSpace\ExportModels\Door.cs:88-99`), which is dropped hardware (§14 decision
+> 3). Legacy relied on the terminal to swallow double swipes; WM's terminal is a web page, so WM
+> must do it in `RecordAsync`.
+>
+> **Split for the builder:** P2 lands the **dedupe guard** — a same-direction punch within a
+> configured window is accepted idempotently and returns the existing punch rather than creating a
+> second one. It does **not** land the exception model; that is day-level state and plan 002 owns
+> it. P2's job is to stop generating the noise, so 002 inherits clean data.
+>
+> **Related, not a defect:** `E1000` and `E1037` are both named *"Luca Dubois"*. `PeopleSeeder` draws
+> from small name pools, so collisions across 40 employees are certain, and they make the demo
+> genuinely confusing to read — a punch in the live feed looks like it should appear on your own
+> timesheet. Noted against **006 P1**, which rewrites the seeders.
 
 ### [ ] P3 — One employee-code rule, held by the database
 **Touches:** `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs:83-85, 107-111,
@@ -361,7 +513,23 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
    approved plan changes the shape of something the user already signed off. The ordering
    constraint is cheap; rewriting an approved plan is not.
 
+4. **P1's leaving-reason entity is `LeavingReason`.** *(Question 6, raised by the 2026-08-06 Absence
+   dependency check and answered the same day.)* Legacy has **two** reason vocabularies and they are
+   not the same thing —
+   - `dbo.LeaveReasons` (3 cols, `HorioDB.designer.cs:53137`) — *why employment ended*. A label.
+   - `dbo.Absence` (**35 cols**, `:8743`) — *why someone is not here today*. Carries `Unit`,
+     `Category` (`Holiday | Sick | MaternityPaternity | OtherEvent`), `AllowOnDayOff`,
+     `AllowOnHoliday`, `CounterId`, `ExportCode`, `BlockAbsenceRequestOnNegativeBalance`,
+     `IsApprovalRequiredForBookingAbsence`, `IncludeToBradfordCalculation` — pay, accrual and
+     export rules, not a label.
+
+   They stay two tables, and WM names them so they cannot be read as synonyms. In HR English
+   "leave" means *absence*, so `LeaveReason` beside a future `AbsenceType` would invite exactly the
+   conflation this plan spent a correction untangling. **Legacy's `dbo.LeaveReasons` keeps its name
+   in every citation** — that is a fact about TLW, not a name WM chooses.
+
 ## Open questions for the user
+
 4. **`ExternalId` in P5, or with the Connectors phase?** It is one nullable unique column and every
    two-way HR sync needs it, but nothing today reads it. Including it now costs almost nothing;
    deferring it means a second migration on a bigger table later.

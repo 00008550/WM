@@ -7,11 +7,17 @@ name: CI
 # the solution builds and that the three test projects pass -- it does NOT prove a
 # module is covered. Modules with no test project still have none.
 
+# Docs-only changes do not build anything, and most commits in this repo are docs
+# (surveys, plans, STATE.md). Skipping them keeps runner demand and metered minutes
+# down. paths-ignore is per-change, not per-PR: a branch touching both docs and code
+# still runs, because at least one changed path is not ignored.
 on:
   push:
     branches: [master]
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     branches: [master]
+    paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
 
 # A new push to a PR makes the previous run irrelevant. Cancelling keeps us well
@@ -27,17 +33,22 @@ jobs:
   backend:
     name: .NET build + test
     runs-on: ubuntu-latest
+    # The job normally finishes in under 10 minutes. A cap means a hung or
+    # never-scheduled job fails fast and visibly instead of burning wall-clock
+    # and metered minutes — on 2026-08-06 the Angular job sat 15 minutes without
+    # ever being assigned a runner, executed zero steps, and was cancelled.
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           # Matches Directory.Build.props <TargetFramework>net10.0</TargetFramework>.
           dotnet-version: '10.0.x'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
@@ -60,7 +71,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-test-results
           path: ./TestResults
@@ -69,14 +80,15 @@ jobs:
   frontend:
     name: Angular build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend/portal
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Angular 22 requires Node 20.19+ / 22.12+ / 24+. 24 matches the dev machine.
           node-version: '24'
