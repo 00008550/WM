@@ -382,7 +382,7 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 
 | TLW area (source) | WM home | Status |
 |---|---|---|
-| Swipe capture (individual punches) | TimeAttendance | ✅ built (web/mobile punches) |
+| Swipe capture (individual punches) | TimeAttendance | ⚠️ **built, but accepts punches from terminated employees.** `FindByIdAsync`/`FindByCodeAsync` apply data scope and **no status filter** (`PeopleModule.cs:197-207`), and neither punch path checks afterwards (`PunchService.cs:32, 69`). Legacy gates every channel on `ActiveEmployeesView` / `.ActiveNotFired()`. The same class then hides the punch it just accepted (`GetRecentAsync:100` uses `ListActiveAsync`). Plan **007 P1** |
 | **`Clockings` — the daily aggregate (249 cols)** | TimeAttendance + Rules | ▢ **not started** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md) |
 | Pay categories (`CPTN01..20`, 20 fixed slots) | Rules | ▢ planned — hard ceiling of 20 in legacy |
 | Clocking generation ("calendar" job, nightly) | Worker | ▢ not started |
@@ -408,8 +408,24 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | E-signature | Documents | ▢ planned (NEW) |
 | Expenses / mileage | Expenses | ▢ planned (NEW) |
 | Notifications / email templates / preferences / alerts | Notifications | ◐ punch→SignalR live; full hub planned (NEW) |
-| Personnel / contracts / custom fields / emergency contacts | People | ◐ partial (employees/sites/depts; rest planned) |
-| Population groups | People | ▢ planned |
+| **`dbo.Employees` — the person record (153 cols)** | People | ◐ **11 of 153 columns modelled** — measured 2026-08-06, [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) §3. 4 more diverge, 44 dropped by decision, 74 owned by a later phase, **33 have no owner anywhere** |
+| Employment status — `IsActive` × **dated** `DischargeDate` | People | ⚠️ **built and wrong.** Legacy evaluates `dbo.IsActiveEmployment(DischargeDate, @referenceDate)` (`76.V5.22.0.0.sql:25-38`); WM has an undated `EmployeeStatus` enum (`Employee.cs:20-25`), so a future-dated leaver cannot be recorded and *"who was employed on 3 March?"* is unanswerable. **Blocks plan 002's replay.** `EmployeeStatus.OnLeave` has no legacy counterpart. Plan **007 P1** |
+| HR identity (DOB, gender, nationality, NI number), names (`KnownAs`, `MiddleName`, `Title`), personal vs work contact, address | People | ▢ **not started** — 20 columns, none named in any plan before 2026-08-06. Plan **007 P2** |
+| **Bank details (6 cols) + salary (`EmployeeSalaries`, entitlements, deductions)** | People / HR | ▢ **not started** — `PersonnelTab.BankDetails`/`Salary` (`Enums.cs:38, 40`). **No payroll export is buildable without these**, and payroll plugins are the business model (invariant 6) |
+| Employment lifecycle: `ContinuousServiceDate`, `FixedTermEndDate`, `ProbationDueDate`, resignation/leaver (9 cols) | People / HR | ▢ **not started** — `PersonnelTab.Leaver` is a whole tab; `ContinuousServiceDate` ≠ hire date and drives length-of-service accrual |
+| `WTDOptOut` (working-time-directive opt-out) | People (read by Scheduling) | ▢ **not started** — §8 names WTD *validation* under Scheduling; the employee attribute it reads has no owner |
+| `ExternalId` (stable integration key) | People | ▢ **not started** — every `IConnectorPlugin` two-way HR sync needs it; without it the only match key is `Code` |
+| Employee photo (`dbo.EmployeeImages`), emergency contacts (`dbo.EmployeeEmergencyContacts`, 8 cols) | People | ▢ not started |
+| Job role as a reference list (`dbo.JobRoles` FK) | People | ⚠️ **regressed to free text.** WM's `JobTitle` is `string?` (`PeopleDbContext.cs:36`); legacy is an FK. No rename propagation, no grouping |
+| Preferred positions (`dbo.Positions` + `EmployeePositions.Priority`) | People / Scheduling | ▢ not started — a *third* concept, distinct from `JobRoles` and from department |
+| Custom fields (`EmployeeCustomFields` ×4 tables incl. a change log) | People | ▢ planned |
+| Employee contracts + `…Effective(contracts)` resolution | People + Rules | ▢ not started — **two mechanisms disagree in legacy**: date-blind `Employees.ContractId` vs dated `EmployeeAssignedContracts`, and the day-resolver's `FirstOrDefault` is unordered (`CalculatedEmployeesContractsForPeriod.cs:37-43`) |
+| Department hierarchy (`dbo.Departments.ParentId`) | People | ▢ **not modelled.** WM nested `Site` (no legacy precedent) and flattened `Department` (legacy precedent). Affects 001 P4/P5 — `TLW-PEOPLE-MODEL.md` §5.1 |
+| Column-level change history (`Employees_Update_Trigger` → `AuditTrailLogs`) | Admin + `wm.audit` | ▢ **not started** — WM has `CreatedAt/UpdatedAt` only (`Entity.cs:8-14`). For HR data this is a compliance gap |
+| Per-tab **write** permissions on the person (24, `UpdateEmployeePermissions.cs:5-28`) | Identity groups | ▢ **not started** — WM has one `employees.manage`, and `PUT` is a full replace. Once salary/bank land, that permission means "rewrite everyone's bank account". Affects plan 004 |
+| Line management | People / Identity | ⏹ **no such relation in legacy.** `PersonnelTab.LineManager` resolves to `AddEmployee_TabTitleManagedByRoles` (`Localization.Personnel.cs:223`) and imports write `dbo.EmployeesManagedByRole`. Legacy's org chart *is* its access model — do not add `Employee.ManagerId` without deciding this |
+| Manager relations: absence (+deputy) / notification / expense / fire marshal, per employee **and** per department, with `Order` | Absence, Notifications, Expenses, Safety | ▢ planned — 9 tables (`TLW-PEOPLE-MODEL.md` §1 group G) |
+| Population groups (`EmployeeGroups` + `EmployeesInGroups`) | People | ▢ planned |
 | Reports / custom reports / favourites / scheduled | Reporting (+ report plugins) | ▢ planned |
 | Mustering / online fire report / fire marshals | Safety | ▢ planned |
 | Visitors | Visitors | ▢ planned |
@@ -459,6 +475,17 @@ Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentio
 > `dbo.AccessControlEntry`. A new row records the one-role-per-user divergence, which §4 had
 > backwards. Full measurement and citations:
 > [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md).
+>
+> **People/HR measured 2026-08-06.** One row — *"Personnel / contracts / custom fields / emergency
+> contacts · ◐ partial"* — stood for the **6th-largest table in the schema** (`dbo.Employees`, 153
+> columns) and everything hanging off it. Measured, WM models **11 of those 153 columns** with the
+> same meaning; **33 have no owner in any plan, row or screen**. That single row is now sixteen,
+> each checkable. Two shipped rows also changed mark: swipe capture is `⚠️` (it accepts punches
+> from terminated employees) and job role is `⚠️` (a reference list regressed to free text).
+> This is the third time a `◐` covering a large area turned out to mean "nobody looked" —
+> after `Clockings` and the authorization surface. **A `◐` on a bucket is a survey backlog item,
+> not a status.** Full measurement: [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md); executable
+> work: [`plans/007-the-person-record.md`](./plans/007-the-person-record.md).
 
 ---
 

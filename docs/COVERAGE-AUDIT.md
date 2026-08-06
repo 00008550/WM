@@ -50,7 +50,7 @@ Every table is in exactly one bucket; the counts sum to 578.
 | Bucket | Tables | Columns | WM module | Documented? |
 |---|---:|---:|---|---|
 | **T&A + Clocking core** | 76 | 1,748 | TimeAttendance + Rules | ✅ `TLW-CLOCKING-MODEL.md`, plan 002 |
-| **People / HR** | 95 | 1,074 | People, HR | ◐ People partly; **HR barely** |
+| **People / HR** | 95 | 1,074 | People, HR | ✅ **surveyed 2026-08-06** — [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md). **11 of `dbo.Employees`' 153 columns modelled**; 33 have no owner anywhere |
 | EPOS (dropped) | 67 | 783 | — | ⏹ decided |
 | Devices / AC (dropped) | 54 | 719 | — | ⏹ decided |
 | **Reporting** | 13 | 697 | Insight (assistant) | ◐ §16 decision, no table-level survey |
@@ -71,6 +71,27 @@ Every table is in exactly one bucket; the counts sum to 578.
 **Read this as a survey backlog.** The buckets marked "not surveyed" have been *named* in the
 roadmap but never measured the way T&A and Rules now have been — which is exactly the condition
 that hid the Clocking aggregate.
+
+> **People/HR measured 2026-08-06 — and "◐ People partly" was the wrong mark.**
+> [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) classifies all **153** columns of `dbo.Employees`
+> (the schema's **6th-largest table**, `HorioDB.designer.cs:28594`): **11 modelled with the same
+> meaning**, 4 modelled with a divergence, 44 dropped by an existing decision, 74 owned by a named
+> later phase, and **33 silently missing with no owner in any plan, matrix row or screen** — names
+> (`KnownAs`, `MiddleName`, `Title`), HR identity (DOB, gender, nationality, NI number), all six
+> bank-detail columns, the nine employment-lifecycle dates, and `ExternalId`.
+>
+> The bucket's own boundary is worth stating because **the 95/1,074 figure above is not
+> reproducible from this repository** — the bucketing script was never committed. The survey
+> measured its own boundary instead of asserting the old number wrong: the person master, its org
+> dimensions and its HR records are **76 tables / 631 columns**; `dbo.Employee*`-prefixed tables
+> alone are **80 / 844**, of which 22 tables / 558 columns are report views belonging to Reporting.
+> Both reconcile with 95/1,074 under a slightly wider boundary. **If a future audit re-buckets, commit
+> the script.**
+>
+> Three of the divergences are **defects in running code**, not backlog — a terminated employee can
+> still punch, the employee-code uniqueness rule is not enforced by any constraint, and
+> `DepartmentId` (a scope dimension) is validated nowhere. See `TLW-PEOPLE-MODEL.md` §7 and plan
+> [`007`](./plans/007-the-person-record.md).
 
 ---
 
@@ -143,8 +164,14 @@ customers would be running, not missing features.*
    renumbered because 003 is now the enforcement plan.)*
 5. **Plan 005 — per-install configuration** (`SoftwareMainOptions`, 227 columns). *(Was "004".)*
 6. **Survey before planning** the four named-but-unmeasured areas, biggest first:
-   **People/HR (95 tables)**, **Absence & accruals (44)**, **Notifications (29)**,
-   **Scheduling (16)**. HR is the largest unexamined bucket in the product.
+   ~~**People/HR (95 tables)**~~, **Absence & accruals (44)**, **Notifications (29)**,
+   **Scheduling (16)**. HR was the largest unexamined bucket in the product.
+   **People/HR done 2026-08-06** — [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md), plan
+   [`007`](./plans/007-the-person-record.md). **Absence is now the biggest unsurveyed bucket, and
+   the People survey raised its priority**: legacy's absence approval runs on a *second* data scope
+   held on `dbo.[User]` (`IsUserCanManageAllRequests` / `…ByDepartment`), and it is the only place
+   in the product that expands the department tree. That interacts with plan 005 and should be
+   settled before Absence starts, not during.
 
 Two design decisions should be taken before their phases start, not during:
 **`Notifications.SqlQuery`** (legacy notifications are partly SQL-defined; WM's event-driven hub

@@ -110,6 +110,85 @@ there is **no Postgres test harness in the repo** (`WM.Modules.Identity.Tests` i
 which is why 001 P2's promised migration test was never written — so 005 does the collapse in a
 tested C# runner rather than untestable SQL.
 
+## People/HR survey — 2026-08-06
+
+The user's question was *"see if we missed something from old TLW within our development"*, pointed
+at the largest bucket nobody had ever measured: `COVERAGE-AUDIT.md` §2 had People/HR at 95 tables /
+1,074 columns and marked it *"◐ People partly; HR barely"* — while WM has already **shipped** a
+People module on it. Result: [`../TLW-PEOPLE-MODEL.md`](../TLW-PEOPLE-MODEL.md), and plan
+[`007-the-person-record.md`](./007-the-person-record.md) (`draft`, 5 portions).
+
+**The answer is yes, we missed something — and it is the same shape as the Clocking finding.**
+`dbo.Employees` is the **6th-largest table in the schema at 153 columns**
+(`HorioDB.designer.cs:28594`). WM models **11 of them** with the same meaning. 44 are dropped by
+an existing decision and 74 belong to a named later phase — both fine. **33 have no owner
+anywhere**: not in `Employee.cs`, not in a migration, not in a plan, not a §13 row, not on a
+screen. Names (`KnownAs`, `MiddleName`, `Title`), HR identity (DOB, gender, nationality, NI
+number), personal contact and address, **all six bank-detail columns**, the nine
+employment-lifecycle dates, `WTDOptOut`, `ExternalId`.
+
+### Three of them are defects in running code, not backlog
+
+None appears in `PHASE-AUDIT.md` (checked A1–A4, B1–B7, D1–D17).
+
+- **A terminated employee can still punch.** `FindByIdAsync`/`FindByCodeAsync` apply the caller's
+  data scope and **no status filter** (`PeopleModule.cs:197-207`); neither punch path checks
+  afterwards (`PunchService.cs:32, 69`); `AuthService` checks only `User.IsActive`
+  (`AuthService.cs:76, 117, 131`) and nothing deactivates a user when their employee leaves. The
+  inconsistency is visible inside one class — `GetRecentAsync:100` builds its visible set from
+  `ListActiveAsync`, so **WM accepts a punch it will then never display.** Legacy gates every
+  channel on `ActiveEmployeesView` / `.ActiveNotFired()` and pushes a device **delete** the moment
+  someone is deactivated (`77.V5.23.0.0.sql:1523-1528`).
+- **The employee-code uniqueness rule is not enforced by anything.** The check is case-insensitive
+  (`PeopleModule.cs:84`) and `IX_Employees_Code` is a plain unique index on `varchar(32)`
+  (`20260720080022_Initial.cs:85-90`) — case-**sensitive**. The comment at `:109` — *"The unique
+  index is the real guarantee"* — is false. Two concurrent posts of `E1030` and `e1030` both
+  insert, and every later `PUT` on either then 409s against the other, making both uneditable.
+  `FindByCodeAsync:199` is case-sensitive too, so a punch for `e1030` against `E1030` is rejected
+  as *"Unknown employee code"*.
+- **`DepartmentId` is validated nowhere** — no FK, no index, no existence check, no site-agreement
+  check (`20260720080022_Initial.cs:44`; `PeopleModule.cs:86-87, 98, 140`). Department is a **scope
+  dimension**, so a cross-site department makes one person visible to two disjoint scopes. Legacy
+  cannot have this bug — its department and location are independent columns with no relation to
+  break. **WM created the relation and left it unenforced.**
+
+### The one that changes a plan already written
+
+**Employment is a date in legacy and an enum in WM.** `dbo.IsActiveEmployment(@dischargeDate,
+@referenceDate)` (`76.V5.22.0.0.sql:25-38`) is evaluated at 20+ sites in that one script.
+WM has `EmployeeStatus { Active, OnLeave, Terminated }` with no date (`Employee.cs:20-25`). So a
+future-dated leaver cannot be recorded, and *"who was employed on 3 March?"* is unanswerable —
+which **plan 002's clocking replay needs and does not currently ask for**. `OnLeave` has no legacy
+counterpart at all; legacy's "on leave" is an *absence*, a dated 44-table subsystem.
+
+### Ranked effect on plans
+
+| Plan | Effect |
+|---|---|
+| **002** (`draft`) | **Amendment needed before approval** — the replay cannot determine who was employed on the day replayed. Take 007 P1 as a prerequisite, or accept that replays include leavers. |
+| **001 P4/P5** (paused) | `Departments` nests in legacy (`ParentId`, `:55267`) and is flat in WM; `Locations` is flat in legacy and nested in WM. **WM put the hierarchy on the wrong axis.** Either add `Department.ParentId` in P4 or record the flatness as deliberate. Does **not** overturn `TLW-AUTHORIZATION-MODEL.md` C9 — the role TVF still does no expansion; the one expansion legacy has is on department, for absence approvals (`AbsenceRequests.cs:3039-3043`). |
+| **003 P3** (approved, queued) | **Ordering constraint.** 007 P4 must land with or before it — 003 P3 fixes B5's hard-coded `departmentId: null`, which makes the unvalidated field live. |
+| **005** (`draft`) | Not contradicted, but its evidence is weaker than stated: **six live permissions sit on `dbo.[User]`**, outside `Role` and `AccessControlEntry` — including a period-lock bypass (`DataLockChecker.cs:22-35`) and a second absence-approval scope. Legacy did not actually keep all access in one object. Conclusion unchanged; caveat owed. |
+| **004** (`draft`) | Legacy has **24 per-tab *write* permissions** on the employee (`UpdateEmployeePermissions.cs:5-28`). WM has one `employees.manage` and a full-replace `PUT`. Once salary/bank land that is a grant of "rewrite everyone's bank account" — which is why 007 defers them to 004. |
+| **006** | None. It surveyed no legacy and correctly says so. |
+
+### Corrections applied in place
+
+`COVERAGE-AUDIT.md` §2 (mark + a measured note + the queue — Absence is now the largest unsurveyed
+bucket, and its priority rose); `ARCHITECTURE.md` §13 (one vague People row → **sixteen** checkable
+rows; swipe capture and job role moved to `⚠️`); `TLW-AUTHORIZATION-MODEL.md` §1 (**19 tables / 66
+columns, not 18 / 59** — plus a new §1A on the seven `[User]` permission booleans, and the fact
+that 2FA / password history / email preferences are *separate tables*, not `[User]` columns), §10
+(**fourteen** fail-opens, not twelve — `PersonnelService.CanViewEmployee:3151` and
+`CanEditEmployee:3177` are a fifth copy of the filter, and #14 is the only one that fails open on a
+**write**), §15 (closed); `SCREEN-TREE.md` (it listed Sites *and* Locations as separate org
+dimensions 240 lines after stating they are one axis).
+
+**Propose-only, not applied:** `ARCHITECTURE.md:171` says *"(TLW: `User.EmployeeId`, …)"*.
+`dbo.[User]` has **no `EmployeeId` column** — legacy's link is `dbo.Employees.UserId`
+(`AuthorizationService.GetUserByEmployeeId:788-800`). WM's direction is deliberate and better, but
+§4A is a design section. Diff in `TLW-PEOPLE-MODEL.md` §10.
+
 ## Active plan
 
 **003 — Enforcement gaps** (`003-enforcement-gaps.md`) — `in-progress`, approved 2026-08-04, and
@@ -215,8 +294,9 @@ the access model.
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both in review**; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
-| 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first** |
-| 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision** |
+| **007** | **The person record: employment as a date, and three defects under it** | **5** | **draft — awaiting approval** |
+| 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first**; **007 adds field-group write rights to its scope** |
+| 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision, and now also on 007 P1** (a replay cannot know who was employed on the day replayed) |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
@@ -253,8 +333,22 @@ fix what is bleeding first. But the lanes barely touch:
 - **006 P4–P7 touch `src/**` only in the four Dockerfiles.** They are the portions with no unit
   test and a smoke check instead, and they can proceed whenever lane A is waiting on a decision.
 
+**Lane C — the person record (new, 2026-08-06, `draft`):**
+**007 P1 → 007 P2**, and independently **007 P3**, **007 P4**, **007 P5**.
+
+Lane C is nearly orthogonal to A and B — it touches `Domain/Employee.cs`, `PeopleDbContext`, People
+migrations and `PunchService`, none of which lane A or B opens. Three notes:
+
+- **007 P4 must land with or before 003 P3** (lane A). Both touch the employee write path, and
+  003 P3 makes the unvalidated `DepartmentId` reachable from the SPA.
+- **007 P1 and P2 are the defect fixes** — a terminated employee can punch today. By the standing
+  rule ("fix what is bleeding first") they outrank everything in lane B and sit alongside 003 P2b.
+- **007 P1 unblocks 002.** If plan 002 is approved before 007 P1 lands, its replay has no way to
+  know who was employed on the day it replays.
+
 **Next portion:** **003 P2b — scope the employee writes** (lane A, P2a merged as `e948481`), with
-**006 P1** the lane B alternative once 005 P3 has landed. 006 P2 and P3 are open as
+**006 P1** the lane B alternative once 005 P3 has landed, and **007 P1/P2** the lane C candidates
+**once 007 is approved** — the builder refuses `draft`. 006 P2 and P3 are open as
 [#40](https://github.com/00008550/WM/pull/40) and [#47](https://github.com/00008550/WM/pull/47).
 
 **006 P2's carry-over to P3 is closed.** The readiness endpoint P2 added is anonymous, uncached and
@@ -264,14 +358,19 @@ would have needed invalidating on migration state and would have made the smoke 
 identity stale, while the real callers — the container `HEALTHCHECK` at 4/min from loopback and the
 6-hourly smoke run — sit an order of magnitude inside the 30/min default.
 
-Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`) — **names, not
-numbers**, per the convention below:
-**"Tariffs and the calculation core"** — tariffs, employee contracts, calculation settings and the
-counter formula language;
-**"Per-install configuration"** — `SoftwareMainOptions` (227 cols).
-*(These were twice renumbered while carrying reserved numbers they had not earned — 004/005, then
-006/007. 006 is now the demo plan, which is a written file. They keep names until someone writes
-them.)*
+Suggested but not yet written, from the schema sweep (`docs/TLW-SCHEMA-SWEEP.md`) and the People/HR
+survey (`docs/TLW-PEOPLE-MODEL.md`) — **names, not numbers**, per the convention below:
+**"Tariffs and the calculation core"** — tariffs, employee contracts and their **two disagreeing
+resolution mechanisms** (date-blind `Employees.ContractId` vs dated `EmployeeAssignedContracts`,
+`CalculatedEmployeesContractsForPeriod.cs:37-43`), calculation settings, the counter formula
+language;
+**"Per-install configuration"** — `SoftwareMainOptions` (227 cols);
+**"HR records and documents"** — the 8 near-identical document-category tables (16 tables / 140
+columns expressing one idea eight times), bank details and salary. **Blocked on 004** — legacy
+guards these behind 24 per-tab write permissions and WM has one `employees.manage`.
+*(These have twice been renumbered while carrying reserved numbers they had not earned — 004/005,
+then 006/007. Both of those numbers are now real written files. They keep names until someone
+writes them.)*
 
 ## Shipped
 
