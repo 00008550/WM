@@ -22,13 +22,17 @@ internal static class AuthEndpoints
     {
         var group = endpoints.MapGroup("/api/auth").WithTags("Auth");
 
+        // The rate limit is attached to the three anonymous transports one at a time rather than
+        // to the group, because /me is in the same group and authenticated traffic is deliberately
+        // not limited by this policy. The policy itself is registered by the host that composes
+        // the edge (WM.Api.Infrastructure.PublicEdge); this module only names it.
         group.MapPost("/login", async (LoginRequest request, AuthService auth, CancellationToken ct) =>
         {
             var result = await auth.LoginAsync(request.UserName, request.Password, ct);
             return result.Succeeded
                 ? Results.Ok(ToResponse(result))
                 : Results.Problem(result.Error, statusCode: StatusCodes.Status401Unauthorized);
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(WmRateLimits.PublicAnonymous);
 
         group.MapPost("/refresh", async (RefreshRequest request, AuthService auth, CancellationToken ct) =>
         {
@@ -36,13 +40,13 @@ internal static class AuthEndpoints
             return result.Succeeded
                 ? Results.Ok(ToResponse(result))
                 : Results.Problem(result.Error, statusCode: StatusCodes.Status401Unauthorized);
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(WmRateLimits.PublicAnonymous);
 
         group.MapPost("/logout", async (RefreshRequest request, AuthService auth, CancellationToken ct) =>
         {
             await auth.LogoutAsync(request.RefreshToken, ct);
             return Results.NoContent();
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(WmRateLimits.PublicAnonymous);
 
         group.MapGet("/me", (ICurrentUser user) => Results.Ok(new
         {

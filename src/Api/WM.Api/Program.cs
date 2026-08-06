@@ -47,6 +47,10 @@ builder.Services.AddSwaggerGen();
 // two are separate and why readiness sits under the prefix nginx proxies.
 builder.Services.AddWmHealthChecks();
 
+// Real client addresses out of the proxy chain, and a bound on what one of them may spend
+// unauthenticated. See PublicEdge for why the two are configured together.
+builder.Services.AddWmPublicEdge(builder.Configuration);
+
 // Event stream: Kafka when configured, and always fan out to SignalR for live UI.
 builder.Services.AddSingleton<KafkaEventStreamProducer>();
 builder.Services.AddScoped<IEventStreamProducer, BroadcastingEventStreamProducer>();
@@ -60,8 +64,13 @@ builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p => p
 
 var app = builder.Build();
 
+// Outermost, so a request the edge refuses is still logged: a 429 nobody can see in the log is a
+// support call nobody can answer.
 app.UseSerilogRequestLogging();
-app.UseCors(CorsPolicy);
+
+// Forwarded headers → CORS → rate limiter, then authentication. PublicEdge holds the reason for
+// each step of that order, and the test host calls the same method.
+app.UseWmPublicEdge(CorsPolicy);
 
 if (app.Environment.IsDevelopment())
 {

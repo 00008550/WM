@@ -62,6 +62,19 @@ public sealed class IdentityModule : IModule
         if (JwtOptions.DescribeSigningKeyFault(jwt.SigningKey, isDevelopment) is { } fault)
             throw new InvalidOperationException(fault);
 
+        // Lockout thresholds, bound the same way and checked in the same place. Absent means the
+        // values that used to be consts in AuthService, so an install that configures nothing is
+        // unchanged by this. A configured-but-nonsensical value is refused here rather than
+        // discovered by an administrator who can no longer sign in.
+        services.AddOptions<AccountLockoutOptions>()
+            .Bind(configuration.GetSection(AccountLockoutOptions.SectionName));
+
+        var lockout = configuration.GetSection(AccountLockoutOptions.SectionName).Get<AccountLockoutOptions>()
+                      ?? new AccountLockoutOptions();
+
+        if (AccountLockoutOptions.DescribeFault(lockout) is { } lockoutFault)
+            throw new InvalidOperationException(lockoutFault);
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(o =>
             {

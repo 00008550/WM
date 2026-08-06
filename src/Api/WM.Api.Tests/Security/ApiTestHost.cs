@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -127,6 +128,7 @@ internal sealed class ApiTestHost : IAsyncDisposable
 
         builder.Services.AddSignalR();
         builder.Services.AddWmHealthChecks();
+        builder.Services.AddWmPublicEdge(builder.Configuration);
 
         // The rest of what Program.cs registers for itself. It is here because composing in
         // Development turns on ValidateOnBuild, and a host that cannot construct its own graph is
@@ -160,7 +162,12 @@ internal sealed class ApiTestHost : IAsyncDisposable
 
         var app = builder.Build();
 
-        app.UseCors(CorsPolicy);
+        // Program.cs calls this same method: forwarded headers, then CORS, then the rate limiter,
+        // then authentication. Composing the edge through one shared extension rather than a
+        // hand-copied sequence is what makes the assertions below load-bearing — delete
+        // UseRateLimiter from PublicEdge and these tests fail, which they would not if this file
+        // owned its own copy of the pipeline.
+        app.UseWmPublicEdge(CorsPolicy);
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -200,6 +207,29 @@ internal sealed class ApiTestHost : IAsyncDisposable
 
     /// <summary>An anonymous caller: no <c>Authorization</c> header at all.</summary>
     public HttpClient Client => _app.GetTestClient();
+
+    /// <summary>
+    /// An anonymous caller whose TCP peer is <paramref name="peer"/> — the address Kestrel reports
+    /// for the connection, which in a real deployment is the reverse proxy and not the visitor.
+    ///
+    /// <para>
+    /// It has to be set explicitly, and that is the whole reason this helper exists: TestServer
+    /// leaves <c>RemoteIpAddress</c> null, and null is the one value
+    /// <c>ForwardedHeadersMiddleware</c> treats as "accept the forwarded entry whoever sent it".
+    /// A trust-boundary test written against the default client would pass while proving nothing.
+    /// </para>
+    /// </summary>
+    public HttpClient ClientFrom(string peer)
+    {
+        var server = _app.GetTestServer();
+        var address = IPAddress.Parse(peer);
+
+        return new HttpClient(server.CreateHandler(
+            context => context.Connection.RemoteIpAddress = address))
+        {
+            BaseAddress = server.BaseAddress,
+        };
+    }
 
     /// <summary>
     /// A signed-in caller. Called with no arguments it is a user holding <em>no</em> permission —
