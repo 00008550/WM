@@ -447,6 +447,21 @@ stacking note in `CLAUDE.md` → Git for why #11 went astray.
   names). Every renumbering is an opportunity for a stale cross-reference in another document, and
   a number that points at nothing is worse than no number. If it is worth a number, write the file.
 - One portion = one branch = one PR. Never batch portions into a single PR.
+- **Survey a module *just before* planning it, not long before — and only the part something
+  depends on now.** (User, 2026-08-06.) Breadth-first surveying was outrunning delivery: by that
+  date the repo held **30 unbuilt portions across 7 plans**, 15 of them in `draft`, against 3
+  portions built in the same stretch. A plan is a depreciating asset — 005's measured blast radius
+  of 22 source files was taken at a commit several merges stale, and every later merge means
+  someone re-verifies it before building. So the default is **build**, and a survey earns its place
+  by one of two tests:
+  1. **A live dependency.** Something already approved or shipped rests on an unmeasured
+     assumption. This is the only case that justifies interrupting delivery — and the scope is the
+     *question*, not the bucket. Example: 007 P1 deletes `EmployeeStatus.OnLeave` on the claim that
+     Absence owns that concept, and Absence had never been measured.
+  2. **The module is next.** Then survey it fully, immediately before writing its plan.
+  Everything else waits. `SoftwareMainOptions` (227 columns, third-largest table in the product) is
+  the standing example of a genuinely important area that is still correctly deferred: nothing
+  shipped depends on it, and it can be added later without unpicking anything.
 - `wm-reviewer` updates the Shipped table when it opens a PR, and again when you merge.
 - **The review pass is not optional and the builder never opens its own PR.** P2 was built,
   self-assessed and published without one; the review was run afterwards, retroactively. On P1
