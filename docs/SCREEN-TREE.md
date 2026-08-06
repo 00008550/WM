@@ -54,9 +54,10 @@ without people to record, accounts to sign in with, and rights to control them.
    Positions & qualifications · Perks · Custom fields · Emergency contacts
    Employee groups · Population groups
    ── Org structure
-      Sites · Departments · Locations · Buildings · Cost centres
-      (Locations sits under Personnel Setup in TLW, not access control;
+      Sites (= TLW Locations) · Departments · Cost centres · Buildings
+      (TLW's Locations screen sits under Personnel Setup, not access control;
        Buildings is reused by muster points, so it outlives the AC drop)
+   Bank details · Salary · Personal contact & address · Emergency contacts
    Personnel setup · Leavers · Anniversaries
 
 ◆ Import / Export                                                [module]
@@ -304,6 +305,25 @@ typically owns a function at a place rather than everywhere.
 >
 > Precision note: five of the six are named `Managed*ByRole`; cost centres is
 > `ManagedCostCentres(int roleId)` (`IAuthorizationService.cs:22-23`). Same thing, different name.
+
+> **A third correction, 2026-08-06 (People/HR survey) — the tree above still listed *both* "Sites"
+> and "Locations" under Org structure**, contradicting correction 1 in the same file. Fixed; the
+> axis is now named once. The survey also measured which dimensions actually nest, which turns out
+> to be the opposite of what WM built ([`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) §5.1):
+>
+> | Legacy table | Cols | Nests? | WM | Nests in WM? |
+> |---|---:|---|---|---|
+> | `dbo.Locations` (`HorioDB.designer.cs:182940`) | 4 | **No** — `Id, Code, DisplayName, IsActive` | `Site` | **Yes** (`ParentId`, `SiteHierarchy`) |
+> | `dbo.Departments` (`:55085`) | 10 | **Yes** — `ParentId` at `:55267` | `Department` | **No** |
+> | `dbo.CostCentres` (`:91377`) | 15 | Yes | — | not modelled |
+> | `dbo.Buildings` (`:113785`) | 5 | Yes | — | dropped (correction 2) |
+>
+> So **WM's site tree has no legacy precedent on that axis** (it is a WM improvement, which is
+> fine — but it should be labelled one, not a port), and **the axis legacy does nest is flat in
+> WM**. Legacy expands the department tree in exactly one place — absence-request scope,
+> `Planning/AbsenceRequests.cs:3039-3043` via `dbo.DepartmentHeirarchyView`
+> (`Database/Versioning/81.V5.27.0.0.sql:594-601`) — which is a *different* scope mechanism from
+> the role TVF and does **not** overturn `TLW-AUTHORIZATION-MODEL.md` C9. Affects **001 P4/P5**.
 
 **Legacy only enforces two of them centrally.** `RoleBasedEmployeeFilterService` honours
 departments ∩ locations and nothing else; buildings, cost centres and working activities are

@@ -22,7 +22,7 @@ Measured from `E:\Tlw\Source\Logic\Entities\HorioDB.designer.cs` (the LINQ-to-SQ
 | `dbo.Role` | **6** | `Id, Name, IsDepartmentOnly, IsSelfOnly, CanModifySelf, ManagementType` | `:6277-6293` |
 | `dbo.AccessControlEntry` | **6** | `Id, Allow, RoleId, ActionId, SecuredObjectTypeId, SecuredObjectId` | `:10330-10346` |
 | `dbo.UsersInRoles` | 3 | `UserId, RoleId, IsActive` | `:6795` |
-| `dbo.[User]` | 30 | (identity, password, 2FA, lockout) | — |
+| `dbo.[User]` | 30 | identity, password lifecycle, lockout, SSO codes, **+7 permission booleans** — §1A | `:6987` |
 | `dbo.DepartmentsManagedByRole` | 3 | `Id, RoleId, DepartmentId` | `:43971` |
 | `dbo.LocationsManagedByRole` | 3 | `Id, LocationId, RoleId` | `:183186` |
 | `dbo.EmployeesManagedByRole` | 3 | `Id, RoleId, EmployeeId` | `:44163` |
@@ -38,9 +38,44 @@ Measured from `E:\Tlw\Source\Logic\Entities\HorioDB.designer.cs` (the LINQ-to-SQ
 | `dbo.RoleDashboardCategories` | 3 | `Id, RoleId, DashboardCategory` | `:174770` |
 | `dbo.RoleHrDocumentSecurity` | 4 | `Id, RoleId, HrDocumentType, AccessPermission` | `:103692` |
 
-**18 tables, 59 columns.** That is the entire persisted authorization surface of a
-578-table product. It is small because almost all of the expressive power lives in
-`AccessControlEntry` rows, of which there are ~1,000 **per role**.
+**18 tables, 59 columns.** Almost all of the expressive power lives in `AccessControlEntry` rows,
+of which there are ~1,000 **per role**.
+
+### 1A. Correction 2026-08-06 — this was *not* the entire surface
+
+This section originally read *"that is the entire persisted authorization surface of a 578-table
+product."* The People/HR survey ([`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) §6.2) found
+**seven boolean permissions on `dbo.[User]` itself**, outside `Role` and outside
+`AccessControlEntry`. Three are promoted onto the identity principal alongside `RoleId`:
+
+```csharp
+// Logic/Security/HorioIdentity.cs:26-35
+RoleId                              = userWrapper.RoleId;
+IsAllowedToModifyLockedData         = userWrapper.IsAllowedToModifyLockedData;
+IsUserCanManageRequestsByDepartment = userWrapper.IsUserCanManageRequestsByDepartment;
+IsUserCanManageAllRequests          = userWrapper.IsUserCanManageAllRequests;
+```
+
+| Column | Read at | Effect |
+|---|---|---|
+| `IsAllowedToModifyLockedData` | `DataLocking/DataLockChecker.cs:22-35`; `AuthorizationService.cs:1384-1403` | **Bypasses the period lock** — `IsLocked()` returns false unconditionally |
+| `IsUserCanManageAllRequests`, `IsUserCanManageRequestsByDepartment` | `HorioIdentity.cs:31-32`; `Planning/AbsenceRequests.cs:3034-3046` | A **second, independent data scope** for absence approvals — and the only place legacy expands the department tree (`dbo.DepartmentHeirarchyView`, `Database/Versioning/81.V5.27.0.0.sql:594-601`) |
+| `IsUserCanManageAllExpenseRequests`, `IsUserCanPayAllExpenseRequests` | `Interfaces/IAuthorizationService.cs:92` | Expense approval vs. payment, separated |
+| `IsVisitorManager` | `ExternalAccess/SYQR.cs:124, 245, 683` | Gates the whole SYQR external login |
+| `IsAllowedToSetSecurityGroupForAnprCarPlate` | localization only (`localization1.generated.cs:9274`); **no read found** in `Logic` or `WebSite` | ANPR — dropped vertical; treat as dead in scope |
+
+**Corrected total: 19 tables, 66 columns.** Six of the seven are live and in scope.
+
+Also corrected: **2FA, password history and email preferences are not columns of `[User]`.** They
+are their own three-column tables — `dbo.User2FAHistory(Id, UserId, CreatedAt)` (a trusted-device
+log with *no secret store*), `dbo.UserPasswordHistory(Id, UserId, Password)`, and
+`dbo.UserEmailPreferences(Id, UserId, EmailCategory)`. 2FA *configuration* is global, on
+`SoftwareMainOptions` (`IsTwoFactorAuthenticationEnabled`, `TwoFactorAuthenticationType`); SSO is
+`dbo.SingleSignOnSAMLSettings` — **one row per install**, four columns.
+
+The lesson is this document's own: a boundary asserted once ("that is the entire surface") is a
+claim like any other. This one was drawn around the tables that *look* like authorization and
+missed the ones that are not named for it.
 
 ### Two names in WM's records are not authorization tables at all
 
@@ -586,6 +621,13 @@ Plan 001 records three (later four). Measured, in the in-scope surface alone:
 | 10 | `CanViewDailyPeriodicTemplate:444-454` | comment: `//no departments to manage - allow all` |
 | 11 | `UserHasLimitedBySelfPermissions:572-585` | any exception → `false` (`//no user - unlim access`) |
 | 12 | `FormAccess.cs:64, 131, 199, 231` | licence flag off → every tab allowed |
+| **13** | `PersonnelService.CanViewEmployee:3151-3152` | `//no departments - allow all` — empty list → every employee readable |
+| **14** | `PersonnelService.CanEditEmployee:3177-3178` | `//if here and no departments - allow all` — empty list → every employee **editable** |
+
+> **#13/#14 added 2026-08-06** by the People/HR survey. They are a **fifth** implementation of the
+> employee filter, beyond the three in `RoleBasedEmployeeFilterService` and the obsolete
+> `GetManagedEmployeeIds` counted in §5. Five copies of one rule is itself the finding; #14 is the
+> only one of the fourteen that fails open on a **write**.
 
 A further ten of the same shape sit in dropped verticals (`FilterDevices`, `FilterLogs`,
 `FilterDoors`, `FilterReaders`, `FilterTimeZones`, `FilterSecurityGroups`, `FilterAnprRecords`,
@@ -829,8 +871,14 @@ policies, plus the fallback policy from 003 P2.
 
 ## 15. One-line notes for future surveys (outside this scope)
 
-- `dbo.[User]` has **30** columns — 2FA, lockout, password history, email preferences — against
-  WM's 10. A user-lifecycle survey is owed before Phase 3 (SSO/2FA).
+- ~~`dbo.[User]` has **30** columns — 2FA, lockout, password history, email preferences — against
+  WM's 10. A user-lifecycle survey is owed before Phase 3 (SSO/2FA).~~
+  **Done 2026-08-06** — [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) §6, and the description here
+  was wrong on two counts (see §1A): 2FA/password-history/email-preferences are separate tables,
+  and the 30 columns include **seven permission booleans** that this document's §1 did not count.
+  Verdict: password lifecycle (8 cols) and SSO (3) are correctly deferred to Phase 3;
+  `LastLoginDate` and `IsHidden` are cheap; **the seven permissions are not safely deferrable**
+  because 005 is about to declare the group the single unit of access.
 - `dbo.GuardScreenWithPersonGroupsRecords` (37 cols) and `dbo.UnifiedAccessControlTransactionsReportView`
   (59) are the largest "access" tables in the schema and are entirely physical access control —
   confirmed out of scope by invariant 3, recorded so nobody re-measures them.
