@@ -49,6 +49,35 @@ that WM stops inheriting three arbitrary limits its customers currently work aro
 - `SoftwareMainOptions` (227 cols of global settings) — needs its own survey.
 - Employee contracts and thresholds — needed by Phase 2, flagged in plan 003.
 
+## Two things this plan does not yet own, recorded 2026-08-06
+
+**1. Exceptions.** TLW has a first-class exception concept configured **per daily model**
+(`E:\Tlw\Source\Core\Enumeration\Enums.cs:1414-1434`): early/late entry and exit, early/late break
+start and end, `OddNumberOfSwipesMinusTheoretic`, `AllowNoSwipes`, `OneSwipeEnough`,
+`SwipesExpected`, and `ShouldGenerateBlockingExceptionsOnSwipe` — exceptions raised **at swipe
+time** and capable of *blocking*. `ShouldHideExceptions` sits on the clocking itself. Two report
+views (`HorioDB.designer.cs:5921`, `:5929`) distinguish **authorised** from unauthorised, so an
+exception is a state a manager resolves rather than a log line.
+
+This plan mentions absence on the clocking but **never mentions exceptions at all** — grepped, zero
+matches. An exception is day-level state, so it belongs to the Clocking aggregate, not to the punch.
+Whoever revises this plan must model it: what raises one, what authorises it, and whether "blocking"
+means calculation refuses to run.
+
+**2. Half-day absences already live on the clocking.** `TLW-CLOCKING-MODEL.md:114` records
+`MorningAbsenceID` / `AfternoonAbsenceID`, and this plan does not mention absence either. Noted by
+the 2026-08-06 Absence dependency check.
+
+Neither is scheduled here — 002 is `draft` and blocked on 007 P1 (a replay cannot know who was
+employed on a given day until employment is a date). They are recorded so the revision does not
+rediscover them.
+
+> **Inbound from 007 P2 (defect D4).** `PunchService.RecordAsync` never validates direction, so
+> `IN, IN, IN` is accepted. 007 P2 lands only the **dedupe guard** — a same-direction repeat within
+> seconds is a double-click and is swallowed. The genuine unpaired run, minutes or hours apart, is
+> an **exception** and lands here. 007 P2's job is to stop generating noise so this plan inherits
+> clean data.
+
 ## Portions
 
 ### [ ] P1 — Clocking aggregate + normalised counters

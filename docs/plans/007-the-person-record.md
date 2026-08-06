@@ -361,6 +361,96 @@ differ between "unknown employee" and "not employed".
 **Note:** closes defect **D1**. If the user wants it closed before P1 lands, a status-only check is
 a two-line interim — but it cannot answer edge case 8, so it is a stopgap, not the fix.
 
+> ### ⚠️ D4 — punch direction is never validated. Added 2026-08-06, found by the user in the UI.
+> `RecordAsync` (`PunchService.cs:30-38`) validates exactly two things: the employee resolves, and
+> the timestamp is not more than five minutes in the future. **It never compares `request.Direction`
+> against the employee's last punch**, so `IN, IN, IN` is accepted.
+>
+> Observed on the running dev stack, employee `E1000` (`0` = IN, `1` = OUT):
+> ```
+> 2026-08-04 12:43:27  IN
+> 2026-08-04 12:39:49  IN
+> 2026-08-04 12:08:43  IN     ← three consecutive INs, no OUT
+> 2026-07-21 15:07:16  OUT
+> 2026-07-21 08:12:00  IN     ← seeded history is correctly paired
+> ```
+> The seeder produces valid pairs; the unpaired run came from punches made through the UI. The
+> consequence is visible on `/me`: that employee reads *"Clocked in since 17:43"* two days later and
+> **0h this week**, because there is no closing punch to compute against. The page is not broken —
+> it is faithfully reporting corrupt data. **A T&A product that accepts consecutive INs cannot
+> compute worked hours**, which is the whole point of the product.
+>
+> **This is not recorded anywhere else** — grepped across `docs/`; no plan, audit or §13 row mentions
+> direction validation. Three surveys missed it because it is invisible in the schema and only shows
+> up when someone punches twice.
+>
+> **Do not assume "reject the second IN" is the fix — decide it first.** Legacy pairs swipes into
+> `BadgeTime1..12` slots on the clocking (`TLW-CLOCKING-MODEL.md`), so an unpaired IN is a
+> *recognised, correctable state* there, not a refused punch. A real T&A product generally accepts
+> the swipe and flags the day for correction, because refusing it loses the fact that someone was
+> at the door. The options are:
+> 1. **Reject** the out-of-sequence punch — simplest, and loses data.
+> 2. **Accept and flag** the day as needing correction — matches legacy and matches what supervisors
+>    actually do.
+> 3. **Accept and auto-close** the previous IN at a configured time — convenient, and silently
+>    invents a time nobody recorded.
+>
+> Option 2 is the recommendation; it needs the daily-aggregate concept plan **002** owns, so P2 may
+> only be able to land the *detection* and leave the correction workflow to 002. Say which in the
+> PR rather than picking one silently.
+>
+> ---
+>
+> #### Measured 2026-08-06 — the user pointed at legacy's **exceptions**, and option 2 is confirmed
+>
+> This is not an inference any more. TLW has a first-class **exception** concept, configured **per
+> daily model**, listed at `E:\Tlw\Source\Core\Enumeration\Enums.cs:1414-1434`:
+>
+> | Setting | |
+> |---|---|
+> | `EarlyEntryExceptionEnabled` (16), `LateEntryExceptionEnabled` (17) | arrival |
+> | `EarlyExitExceptionEnabled` (18), `LateExitExceptionEnabled` (19) | departure |
+> | `EarlyBreakStart/End`, `LateBreakStart/End` (20–23) | breaks |
+> | **`OddNumberOfSwipesMinusTheoretic` (24)** | **exactly this case — an unpaired swipe run** |
+> | `OneSwipeEnough` (14), `AllowNoSwipes` (25), `SwipesExpected` (30) | how many swipes a day requires |
+> | **`ShouldGenerateBlockingExceptionsOnSwipe` (29)** | exceptions raised **at swipe time**, and *blocking* |
+> | `ShouldHideExceptions` (9) | on the clocking itself |
+>
+> Two report views exist — `UnifiedExceptionsReportViewRecord` and
+> `Unified**Authorized**ExceptionsReportViewRecord` (`HorioDB.designer.cs:5921`, `:5929`) — so an
+> exception carries an **authorised / unauthorised** state that a manager resolves. **Legacy never
+> refuses the swipe.** Option 1 is therefore wrong, and option 2 is what the product this replaces
+> actually does.
+>
+> #### The correction to this finding: these are *two* mechanisms, not one
+>
+> The same symptom has two causes, and conflating them would build the wrong thing:
+>
+> | Observed | Interval | What it is | Where it belongs |
+> |---|---|---|---|
+> | `E1037` 21:32:14, 21:32:25, 21:32:28 IN | **seconds** | a double-click / double-swipe — **noise** | **deduplicate**, 007 P2 |
+> | `E1000` 12:08, 12:39, 12:43 IN | **minutes** | a genuine unpaired run — **an exception** | raise on the day, plan **002** |
+>
+> A rapid repeat must be *ignored*, not recorded and not raised — raising an exception for a
+> double-click trains supervisors to dismiss exceptions, which destroys the value of the whole
+> mechanism. An unpaired run minutes or hours apart is real and must reach a human.
+>
+> **The dedupe window is a WM decision, not a legacy port.** No minimum-interval setting was found:
+> the only anti-passback hits in `E:\Tlw` are Salto and Suprema **device** configuration
+> (`Communication.SaltoSpace\ExportModels\Door.cs:88-99`), which is dropped hardware (§14 decision
+> 3). Legacy relied on the terminal to swallow double swipes; WM's terminal is a web page, so WM
+> must do it in `RecordAsync`.
+>
+> **Split for the builder:** P2 lands the **dedupe guard** — a same-direction punch within a
+> configured window is accepted idempotently and returns the existing punch rather than creating a
+> second one. It does **not** land the exception model; that is day-level state and plan 002 owns
+> it. P2's job is to stop generating the noise, so 002 inherits clean data.
+>
+> **Related, not a defect:** `E1000` and `E1037` are both named *"Luca Dubois"*. `PeopleSeeder` draws
+> from small name pools, so collisions across 40 employees are certain, and they make the demo
+> genuinely confusing to read — a punch in the live feed looks like it should appear on your own
+> timesheet. Noted against **006 P1**, which rewrites the seeders.
+
 ### [ ] P3 — One employee-code rule, held by the database
 **Touches:** `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs:83-85, 107-111,
 128, 199` (including the comment at `:109`, which is currently false), `WM.Modules.People.Tests`.
