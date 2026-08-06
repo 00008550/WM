@@ -464,6 +464,18 @@ stacking note in `CLAUDE.md` → Git for why #11 went astray.
   Everything else waits. `SoftwareMainOptions` (227 columns, third-largest table in the product) is
   the standing example of a genuinely important area that is still correctly deferred: nothing
   shipped depends on it, and it can be added later without unpicking anything.
+- **A subagent's report is a claim, not a result. Verify the load-bearing ones.** Roughly **three
+  in ten** dispatches so far have carried something wrong or materially incomplete, and none were
+  caught by the agent that wrote them:
+  | Claim | What it actually was | Cost of not checking |
+  |---|---|---|
+  | `DataAccessScopeDiagnostics` explains access decisions | It counts `DataContext` create/dispose to find connection leaks | Propagated through **3 docs and 4 code comments** as the evidence for two design decisions |
+  | `OnLeave` has no legacy counterpart, leaving is only a date | Missed `LeaveReasonId`, `AdditionalLeaverComments` and the whole `dbo.LeaveReasons` table — in a survey that claimed to classify all 153 columns | Caught by the **user**, not the process |
+  | Attendance endpoints have no scope filter | False — the filter is on the employee lookup feeding the query | Would have spawned a plan for a defect that does not exist |
+  What catches these is the orchestrator re-running the specific claim: a targeted `Grep` on the
+  cited `file:line`, or a mutation the reviewer runs itself rather than reading about. That is
+  cheaper than a re-dispatch and it is why the reviewer's mutation tests earn their place — they
+  measure whether the suite *detects* the defect, not whether the tests look thorough.
 - `wm-reviewer` updates the Shipped table when it opens a PR, and again when you merge.
 - **The review pass is not optional and the builder never opens its own PR.** P2 was built,
   self-assessed and published without one; the review was run afterwards, retroactively. On P1

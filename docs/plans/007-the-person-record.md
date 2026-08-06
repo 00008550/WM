@@ -307,13 +307,24 @@ open)` and `Terminated→(not suspended, EmployedUntil = UpdatedAt ?? CreatedAt 
 comment that the terminated date is a **best-effort backfill**, because the information was never
 captured; `IEmployeeDirectory` exposes employment so no consumer reads People's tables.
 
-**Also, per the 2026-08-06 correction — the leaver record:** a new `LeaveReason` entity
+**Also, per the 2026-08-06 correction — the leaver record:** a new **`LeavingReason`** entity
 (`Id, Name, IsActive`) with its own table, seeded empty (reasons are customer vocabulary, not
-WM's); `Employee` gains a nullable `LeaveReasonId` FK and a nullable `LeaverComments`
+WM's); `Employee` gains a nullable **`LeavingReasonId`** FK and a nullable `LeaverComments`
 (`nvarchar(500)`, matching legacy's width). Setting `EmployedUntil` may carry a reason; clearing it
 must clear the reason and comments, so a re-hired employee does not keep a stale leaving reason.
-Deactivating a `LeaveReason` must **not** orphan employees already referencing it — that is the
+Deactivating a `LeavingReason` must **not** orphan employees already referencing it — that is the
 whole point of `IsActive` over a delete.
+
+> **Name decided by the user, 2026-08-06 (was open question 6).** WM's entity is **`LeavingReason`**,
+> *not* `LeaveReason`. In HR English "leave" means *absence* — annual leave, sick leave — so
+> `LeaveReason` beside a future `AbsenceType` would re-create the exact conflation this plan exists
+> to untangle. `LeavingReason` says "why employment ended" and cannot be misread.
+>
+> **Legacy's table stays `dbo.LeaveReasons` in every citation.** That is a fact about TLW, not a
+> name WM chooses; do not rewrite it in the survey documents. The mapping is
+> `dbo.LeaveReasons` → WM `LeavingReason`, and `Employees.LeaveReasonId` → WM
+> `Employee.LeavingReasonId`. Name the divergence in the migration comment so the next reader
+> knows it is deliberate rather than a typo.
 
 **Tests:** edge cases 1–6 against `IsEmployedOn`, each as a named test; the `Down()` migration; a
 round-trip asserting every pre-migration status maps to an employment window and back; a leaver
@@ -325,9 +336,9 @@ deactivating a reason leaves existing references readable and stops it being off
 - The "clearing `EmployedUntil` clears both" test now has legacy backing rather than first
   principles: `PersonnelService.SetEmployeesActive:151-173` un-leaves with
   `set IsActive = 1, DischargeDate = null, LeaveReasonId = null`.
-- **The entity name is open — question 6.** The plan says `LeaveReason`; legacy's table is plural
-  `dbo.LeaveReasons`, and once Absence ships "leave" will mean *absence* to every HR user. Build P1
-  as written unless the user answers 6 first; renaming after the migration ships costs more.
+- **The entity name is settled: `LeavingReason`** (user, 2026-08-06 — question 6 is closed, see the
+  block above). Raising it before P1 was the point: renaming after the migration ships costs a
+  second migration and a contract change.
 - Do **not** fold `IsSuspended` into the employment window used for entitlement pro-rating. Legacy's
   accrual calculation reads dates only and never `IsActive`
   (`EmployeeAccrualCalculationsService.cs:728-741`).
@@ -412,10 +423,9 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
    approved plan changes the shape of something the user already signed off. The ordering
    constraint is cheap; rewriting an approved plan is not.
 
-## Open questions for the user
-6. **What should P1's leaving-reason entity be called?** *(Raised by the 2026-08-06 Absence
-   dependency check.)* The plan currently says `LeaveReason`. Measured: legacy has **two** reason
-   vocabularies and they are not the same thing —
+4. **P1's leaving-reason entity is `LeavingReason`.** *(Question 6, raised by the 2026-08-06 Absence
+   dependency check and answered the same day.)* Legacy has **two** reason vocabularies and they are
+   not the same thing —
    - `dbo.LeaveReasons` (3 cols, `HorioDB.designer.cs:53137`) — *why employment ended*. A label.
    - `dbo.Absence` (**35 cols**, `:8743`) — *why someone is not here today*. Carries `Unit`,
      `Category` (`Holiday | Sick | MaternityPaternity | OtherEvent`), `AllowOnDayOff`,
@@ -423,12 +433,12 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
      `IsApprovalRequiredForBookingAbsence`, `IncludeToBradfordCalculation` — pay, accrual and
      export rules, not a label.
 
-   They must stay two tables. The risk is only the **name**: in HR English "leave" usually means
-   *absence*, so a WM schema holding `LeaveReason` (leaving) beside a future `AbsenceType` (leave)
-   invites exactly the conflation this plan just spent a correction untangling.
-   *My recommendation: **`LeavingReason`** — closest to legacy's meaning with no ambiguity.
-   `TerminationReason` matches WM's existing `Terminated` vocabulary and is the alternative.*
-   Cheap now, a data migration later.
+   They stay two tables, and WM names them so they cannot be read as synonyms. In HR English
+   "leave" means *absence*, so `LeaveReason` beside a future `AbsenceType` would invite exactly the
+   conflation this plan spent a correction untangling. **Legacy's `dbo.LeaveReasons` keeps its name
+   in every citation** — that is a fact about TLW, not a name WM chooses.
+
+## Open questions for the user
 
 4. **`ExternalId` in P5, or with the Connectors phase?** It is one nullable unique column and every
    two-way HR sync needs it, but nothing today reads it. Including it now costs almost nothing;
