@@ -6,6 +6,8 @@ Approved by user 2026-08-06, all 5 portions. **P1 and P2 are ordered ahead of 00
 Roadmap: ARCHITECTURE.md §14 phase 1c ("Core depth"), and §13's newly-split People rows
 Legacy sources surveyed: [`../TLW-PEOPLE-MODEL.md`](../TLW-PEOPLE-MODEL.md) — 76 tables / 631
 columns measured, `dbo.Employees`' 153 columns classified one by one. Full file list in its §1.
+Plus a **narrow Absence dependency check** for P1's `OnLeave` deletion, 2026-08-06 — §4.1a there,
+scope and non-coverage recorded in [`../COVERAGE-AUDIT.md`](../COVERAGE-AUDIT.md) §2a.
 
 > ### ⚠️ Correction to this survey, 2026-08-06 — the user caught a miss
 > This plan originally stated that `EmployeeStatus.OnLeave` *"has no legacy counterpart"* and that
@@ -23,9 +25,43 @@ columns measured, `dbo.Employees`' 153 columns classified one by one. Full file 
 > `Terminated` carries none of the three. P1 adopts all of them.
 >
 > What the survey got right: there is no *temporary* "on leave" state on the person. That is an
-> **absence**, and it belongs to the Absence module (44 tables, still unsurveyed). The two were
-> being conflated. `OnLeave` is still dropped — but because absence is a different subsystem, not
-> because leaving is unmodelled.
+> **absence**, and it belongs to the Absence module. The two were being conflated. `OnLeave` is
+> still dropped — but because absence is a different subsystem, not because leaving is unmodelled.
+
+> ### ✅ Confirmation, 2026-08-06 — the `OnLeave` drop is now measured, not assumed
+> The claim above ("that is an absence, in a module nobody has surveyed") was an *assumption*: no
+> one had opened Absence. Since P1 deletes `EmployeeStatus.OnLeave` on it, a **narrow dependency
+> check** was run before building — four questions only, **not a survey of Absence**
+> (`TLW-PEOPLE-MODEL.md` §4.1a; scope recorded in `COVERAGE-AUDIT.md` §2). It lands in P1's favour:
+>
+> 1. **No temporary-non-availability state exists on `dbo.Employees`.** All 153 columns re-scanned;
+>    every absence-shaped hit is configuration or an approver role — `AbsenceGroupId` (`:30555`),
+>    `HolidayGroupId` (`:30731`), `HolidaysAmount`/`Period` (`:30667`, `:30687`),
+>    `IsAbsenceManager`/`IsDeputyAbsenceManager` (`:31275`, `:31295`). The instance is dated
+>    elsewhere: `dbo.AbsenceRequests(EmployeeId, StartDate, EndDate, AbsenceId)` (14 cols, `:46542`)
+>    and, per day, `Clockings.MorningAbsenceID`/`AfternoonAbsenceID` (`:21310`, `:21334`).
+>    Legacy's own person-status vocabulary is **three computed values** — active / leaver /
+>    inactive, from `IsActive` × `dbo.IsActiveEmployment` (`PersonnelService.cs:1890-1904`).
+>    **There is nothing for `OnLeave` to mirror. P1 is right.**
+> 2. **The two reason vocabularies are genuinely different tables.** `dbo.LeaveReasons` (3 cols,
+>    `:53137`) is a label under `Menu_Personnel_LeaveReasons`. The absence vocabulary is
+>    **`dbo.Absence` — 35 columns** (`:8743`), a *rule-carrying type*: `Unit`, `Category`
+>    (`Holiday | Sick | MaternityPaternity | OtherEvent`), `AllowOnDayOff`, `CounterId`,
+>    `IsExcludedFromPayrollExport`, `BlockAbsenceRequestOnNegativeBalance` … **No collision — but a
+>    naming risk. See open question 6.**
+> 3. **Accruals confirm P1's shape independently.** `AccrualsCalculationRepository.cs:53-57` selects
+>    `EnterDate, ContinuousServiceDate, DischargeDate, FinalEmploymentDate` and
+>    `EmployeeAccrualCalculationsService.cs:728-741` intersects
+>    `DateTimeInterval(EnterDate, employmentEnd)` with the accrual period to pro-rate entitlement.
+>    The downstream consumer wants **exactly `[EmployedFrom, EmployedUntil]`**, not a status enum —
+>    and reads dates only, never `IsActive`, which confirms keeping suspension separate.
+>    ⚠️ One caveat P1 should record: legacy's window end is **`FinalEmploymentDate ?? DischargeDate`**,
+>    a *second* leaving date with higher precedence. P1 adopts only `DischargeDate`; that is fine
+>    now, but Phase 3 will meet it.
+> 4. **Nothing in Absence writes `IsActive`/`DischargeDate`/`LeaveReasonId`, and nothing reads
+>    `ActiveEmployeesView`.** `PlanningService.cs:32-57` re-derives employment itself — a *sixth*
+>    copy of the predicate, evaluated against `DateTime.Now.Date` rather than the period being
+>    planned. More weight behind P1's single `IsEmployedOn`.
 
 ---
 
@@ -130,7 +166,8 @@ Full table in `TLW-PEOPLE-MODEL.md` §8. The entries this plan acts on:
 |---|---|---|
 | Employment as **(administrative state × dated end)**, evaluated at a reference date | **Keep — adopt properly** | `IsActiveEmployment(dischargeDate, referenceDate)` is right, and WM's undated enum is a regression. Every historical question in the product depends on it. |
 | `IsActive` and `DischargeDate` as two separate facts | **Keep** | Suspension ≠ leaving; `SetEmployeesLeaver` proves legacy treats them separately on purpose. |
-| `EmployeeStatus.OnLeave` | **Drop** | WM invented it. Legacy's "on leave" is an *absence* — dated, a 44-table subsystem. Two systems would answer differently the day Absence ships. |
+| `EmployeeStatus.OnLeave` | **Drop** | WM invented it. Legacy's "on leave" is an *absence* — dated, a separate subsystem. Two systems would answer differently the day Absence ships. **Measured 2026-08-06 (see ✅ block above): no non-availability state exists on `dbo.Employees`, and legacy's person-status vocabulary has exactly three computed values. Confirmed.** |
+| `dbo.Absence` (35 cols) vs `dbo.LeaveReasons` (3 cols) | **Keep both — they are not the same list** | Absence *types* carry pay, accrual and export rules; a leaving reason is a label. WM must not collapse them, and must not name them so they read as synonyms (open question 6). |
 | **Leaving as date + reason + comments** (`DischargeDate`, `LeaveReasonId`, `AdditionalLeaverComments`) | **Keep — adopt all three** | *(Added 2026-08-06; this survey missed it.)* "Why did they leave?" is an HR question every customer asks, and legacy answers it. WM's `Terminated` is a bare enum value that discards the answer. |
 | `dbo.LeaveReason` as a **customer-maintained lookup** with `IsActive` | **Keep** | Reasons are per-customer vocabulary (resignation, redundancy, TUPE, dismissal…), not a WM enum. `IsActive` retires a reason without orphaning the historical records that used it — the right pattern, and one WM should copy rather than hard-delete. |
 | `ActiveEmployeesView`'s `AND … OR …` | **Invert** | A real legacy defect. Employment is computed once, in a single expression, tested. |
@@ -284,6 +321,20 @@ keeps its reason and comments through a round-trip; **clearing `EmployedUntil` c
 deactivating a reason leaves existing references readable and stops it being offered for new ones.
 **Risk:** medium — a contract change plus a lossy-by-necessity backfill.
 
+**Notes added by the 2026-08-06 Absence dependency check** (no change to *Done when*):
+- The "clearing `EmployedUntil` clears both" test now has legacy backing rather than first
+  principles: `PersonnelService.SetEmployeesActive:151-173` un-leaves with
+  `set IsActive = 1, DischargeDate = null, LeaveReasonId = null`.
+- **The entity name is open — question 6.** The plan says `LeaveReason`; legacy's table is plural
+  `dbo.LeaveReasons`, and once Absence ships "leave" will mean *absence* to every HR user. Build P1
+  as written unless the user answers 6 first; renaming after the migration ships costs more.
+- Do **not** fold `IsSuspended` into the employment window used for entitlement pro-rating. Legacy's
+  accrual calculation reads dates only and never `IsActive`
+  (`EmployeeAccrualCalculationsService.cs:728-741`).
+- `FinalEmploymentDate` — a second, **higher-precedence** leaving date (`:941`) — stays out of P1 as
+  planned. It is already among `TLW-PEOPLE-MODEL.md` §3.1's 33 unowned columns; §4.1a now records
+  why Phase 3 will meet it.
+
 ### [ ] P2 — The punch boundary fails closed
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
 `TimeAttendanceModule.cs` if the error shape changes; `WM.Modules.People.Tests` or a new
@@ -362,6 +413,23 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
    constraint is cheap; rewriting an approved plan is not.
 
 ## Open questions for the user
+6. **What should P1's leaving-reason entity be called?** *(Raised by the 2026-08-06 Absence
+   dependency check.)* The plan currently says `LeaveReason`. Measured: legacy has **two** reason
+   vocabularies and they are not the same thing —
+   - `dbo.LeaveReasons` (3 cols, `HorioDB.designer.cs:53137`) — *why employment ended*. A label.
+   - `dbo.Absence` (**35 cols**, `:8743`) — *why someone is not here today*. Carries `Unit`,
+     `Category` (`Holiday | Sick | MaternityPaternity | OtherEvent`), `AllowOnDayOff`,
+     `AllowOnHoliday`, `CounterId`, `ExportCode`, `BlockAbsenceRequestOnNegativeBalance`,
+     `IsApprovalRequiredForBookingAbsence`, `IncludeToBradfordCalculation` — pay, accrual and
+     export rules, not a label.
+
+   They must stay two tables. The risk is only the **name**: in HR English "leave" usually means
+   *absence*, so a WM schema holding `LeaveReason` (leaving) beside a future `AbsenceType` (leave)
+   invites exactly the conflation this plan just spent a correction untangling.
+   *My recommendation: **`LeavingReason`** — closest to legacy's meaning with no ambiguity.
+   `TerminationReason` matches WM's existing `Terminated` vocabulary and is the alternative.*
+   Cheap now, a data migration later.
+
 4. **`ExternalId` in P5, or with the Connectors phase?** It is one nullable unique column and every
    two-way HR sync needs it, but nothing today reads it. Including it now costs almost nothing;
    deferring it means a second migration on a bigger table later.

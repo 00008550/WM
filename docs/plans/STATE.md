@@ -159,7 +159,9 @@ None appears in `PHASE-AUDIT.md` (checked A1–A4, B1–B7, D1–D17).
 WM has `EmployeeStatus { Active, OnLeave, Terminated }` with no date (`Employee.cs:20-25`). So a
 future-dated leaver cannot be recorded, and *"who was employed on 3 March?"* is unanswerable —
 which **plan 002's clocking replay needs and does not currently ask for**. `OnLeave` has no legacy
-counterpart at all; legacy's "on leave" is an *absence*, a dated 44-table subsystem.
+counterpart at all; legacy's "on leave" is an *absence*, a separate dated subsystem.
+*(Measured 2026-08-06 by a narrow dependency check before P1 was built — `TLW-PEOPLE-MODEL.md` §4.1a,
+scope in `COVERAGE-AUDIT.md` §2a. `OnLeave`'s drop is confirmed; Absence itself remains unsurveyed.)*
 
 ### Ranked effect on plans
 

@@ -54,7 +54,7 @@ Every table is in exactly one bucket; the counts sum to 578.
 | EPOS (dropped) | 67 | 783 | — | ⏹ decided |
 | Devices / AC (dropped) | 54 | 719 | — | ⏹ decided |
 | **Reporting** | 13 | 697 | Insight (assistant) | ◐ §16 decision, no table-level survey |
-| **Absence & accruals** | 44 | 526 | Absence | ◐ named in §14, **not surveyed** |
+| **Absence & accruals** | 44 | 526 | Absence | ◐ named in §14, **not surveyed** — one narrow dependency check only, see §2a |
 | **Admin / config / audit** | 16 | 376 | Admin | ◐ `SoftwareMainOptions` found, rest **not surveyed** |
 | **Activities / job costing** | 20 | 345 | Activities (phase 7) | ◐ named, not surveyed |
 | **Rules / calc / money** | 35 | 341 | Rules | ✅ tariffs + counters + `Calculations` found |
@@ -71,6 +71,59 @@ Every table is in exactly one bucket; the counts sum to 578.
 **Read this as a survey backlog.** The buckets marked "not surveyed" have been *named* in the
 roadmap but never measured the way T&A and Rules now have been — which is exactly the condition
 that hid the Clocking aggregate.
+
+### 2a. Absence — what a 2026-08-06 dependency check did and did **not** look at
+
+**Absence is still unsurveyed. This was not a survey.** Plan 007 P1 was `approved` and about to be
+built while deleting `EmployeeStatus.OnLeave` on an *unmeasured* assumption about Absence, so a
+deliberately narrow check ran first, per `plans/STATE.md` → Conventions (*survey a module just
+before planning it, and only the part something depends on now*). Recorded so the next reader does
+not mistake the result for coverage.
+
+**Checked — four questions, and only these:**
+
+| # | Question | Answer | Evidence |
+|---|---|---|---|
+| 1 | Is there a *temporary* non-availability state on the person that WM's `OnLeave` mirrors? | **No.** All 153 `dbo.Employees` columns re-scanned; instance is dated in `AbsenceRequests` and on the clocking. Legacy's person-status vocabulary is three computed values. | `TLW-PEOPLE-MODEL.md` §4.1a |
+| 2 | Does an absence-reason lookup collide with `dbo.LeaveReasons`? | **No — genuinely two vocabularies.** `dbo.Absence` (35 cols) is a rule-carrying type; `dbo.LeaveReasons` (3 cols) is a label. Naming risk only → 007 open question 6. | same |
+| 3 | Does Absence write to, or depend on, `IsActive` / `DischargeDate` / `LeaveReasonId`? | **Depends, read-only; never writes.** Accruals pro-rate on the employment *interval* — independent confirmation of 007 P1's design. | same |
+| 4 | Does anything contradict 002, 007 or §14's placement of Absence? | **No contradiction.** One gap noted for 002 below. | below |
+
+**Files opened:** `Logic/Entities/HorioDB.designer.cs` (scripted table/column measurement, plus
+`dbo.Absence`, `AbsenceRequests`, `AbsenceGroups`, `PeriodAbsences`, `RecapAbsences`,
+`HistoricalClockingAbsences`, `LeaveReasons` column dumps) · `Logic/Settings/AbsenceEnums.cs` ·
+`Logic/Planning/PlanningService.cs:20-57` · `Logic/Planning/AbsenceRequests.cs` (grep only) ·
+`Logic/Accruals/AccrualsCalculationRepository.cs:51-67` ·
+`Logic/Accruals/EmployeeAccrualCalculationsService.cs:715-742, 930-960` ·
+`Logic/Personnel/PersonnelService.cs:118-173, 1873-1966`.
+
+**Explicitly NOT checked** — all of this is the full survey's job:
+
+- **41 of the 44 tables.** Only `dbo.Absence`, `dbo.AbsenceRequests` and `dbo.LeaveReasons` were
+  read column by column. No exhaustive classification, no Keep/Improve/Invert/Drop table.
+- **The accrual subsystem**, which is where the weight is: `dbo.Accruals` (21 cols, `:186101`),
+  `EmployeeAccrualCalculations` (15), `AccrualAdjustments`, `AccrualLengthOfServiceBonuses`,
+  `AccrualsCalculationQueue`, and **five allocation tables** (`AccrualsEmployees`,
+  `AccrualsDepartments`, `AccrualsLocations`, `AccrualsEmploymentTypes`, plus
+  `AccrualEmployeeAllocationView`) — a five-way targeting mechanism nobody has looked at.
+- **Approval routing**, blocked dates (`BlockedAbsencesByDepartment`,
+  `BlockedAbsenceDatesByDepartment`, `BlockedAbsencesByDailyModel`), `AbsenceRequestsLogs` (26 cols),
+  `ManagerPosition`/`LastChangedManager` escalation, absence documents.
+- **Holidays** (`dbo.Holidays` 14, `HolidayGroups`, `ac_holidays`, `EmployeeHolidayDatesView`) and
+  **balances/recaps** (`RecapAbsences` was dumped but not analysed).
+- **The 44/526 bucket figure itself is unverified.** A name-match scan found ~52 absence-shaped
+  tables including report views and the schools vertical; the boundary was not settled.
+
+**Two one-line notes carried forward, not chased:**
+
+- **For plan 002:** `TLW-CLOCKING-MODEL.md:114` records that half-day absences live on the clocking
+  (`MorningAbsenceID`/`AfternoonAbsenceID`), and `dbo.HistoricalClockingAbsences` (16 cols) archives
+  them — but **plan 002 never mentions absence** (zero matches in the file). A replay reconstructs a
+  day whose meaning is partly an absence code. Worth an amendment when 002 is next touched.
+- **A fail-open for the full survey:** `Logic/Planning/AbsenceRequests.cs` has **no** employment
+  check at all (no `DischargeDate`, `IsActive` or `EnterDate`), and
+  `PersonnelService.SetEmployeesLeaver:122-145` does not touch absence requests — so a leaver keeps
+  approved absence past their leave date. *Invert* candidate.
 
 > **People/HR measured 2026-08-06 — and "◐ People partly" was the wrong mark.**
 > [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md) classifies all **153** columns of `dbo.Employees`
@@ -171,7 +224,8 @@ customers would be running, not missing features.*
    the People survey raised its priority**: legacy's absence approval runs on a *second* data scope
    held on `dbo.[User]` (`IsUserCanManageAllRequests` / `…ByDepartment`), and it is the only place
    in the product that expands the department tree. That interacts with plan 005 and should be
-   settled before Absence starts, not during.
+   settled before Absence starts, not during. **Still true after the 2026-08-06 dependency check —
+   that check answered four questions for plan 007 and did not survey Absence (§2a).**
 
 Two design decisions should be taken before their phases start, not during:
 **`Notifications.SqlQuery`** (legacy notifications are partly SQL-defined; WM's event-driven hub
