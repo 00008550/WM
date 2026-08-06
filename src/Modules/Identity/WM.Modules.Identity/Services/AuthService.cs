@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
 
@@ -8,14 +9,63 @@ namespace WM.Modules.Identity.Services;
 
 public sealed record AuthResult(bool Succeeded, string? Error, TokenPair? Tokens, User? User);
 
+/// <summary>
+/// How many failures lock an account, and for how long.
+///
+/// <para>
+/// These were two <c>const</c>s until 006 P3. Lockout is policy, and the two installs that care
+/// pull in opposite directions: a public demo whose credentials are printed on the internet locks
+/// itself out on the first credential-stuffing bot unless it is lenient, while a customer may want
+/// it stricter than five. The defaults are exactly what shipped, so behaviour is unchanged unless
+/// a deployment says otherwise.
+/// </para>
+///
+/// <para>
+/// Named <c>Account…</c> rather than <c>LockoutOptions</c> because ASP.NET Identity ships a type
+/// of that name which WM does not use — the sign-in path here is <see cref="AuthService"/>'s own,
+/// and two identically-named options types in one file would invite someone to configure the
+/// wrong one.
+/// </para>
+/// </summary>
+public sealed class AccountLockoutOptions
+{
+    public const string SectionName = "Lockout";
+
+    public int MaxFailedAttempts { get; set; } = 5;
+
+    public TimeSpan Duration { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// One line saying why this configuration cannot be used, or <c>null</c> when it can — the
+    /// same shape as <see cref="JwtOptions.DescribeSigningKeyFault"/>, and read at composition for
+    /// the same reason: a host that would lock every account on the first typo should not start.
+    /// </summary>
+    public static string? DescribeFault(AccountLockoutOptions options)
+    {
+        if (options.MaxFailedAttempts < 1)
+            return $"{SectionName}:MaxFailedAttempts is {options.MaxFailedAttempts}, which would "
+                   + "lock an account on its first failed sign-in. Set it (env: "
+                   + "Lockout__MaxFailedAttempts) to at least 1. There is deliberately no value "
+                   + "that turns lockout off: 0 reads as both 'never lock' and 'lock immediately', "
+                   + "and a setting whose meaning has to be guessed is not a safety control.";
+
+        if (options.Duration <= TimeSpan.Zero)
+            return $"{SectionName}:Duration is {options.Duration}, so a locked account would be "
+                   + "unlocked again before it could be told. Set it (env: Lockout__Duration) to a "
+                   + "duration such as 00:15:00.";
+
+        return null;
+    }
+}
+
 public sealed class AuthService(
     IdentityDbContext db,
     TokenService tokens,
     IPasswordHasher<User> passwordHasher,
+    IOptions<AccountLockoutOptions> lockout,
     ILogger<AuthService> logger)
 {
-    private const int MaxFailedAttempts = 5;
-    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+    private readonly AccountLockoutOptions _lockout = lockout.Value;
 
     public async Task<AuthResult> LoginAsync(string userName, string password, CancellationToken ct)
     {
@@ -33,11 +83,13 @@ public sealed class AuthService(
         if (verdict == PasswordVerificationResult.Failed)
         {
             user.FailedLoginAttempts++;
-            if (user.FailedLoginAttempts >= MaxFailedAttempts)
+            if (user.FailedLoginAttempts >= _lockout.MaxFailedAttempts)
             {
-                user.LockedOutUntil = DateTimeOffset.UtcNow.Add(LockoutDuration);
+                user.LockedOutUntil = DateTimeOffset.UtcNow.Add(_lockout.Duration);
                 user.FailedLoginAttempts = 0;
-                logger.LogWarning("User {User} locked out after repeated failures", user.UserName);
+                logger.LogWarning(
+                    "User {User} locked out for {Duration} after {Attempts} failed attempts",
+                    user.UserName, _lockout.Duration, _lockout.MaxFailedAttempts);
             }
             await db.SaveChangesAsync(ct);
             return new AuthResult(false, "Invalid credentials.", null, null);

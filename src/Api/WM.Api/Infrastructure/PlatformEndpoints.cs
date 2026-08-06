@@ -29,6 +29,10 @@ public static class PlatformEndpoints
         // and answers "Healthy" whenever the process can answer at all. That is the correct
         // meaning for the thing an orchestrator restarts on — a database outage should not make
         // every replica get killed and rescheduled.
+        //
+        // For the same reason it carries no rate limit, unlike readiness below: it does no work,
+        // and throttling the endpoint an orchestrator restarts on would turn a flood into a
+        // rolling restart of the thing being flooded.
         endpoints.MapHealthChecks(
                 WmHealthChecks.LivenessPath,
                 new HealthCheckOptions { Predicate = _ => false })
@@ -39,6 +43,14 @@ public static class PlatformEndpoints
         // from GitHub against the public URL and holds no credentials — and it is the fifth entry
         // in EndpointAuthorizationInventoryTests' anonymous surface, so adding it was a decision
         // with a reviewer attached rather than a drift.
+        //
+        // It also carries the anonymous rate limit, which 006 P2's review asked P3 to settle: it
+        // is anonymous, uncached, and costs three database round trips per module per request, so
+        // an unauthenticated flood here is a flood against Postgres. It shares the sign-in bucket
+        // rather than taking one of its own because the thing being bounded is one address's
+        // spend, and the callers that matter ask from addresses of their own: the container health
+        // check (Dockerfile:43, every 15s → 4/min from 127.0.0.1) and the scheduled smoke check
+        // both sit far inside the 30/min default.
         endpoints.MapHealthChecks(
                 WmHealthChecks.ReadinessPath,
                 new HealthCheckOptions
@@ -46,7 +58,8 @@ public static class PlatformEndpoints
                     Predicate = registration => registration.Tags.Contains(WmHealthChecks.ReadinessTag),
                     ResponseWriter = WmHealthChecks.WriteReadinessAsync,
                 })
-            .AllowAnonymous();
+            .AllowAnonymous()
+            .RequireRateLimiting(WmRateLimits.PublicAnonymous);
 
         return endpoints;
     }
