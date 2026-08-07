@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="WM">
+  <!-- WM presence mark. A pulse decays as it travels: each ring is thinner and
+       fainter than the one inside it. That decay is what separates a pulse from
+       a target. Single colour - currentColor - so it inherits text colour and
+       works on any background. -->
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <circle cx="32" cy="32" r="29"   stroke-width="1.6" opacity="0.22"/>
+    <circle cx="32" cy="32" r="21.5" stroke-width="2.9" opacity="0.5"/>
+    <circle cx="32" cy="32" r="14"   stroke-width="4.4" opacity="1"/>
+  </g>
+  <circle cx="32" cy="32" r="5.6" fill="currentColor"/>
+</svg>
