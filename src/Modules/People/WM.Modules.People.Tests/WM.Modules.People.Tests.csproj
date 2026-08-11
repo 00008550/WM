@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- The write paths under test are minimal-API handlers, so a 403 is produced by a handler that
+         only exists inside a host. TestHost is the only way to reach them without binding a port.
+         Pinned to the ASP.NET Core runtime the module compiles against. -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
+    <!-- In-memory rather than Npgsql: these tests assert who may write which record, not SQL, and
+         there is no Postgres harness in this repository (docs/plans/STATE.md). Same choice, and the
+         same version, as WM.Modules.Identity.Tests. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WebApplication and the authorization middleware. It reaches this project transitively via
+         WM.SharedKernel, but this project uses both directly, so it asks for them directly. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WM.Modules.People\WM.Modules.People.csproj" />
+  </ItemGroup>
+
+</Project>

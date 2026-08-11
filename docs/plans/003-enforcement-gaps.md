@@ -1,6 +1,6 @@
 # 003 — Close the enforcement gaps in the shipped phases
 
-Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-review      <!-- draft → approved → in-progress → in-review → merged -->
 Approved by user 2026-08-04, all 4 portions, and **ordered ahead of 001 P3** — A1 and A2 are
 defects in running code, 001 P3 corrects a model no endpoint consults yet.
 
@@ -177,8 +177,18 @@ anonymously; the three auth endpoints still 200 anonymously.
 anonymous. There is only one candidate (`/health`) and it is asserted.
 **Independent of the §4 decision.** Correct under every model.
 
-### [ ] P2b — Scope the employee writes
+### [ ] P2b — Scope the employee writes  ·  built 2026-08-11 on `fix/003-p2b`, awaiting review
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs`, People tests
+> **As built.** The candidate predicate is a new
+> `src/Modules/People/WM.Modules.People/Services/EmployeeWriteScope.cs` — `PermitsWrite(scope,
+> employeeId, siteId, departmentId)`, where a null `employeeId` is a create. It delegates to
+> `EffectiveDataScope.CanSee` (`DataScope.cs:47-54`) rather than restating the switch, which is the
+> same thing 003 P1 did for the hub, so there is **one** copy of the rule and not three;
+> `EmployeeScopeExtensions.cs` is untouched, as this plan's *Out of scope* requires. The
+> `CanEditOwnRecord` seam lives in that file as a named predicate returning `true`.
+> **Tests:** new `src/Modules/People/WM.Modules.People.Tests/` (first People test project), 15 tests
+> — 8 through a TestHost over the mapped endpoints, 7 over the predicate, including a pin that the
+> predicate and `WithinScope` answer identically over every scope shape.
 **Done when:** `POST /api/employees` refuses a site the caller's scope does not contain;
 `PUT /api/employees/{id}` refuses a *post-image* the caller's scope does not contain, in addition
 to today's pre-image check.
