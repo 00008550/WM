@@ -186,27 +186,42 @@ anonymous. There is only one candidate (`/health`) and it is asserted.
 > same thing 003 P1 did for the hub, so there is **one** copy of the rule and not three;
 > `EmployeeScopeExtensions.cs` is untouched, as this plan's *Out of scope* requires. The
 > `CanEditOwnRecord` seam lives in that file as a named predicate returning `true`.
-> **Tests:** new `src/Modules/People/WM.Modules.People.Tests/` (first People test project), 15 tests
-> — 8 through a TestHost over the mapped endpoints, 7 over the predicate, including a pin that the
-> predicate and `WithinScope` answer identically over every scope shape.
+> **Tests:** new `src/Modules/People/WM.Modules.People.Tests/` (first People test project), **16**
+> tests — 9 through a TestHost over the mapped endpoints, 7 over the predicate, including a pin that
+> the predicate and `WithinScope` answer identically over every scope shape — plus **1** in
+> `WM.Api.Tests` over the composed host. Solution total **166** (was 164 at round 1).
 >
-> **Reviewed 2026-08-11 — passed, with two low findings carried forward rather than blocking.**
+> **Reviewed 2026-08-11 — passed, with two low findings.**
 > Verified by mutation, not by reading: deleting both `PermitsWrite` call sites fails **4 of 15**
 > People tests; hoisting the `PUT` post-image check above the pre-image lookup fails
 > `An_employee_the_caller_cannot_see_is_still_404_rather_than_403`, so the 403/404 split is genuinely
-> pinned. Carried forward:
+> pinned. The two findings were:
 > 1. **The `POST` ordering is unpinned.** Demoting the create scope check below the code and site
 >    probes fails **nothing**, though the code comment gives the 409-enumeration reason for its
->    placement. The twin ordering on `PUT` *is* pinned. Whichever portion next opens `MapPost` should
->    add the assertion. *(A caveat on that comment: the ordering only closes the 409 oracle for a
->    caller with no in-scope destination to name. Any `employees.manage` holder can still probe badge
->    numbers estate-wide by naming their own site — the code probe is unscoped. Plan 007's territory,
->    not this portion's.)*
-> 2. **`PeopleEndpointHost`'s cross-reference slightly overstates its target.**
+>    placement. The twin ordering on `PUT` *is* pinned.
+> 2. **`PeopleEndpointHost`'s cross-reference overstates its target.**
 >    `EndpointAuthorizationInventoryTests` asserts every endpoint carries *a registered* policy — not
->    that `POST`/`PUT /api/employees` carry `employees.manage` specifically. Downgrading either to
->    `employees.view` would pass every test in the repo. Pre-existing gap; the comment is what makes
->    it look covered.
+>    that `POST`/`PUT /api/employees` carry `employees.manage` specifically. Pre-existing gap; the
+>    comment is what makes it look covered.
+>
+> **Both were closed on the same branch rather than deferred, and re-reviewed 2026-08-11 (round 2 —
+> passed, no findings).** A second **test-only** commit, no product code touched. Each half was
+> graded by re-running the mutation that had gone undetected:
+> - `A_create_outside_the_callers_scope_is_refused_before_the_code_is_probed` posts a taken badge
+>   number at an out-of-scope site, so both refusals are available; demoting the scope check now
+>   answers `Conflict` where the test demands `Forbidden`, and it is the **only** test that fails.
+> - `EndpointAuthorizationInventoryTests.Every_authorized_transport_requires_the_permission_we_chose_for_it`
+>   pins all **28** non-anonymous transports to a hardcoded permission table, keyed by method.
+>   Downgrading either employee write to `employees.view` now fails it by name; so does moving
+>   `GET /api/sites` off `employees.view`, which previously failed nothing anywhere. The table is
+>   complete — an unlisted new endpoint fails it — and the expectation is stated independently of
+>   the registration it grades (flipping a table literal alone also fails).
+>
+> **The 409 enumeration oracle is *not* closed, and the new test says so in its own body.** The
+> ordering only protects a caller with **no in-scope destination to name**; the uniqueness probe is
+> itself unscoped, so any `employees.manage` holder can still enumerate badge numbers estate-wide by
+> naming a site they can write to. Scoping the probe is **plan 007's** (its second defect — the
+> case-insensitive probe against a case-sensitive unique index), not this portion's.
 **Done when:** `POST /api/employees` refuses a site the caller's scope does not contain;
 `PUT /api/employees/{id}` refuses a *post-image* the caller's scope does not contain, in addition
 to today's pre-image check.
