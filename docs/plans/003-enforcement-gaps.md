@@ -1,6 +1,6 @@
 # 003 — Close the enforcement gaps in the shipped phases
 
-Status: in-review      <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
 Approved by user 2026-08-04, all 4 portions, and **ordered ahead of 001 P3** — A1 and A2 are
 defects in running code, 001 P3 corrects a model no endpoint consults yet.
 
@@ -177,7 +177,7 @@ anonymously; the three auth endpoints still 200 anonymously.
 anonymous. There is only one candidate (`/health`) and it is asserted.
 **Independent of the §4 decision.** Correct under every model.
 
-### [ ] P2b — Scope the employee writes  ·  built 2026-08-11 on `fix/003-p2b`, awaiting review
+### [x] P2b — Scope the employee writes  ·  reviewed 2026-08-11, [#57](https://github.com/00008550/WM/pull/57)
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs`, People tests
 > **As built.** The candidate predicate is a new
 > `src/Modules/People/WM.Modules.People/Services/EmployeeWriteScope.cs` — `PermitsWrite(scope,
@@ -189,6 +189,24 @@ anonymous. There is only one candidate (`/health`) and it is asserted.
 > **Tests:** new `src/Modules/People/WM.Modules.People.Tests/` (first People test project), 15 tests
 > — 8 through a TestHost over the mapped endpoints, 7 over the predicate, including a pin that the
 > predicate and `WithinScope` answer identically over every scope shape.
+>
+> **Reviewed 2026-08-11 — passed, with two low findings carried forward rather than blocking.**
+> Verified by mutation, not by reading: deleting both `PermitsWrite` call sites fails **4 of 15**
+> People tests; hoisting the `PUT` post-image check above the pre-image lookup fails
+> `An_employee_the_caller_cannot_see_is_still_404_rather_than_403`, so the 403/404 split is genuinely
+> pinned. Carried forward:
+> 1. **The `POST` ordering is unpinned.** Demoting the create scope check below the code and site
+>    probes fails **nothing**, though the code comment gives the 409-enumeration reason for its
+>    placement. The twin ordering on `PUT` *is* pinned. Whichever portion next opens `MapPost` should
+>    add the assertion. *(A caveat on that comment: the ordering only closes the 409 oracle for a
+>    caller with no in-scope destination to name. Any `employees.manage` holder can still probe badge
+>    numbers estate-wide by naming their own site — the code probe is unscoped. Plan 007's territory,
+>    not this portion's.)*
+> 2. **`PeopleEndpointHost`'s cross-reference slightly overstates its target.**
+>    `EndpointAuthorizationInventoryTests` asserts every endpoint carries *a registered* policy — not
+>    that `POST`/`PUT /api/employees` carry `employees.manage` specifically. Downgrading either to
+>    `employees.view` would pass every test in the repo. Pre-existing gap; the comment is what makes
+>    it look covered.
 **Done when:** `POST /api/employees` refuses a site the caller's scope does not contain;
 `PUT /api/employees/{id}` refuses a *post-image* the caller's scope does not contain, in addition
 to today's pre-image check.
@@ -223,6 +241,31 @@ instead of blanking them.
 department and phone (the current UI wipes both — assert the round-trip, not the request body).
 **Risk:** low. **Note:** this portion is plan 001 P5's prerequisite. Whichever plan runs first
 builds it; the other deletes its copy.
+
+> ### ⛔ **P3 may not land without the `departmentId` payload fix.** *(Recorded by the P2b review, 2026-08-11.)*
+>
+> P2b made the blank department a **403 instead of silent data loss**, and
+> `employees.component.ts:300` still sends `departmentId: null` unconditionally on save. So on any
+> install that has a `Departments`-scoped security group, **a department-scoped caller now gets 403
+> on every save through the SPA editor — create and edit alike.** Not reachable on a default install
+> (the only seeded group is the `All` one, `IdentitySeeder.cs:87`), and strictly better than the
+> behaviour it replaces (the save used to succeed, wipe the department, and make that employee
+> invisible to every department-scoped user). But it is a real break waiting on this portion, which
+> is why P2b was allowed to ship ahead of it.
+>
+> Two consequences for P3, both binding:
+>
+> - **The round-trip test above must run as a `Departments`-scoped caller**, not as an admin. An
+>   admin-scoped round-trip passes whether or not the payload carries `departmentId`, because `All`
+>   short-circuits the scope check — so the test as originally worded would go green over the live
+>   defect. `WM.Modules.People.Tests` now exists and
+>   `A_department_scoped_caller_may_not_clear_the_department_that_makes_the_record_visible` is the
+>   shape to mirror.
+> - **`phone` is a data-loss fix; `departmentId` is an availability fix.** If P3 is ever descoped or
+>   split, the department half is the half that cannot be dropped.
+>
+> This stacks with, and does not replace, the existing constraint that **007 P4 must land with or
+> before P3** (`STATE.md`): P3 makes the unvalidated `DepartmentId` reachable from the SPA.
 
 ### [ ] P4 — API/integration auth: design note, no code
 **Touches:** `docs/TLW-API-AUTH.md` (new), `docs/ARCHITECTURE.md` §4 (proposal only)

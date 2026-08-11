@@ -217,12 +217,19 @@ attached. *(Plan 006 P2 adds `/health/ready` and will trip that test on purpose.
 to `master`. **Branch protection is not enabled**, so nothing enforces it yet; raised as 006 open
 question 5.
 
-**Next portion:** **003 P2b — scope the employee writes** (lane A), or **006 P1 — demo data leaves
-the product** (lane B, but constrained: it must land after 005 P3). The user pulled 006 P2 and P3
-ahead of 003 P2b (006 decision 1) because they fix defects in shipped code; **both are now
-reviewed and open — P2 as [#40](https://github.com/00008550/WM/pull/40), P3 as
-[#47](https://github.com/00008550/WM/pull/47)** — so lane B's security work is done and the
-argument for staying in it has run out. See the clearance note below.
+**P2b passed review 2026-08-11 and is open as [#57](https://github.com/00008550/WM/pull/57)** — A2 is
+now fully closed: `POST /api/employees` refuses a destination outside the caller's scope and
+`PUT /api/employees/{id}` checks the post-image as well as the pre-image, so a manager can no longer
+file someone where they will not then be able to see them. It reuses `EffectiveDataScope.CanSee`
+rather than inventing a write-scope model, as the measurement required, and carries the named
+`CanEditOwnRecord` seam for 005 P4. First People test project; the reviewer confirmed by mutation
+that deleting both call sites fails 4 of its 15 tests.
+
+**Next portion:** **003 P3 — scoped site and department lists** (lane A, and see its ⛔ blocker
+below), or **006 P1 — demo data leaves the product** (lane B, but constrained: it must land after
+005 P3). The user pulled 006 P2 and P3 ahead of 003 P2b (006 decision 1) because they fix defects in
+shipped code; both have since merged, so lane B's security work is done and the argument for staying
+in it has run out.
 
 **Then 003 P2b — scope the employee writes.** It was to wait on a measurement of whether legacy's
 read and write scope are distinct decisions. **They are not** — same TVF, one carve-out — so P2b
@@ -292,7 +299,7 @@ the access model.
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
-| 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a done, **P2b next**) | **in-progress — active** |
+| 003 | Enforcement gaps found by the phase audit | 5 (P1, P2a, **P2b done — [#57](https://github.com/00008550/WM/pull/57)**; **P3 next**, and it now carries a ⛔ blocker) | **in-progress — active** |
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both in review**; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
@@ -348,10 +355,19 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
 - **007 P1 unblocks 002.** If plan 002 is approved before 007 P1 lands, its replay has no way to
   know who was employed on the day it replays.
 
-**Next portion:** **003 P2b — scope the employee writes** (lane A, P2a merged as `e948481`), with
-**006 P1** the lane B alternative once 005 P3 has landed, and **007 P1/P2** the lane C candidates
-**once 007 is approved** — the builder refuses `draft`. 006 P2 and P3 are open as
-[#40](https://github.com/00008550/WM/pull/40) and [#47](https://github.com/00008550/WM/pull/47).
+**Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b passed review 2026-08-11
+and is open as [#57](https://github.com/00008550/WM/pull/57)), with **006 P1** the lane B alternative
+once 005 P3 has landed, and **007 P1/P2** the lane C candidates **once 007 is approved** — the
+builder refuses `draft`. 006 P2 and P3 have merged (`5406575`, `1240dbc`).
+
+**⛔ 003 P3 now carries a blocker, added by the P2b review.** P2b turned the SPA's unconditional
+`departmentId: null` (`employees.component.ts:300`) from silent data loss into a **403 on every save
+for a department-scoped caller**. Not reachable on a default install — the only seeded group is the
+`All` one — and strictly better than the wipe it replaces, which is why P2b shipped first. But P3
+owns the fix, and **its round-trip test must run as a `Departments`-scoped caller**: an
+admin-scoped round-trip passes over the live defect, because `All` short-circuits the scope check.
+Full note in `003-enforcement-gaps.md` under P3. This stacks with the existing 007 P4 constraint
+below rather than replacing it.
 
 **006 P2's carry-over to P3 is closed.** The readiness endpoint P2 added is anonymous, uncached and
 costs roughly three database round-trips per module per request; P3 chose the limiter over a cache,
@@ -392,8 +408,12 @@ writes them.)*
 | 003 | P2a — fail closed by default (`FallbackPolicy`) | [#21](https://github.com/00008550/WM/pull/21) | ✅ merged to master (`e948481`) |
 | — | CI: build + test gate on `master` | [#22](https://github.com/00008550/WM/pull/22) | ✅ merged to master (`18ca773`) |
 | — | 006 measured against the tree; arm64 and librdkafka answered | [#39](https://github.com/00008550/WM/pull/39) | ✅ merged to master (`1a7e292`) |
-| 006 | P2 — a host that can be verified from outside | [#40](https://github.com/00008550/WM/pull/40) | 🔍 review passed 2026-08-06, open against `master` |
-| 006 | P3 — the public edge: real client IPs, rate limits, configurable lockout | [#47](https://github.com/00008550/WM/pull/47) | 🔍 review passed 2026-08-06, open against `master` |
+| 006 | P2 — a host that can be verified from outside | [#40](https://github.com/00008550/WM/pull/40) | ✅ merged to master (`5406575`) |
+| 006 | P3 — the public edge: real client IPs, rate limits, configurable lockout | [#47](https://github.com/00008550/WM/pull/47) | ✅ merged to master (`1240dbc`) |
+| — | the person record measured: 153 columns, three defects, plan 007 | [#48](https://github.com/00008550/WM/pull/48) | ✅ merged to master (`9cf8925`) |
+| — | survey just-in-time; the `OnLeave` assumption measured | [#49](https://github.com/00008550/WM/pull/49) | ✅ merged to master (`8b005c2`) |
+| — | the WM presence mark, used as the favicon | [#55](https://github.com/00008550/WM/pull/55) | ✅ merged to master (`b3f91d2`) |
+| 003 | P2b — scope the employee writes | [#57](https://github.com/00008550/WM/pull/57) | 🔍 review passed 2026-08-11, open against `master` |
 
 ## In flight
 
@@ -434,7 +454,7 @@ the real host rather than only the test host. `/health` stays liveness; `/api/he
 and is the **fifth** anonymous transport, added deliberately through
 `EndpointAuthorizationInventoryTests`.
 
-`master` is at `1a7e292`.
+`master` is at `b3f91d2`.
 
 `docs/scope-model-corrections` is fully contained in `master` and can be deleted. See the
 stacking note in `CLAUDE.md` → Git for why #11 went astray.
