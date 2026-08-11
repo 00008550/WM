@@ -30,9 +30,17 @@ namespace WM.Modules.People.Tests.Endpoints;
 /// case-insensitive employee-code probe and the unique index that disagrees with it (plan 007) are
 /// out of reach here as well as out of scope.</item>
 /// <item><b>Authentication is a test scheme</b> that mints the permissions a request asks for, over
-/// the <i>real</i> permission policies built the way <c>IdentityModule</c> builds them. Whether each
-/// endpoint carries the right policy is asserted against the composed host by
-/// <c>WM.Api.Tests.Security.EndpointAuthorizationInventoryTests</c>, not here.</item>
+/// the <i>real</i> permission policies built the way <c>IdentityModule</c> builds them. Which
+/// permission each endpoint requires is decided against the composed host, by
+/// <c>EndpointAuthorizationInventoryTests.Every_authorized_transport_requires_the_permission_we_chose_for_it</c>
+/// — a route-by-route pin, so moving <c>POST /api/employees</c> off <c>employees.manage</c> fails
+/// there by name. That cross-reference was written here before the pin existed and overstated it:
+/// until 2026-08-11 the inventory asserted only that <i>some</i> registered policy was attached,
+/// never which one. Nor can this project supply the missing half. The host below mints whatever
+/// permission a test asks for, so a downgrade here surfaces only as collateral — every caller in
+/// <c>EmployeeWriteScopeEndpointTests</c> holds exactly <c>employees.manage</c>, so an endpoint
+/// demoted to <c>employees.view</c> refuses them and the failure reads as a scope defect. That is
+/// the right shape for testing scope and the wrong instrument for testing policy.</item>
 /// </list>
 /// </summary>
 internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable

@@ -35,6 +35,9 @@ public sealed class EmployeeWriteScopeEndpointTests
 
     private const string NewCode = "E2001";
 
+    /// <summary>The seeded site-B employee's code — a badge number already taken, out of scope.</summary>
+    private const string TakenCode = "E1002";
+
     [Fact]
     public async Task A_create_at_a_site_outside_the_callers_scope_is_refused()
     {
@@ -74,6 +77,31 @@ public sealed class EmployeeWriteScopeEndpointTests
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(host.Read(db => db.Employees.AsNoTracking().Where(e => e.Code == NewCode).ToList()));
+    }
+
+    [Fact]
+    public async Task A_create_outside_the_callers_scope_is_refused_before_the_code_is_probed()
+    {
+        // Ordering, not a status code — the POST equivalent of the 404-before-403 test below. The
+        // code posted here is the one already worn by the seeded employee at site B, whom this
+        // caller cannot see, and the site is site B as well. Both refusals are available: the scope
+        // check answers 403, the uniqueness probe would answer 409. Which one arrives says which
+        // ran first, and 409 is a yes/no oracle on badge numbers.
+        //
+        // What this does NOT establish is that the oracle is closed. The uniqueness probe is
+        // unscoped, so a caller holding employees.manage can still ask about any badge number in
+        // the estate by naming a site they can write to — the probe answers estate-wide either way.
+        // Scoping the probe belongs to plan 007; this test pins only that a caller with nowhere
+        // in scope to name cannot reach it at all.
+        await using var host = await PeopleEndpointHost.StartAsync(Sites(SiteA), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        var response = await client.PostAsJsonAsync("/api/employees", NewEmployee(SiteB, DeptB, TakenCode));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("outside your data scope", body);
+        Assert.DoesNotContain("already exists", body);
     }
 
     [Fact]
@@ -161,8 +189,9 @@ public sealed class EmployeeWriteScopeEndpointTests
     private static EffectiveDataScope Departments(params Guid[] departmentIds) =>
         new(DataScopeKind.Departments, new HashSet<Guid>(), new HashSet<Guid>(departmentIds), null);
 
-    private static EmployeeUpsertRequest NewEmployee(Guid siteId, Guid? departmentId = null) =>
-        new(NewCode, "Grace", "Hopper", null, null, null, siteId, departmentId, Hired);
+    private static EmployeeUpsertRequest NewEmployee(
+        Guid siteId, Guid? departmentId = null, string code = NewCode) =>
+        new(code, "Grace", "Hopper", null, null, null, siteId, departmentId, Hired);
 
     /// <summary>A full-replace PUT body for the seeded site-A employee, with a new surname.</summary>
     private static EmployeeUpsertRequest Rename(Guid siteId, Guid? departmentId) =>
