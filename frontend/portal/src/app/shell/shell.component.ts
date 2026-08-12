@@ -11,8 +11,18 @@ import { IconComponent } from '../core/ui/icon.component';
     <div class="min-h-screen grid grid-cols-[228px_1fr]">
       <!-- rail -->
       <aside class="bg-surface border-r border-line flex flex-col sticky top-0 h-screen">
-        <div class="px-5 h-14 flex items-center gap-2 font-display text-lg font-bold tracking-tight border-b border-line">
-          WM<span class="text-pulse">.</span>
+        <div class="px-5 h-14 flex items-center gap-2.5 font-display text-lg font-bold tracking-tight border-b border-line">
+          <!-- Presence mark. Inlined rather than <img> so currentColor applies:
+               text-pulse drives it, which follows --wm-pulse in both themes. -->
+          <svg viewBox="0 0 64 64" width="20" height="20" class="text-pulse shrink-0" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-linecap="round">
+              <circle cx="32" cy="32" r="29" stroke-width="1.6" opacity="0.22"/>
+              <circle cx="32" cy="32" r="21.5" stroke-width="2.9" opacity="0.5"/>
+              <circle cx="32" cy="32" r="14" stroke-width="4.4"/>
+            </g>
+            <circle cx="32" cy="32" r="5.6" fill="currentColor"/>
+          </svg>
+          WM
           <span class="ml-auto font-mono text-[9px] font-normal text-muted tracking-widest uppercase">console</span>
         </div>
 
