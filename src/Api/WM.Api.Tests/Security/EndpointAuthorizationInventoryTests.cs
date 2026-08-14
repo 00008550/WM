@@ -100,6 +100,11 @@ public sealed class EndpointAuthorizationInventoryTests
         ("POST /api/employees", "employees.manage"),
         ("PUT /api/employees/{id:guid}", "employees.manage"),
         ("GET /api/sites", "employees.view"),
+        // The leaving-reason vocabulary reads with employees.view, not employees.manage: it is a
+        // lookup a viewer needs in order to render why someone left, and it discloses nothing about
+        // any person. Maintaining the list — which does not exist yet — is a separate decision and
+        // will want employees.manage or an administration permission of its own (007 P1 As built).
+        ("GET /api/leaving-reasons", "employees.view"),
 
         // Time & attendance.
         ("GET /api/attendance/live", "attendance.view"),

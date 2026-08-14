@@ -16,13 +16,15 @@ public sealed class PunchSeeder(
         if (await db.Punches.AnyAsync(ct))
             return;
 
-        // Seeding runs at startup with no signed-in user, so it must bypass data scope.
-        var active = await employees.ListAllActiveUnscopedAsync(ct);
-        if (active.Count == 0)
-            return;
-
         var rng = new Random(20260720);
         var today = DateTimeOffset.UtcNow.Date;
+
+        // Seeding runs at startup with no signed-in user, so it must bypass data scope. Employment is
+        // asked as at today; the five days of history below are seeded for whoever is employed now,
+        // which is every seeded employee.
+        var active = await employees.ListEmployedOnUnscopedAsync(DateOnly.FromDateTime(today), ct);
+        if (active.Count == 0)
+            return;
 
         foreach (var employee in active)
         {

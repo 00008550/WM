@@ -97,7 +97,13 @@ public sealed class PunchService(
     {
         // Restrict to employees the caller may see before touching punches — otherwise
         // the feed would leak the existence and movements of out-of-scope staff.
-        var visible = (await employees.ListActiveAsync(ct)).ToDictionary(e => e.Id, e => e.FullName);
+        //
+        // Employed *today*, which is what ListActiveAsync used to mean and is still what a live feed
+        // wants. It is also still narrower than what RecordAsync accepts, so WM can continue to take
+        // a punch it will not display — plan 007 P2 closes that by deriving both from the punch's own
+        // timestamp. This portion changed the contract under it and deliberately left the defect.
+        var visible = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
+            .ToDictionary(e => e.Id, e => e.FullName);
         if (visible.Count == 0)
             return [];
 
@@ -126,7 +132,8 @@ public sealed class PunchService(
             .Select(g => g.OrderByDescending(p => p.Timestamp).First())
             .ToListAsync(ct);
 
-        var active = await employees.ListActiveAsync(ct);
+        // Who is on the payroll today, against whom presence is reported.
+        var active = await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct);
         var byId = active.ToDictionary(e => e.Id);
 
         var present = latestPunches

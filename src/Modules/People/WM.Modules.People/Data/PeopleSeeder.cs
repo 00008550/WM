@@ -55,10 +55,13 @@ public sealed class PeopleSeeder(PeopleDbContext db, ILogger<PeopleSeeder> logge
                 JobTitle = JobTitles[rng.Next(JobTitles.Length)],
                 SiteId = site.Id,
                 DepartmentId = siteDepartments.Length > 0 ? siteDepartments[rng.Next(siteDepartments.Length)].Id : null,
-                HireDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-rng.Next(60, 2500))),
+                EmployedFrom = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-rng.Next(60, 2500))),
             });
         }
 
+        // No leaving reasons are seeded, deliberately: they are customer vocabulary, and a WM-invented
+        // list ("Resignation", "Redundancy") would be indistinguishable from a shipped default that
+        // every install then has to curate. Every seeded employee is employed and open-ended.
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Seeded demo sites, departments and 40 employees");
     }

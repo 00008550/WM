@@ -209,7 +209,7 @@ public sealed class EmployeeWriteScopeEndpointTests
             LastName = "North",
             SiteId = SiteA,
             DepartmentId = DeptA,
-            HireDate = Hired,
+            EmployedFrom = Hired,
         });
         db.Employees.Add(new Employee
         {
@@ -219,7 +219,7 @@ public sealed class EmployeeWriteScopeEndpointTests
             LastName = "South",
             SiteId = SiteB,
             DepartmentId = DeptB,
-            HireDate = Hired,
+            EmployedFrom = Hired,
         });
     }
 }

@@ -1,6 +1,6 @@
 # 007 — The person record: employment as a date, and three defects under it
 
-Status: approved         <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-review       <!-- draft → approved → in-progress → in-review → merged -->
 Approved by user 2026-08-06, all 5 portions. **P1 and P2 are ordered ahead of 003 P2b** — the same
 "fix what is bleeding" rule applied to 006 P2/P3.
 Roadmap: ARCHITECTURE.md §14 phase 1c ("Core depth"), and §13's newly-split People rows
@@ -295,7 +295,7 @@ the status dropdown; the list shows the derived badge.
 
 ## Portions
 
-### [ ] P1 — Employment is a date, not an enum
+### [x] P1 — Employment is a date, not an enum
 **Touches:** `src/Modules/People/WM.Modules.People/Domain/Employee.cs`,
 `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs` (list projection, upsert,
 `EmployeeDirectory`), `Contracts/EmployeeDirectory.cs`, `Data/PeopleSeeder.cs`;
@@ -345,6 +345,55 @@ deactivating a reason leaves existing references readable and stops it being off
 - `FinalEmploymentDate` — a second, **higher-precedence** leaving date (`:941`) — stays out of P1 as
   planned. It is already among `TLW-PEOPLE-MODEL.md` §3.1's 33 unowned columns; §4.1a now records
   why Phase 3 will meet it.
+
+> ### As built, 2026-08-14 — three corrections to this portion's own text, and what is untested
+>
+> **1. The *Touches* line was stale.** It said to create `WM.Modules.People.Tests` and wire it into
+> `WM.sln` "because People has no test project". **003 P2b created it** (merged `1462c0f`, #57). This
+> portion extended it — three new files beside P2b's three — and touched none of P2b's tests except a
+> mechanical `HireDate` → `EmployedFrom` rename in two seed helpers. The write-scope checks in
+> `PeopleModule.cs` and their ordering are untouched; the test that pins the `POST` scope check ahead
+> of the code probe still passes unmodified.
+>
+> **2. The migration *was* executed, against real Postgres — but there is still no harness.** The
+> *Tests* line asked for a `Down()` test and a status round-trip, and this repository has no Postgres
+> test harness (that gap is what swallowed 001 P2's identical promise). Both halves were done, and
+> they are not the same kind of evidence:
+> - **In the suite** (`EmploymentMigrationTests`, 6 tests, xUnit, runs in CI): the round-trip
+>   `status → window → status` over the migration's own `StatusMap`/`StatusFrom`; that the backfill
+>   SQL says what the map says; that the backfill runs **before** `Status` is dropped; that `Down`
+>   restores the status before dropping what it is computed from; and that `Down` drops every column
+>   `Up` adds, computed rather than listed. These read the migration's operations. **They execute no
+>   SQL.**
+> - **Manually, once, on 2026-08-14**, against `postgres:17-alpine` in a throwaway database: five rows
+>   seeded at the pre-migration schema (`Active`, `OnLeave`, `Terminated` with `UpdatedAt`,
+>   `Terminated` with `UpdatedAt NULL`, and an unrecognised `7`), `Up` applied, values checked, `Down`
+>   applied, values and schema checked. Session `TimeZone` was deliberately set to `Pacific/Kiritimati`
+>   (UTC+14) and the 22:30Z row still backfilled to its own UTC date — the `AT TIME ZONE 'UTC'` guard
+>   earning its place. Full output in the PR.
+>
+> **A manual run is not a regression test.** Nothing re-runs it, and the next migration inherits the
+> same gap. **Standing up a real Postgres test harness deserves a portion of its own** — Docker is
+> available on the dev machine and on GitHub's runners, so Testcontainers is viable; it was not done
+> here because a flaky container in CI blocks every later PR and that trade is not this portion's to
+> make.
+>
+> **3. Two things this portion did that its *Touches* line does not mention**, both forced by the
+> contract change rather than chosen:
+> - **The portal.** `PUT` stopped accepting `status`, so the employee modal's status dropdown had to
+>   go; it is now *Employed from* / *Employed until* / *Suspended*, exactly as the plan's *Target
+>   design → Screens* describes, and the list shows the derived badge. Leaving the SPA alone would
+>   have shipped a broken employee editor.
+> - **`EndpointAuthorizationInventoryTests`.** `GET /api/leaving-reasons` is a new transport, and that
+>   test fails by name until a permission is chosen for it. It reads with `employees.view`.
+>
+> **Deliberately not built, and why:** there is **no maintenance surface for `LeavingReason`** — no
+> create, rename or retire endpoint, and no screen. P1's *Done when* asks for the entity, the table
+> and the seeded-empty lookup, and the read endpoint is what makes "offered" mean something. Creating
+> and retiring reasons is a customer-administration screen with its own permission question
+> (`employees.manage`, or an administration permission of its own), and it should be planned, not
+> improvised here. **Until it exists the table can only be filled by SQL**, so the leaver *reason* is
+> reachable through the API but not through any UI; `LeaverComments` likewise. Worth a portion.
 
 ### [ ] P2 — The punch boundary fails closed
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
