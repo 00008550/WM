@@ -74,10 +74,19 @@ public sealed class PeopleModule : IModule
             return employee is null ? Results.NotFound() : Results.Ok(employee);
         }).RequireAuthorization(WmPermissions.EmployeesView);
 
-        employees.MapPost("/", async (EmployeeUpsertRequest request, PeopleDbContext db, CancellationToken ct) =>
+        employees.MapPost("/", async (
+            EmployeeUpsertRequest request, PeopleDbContext db, IDataScopeResolver scopes, CancellationToken ct) =>
         {
             if (Validate(request) is { } invalid)
                 return Results.Problem(invalid, statusCode: StatusCodes.Status400BadRequest);
+
+            // A create is scoped like an edit: you may not file someone where you would not then be
+            // able to see them (003 decision 3 — a create you cannot see is indistinguishable from
+            // one that failed). Checked ahead of the code and site probes below so a caller outside
+            // the scope cannot use a 409 to learn which badge numbers are taken.
+            var scope = await scopes.GetScopeAsync(ct);
+            if (!scope.PermitsWrite(employeeId: null, request.SiteId, request.DepartmentId))
+                return OutOfScope();
 
             var code = request.Code.Trim();
             // Case-insensitive: 'E1030' and 'e1030' are the same badge number.
@@ -124,6 +133,13 @@ public sealed class PeopleModule : IModule
             if (employee is null)
                 return Results.NotFound();
 
+            // And the post-image is scoped too: an edit may not move someone out of the caller's own
+            // scope. Legacy allows exactly that (TLW-AUTHORIZATION-MODEL.md §5 — it checks the
+            // pre-image only); 003 decision 3 refuses it. Checked before anything is assigned, so a
+            // refusal leaves the tracked entity untouched.
+            if (!scope.PermitsWrite(id, request.SiteId, request.DepartmentId))
+                return OutOfScope();
+
             var code = request.Code.Trim();
             if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower() && e.Id != id, ct))
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
@@ -161,6 +177,13 @@ public sealed class PeopleModule : IModule
             : null;
 
         static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+        // 403 rather than the 404 the read paths use: the caller chose this destination, so refusing
+        // it discloses nothing they did not already supply. The pre-image check above stays 404 for
+        // the opposite reason — there, the record's existence is the secret.
+        static IResult OutOfScope() => Results.Problem(
+            "The site or department you selected is outside your data scope.",
+            statusCode: StatusCodes.Status403Forbidden);
 
         var sites = endpoints.MapGroup("/api/sites").WithTags("Sites");
 

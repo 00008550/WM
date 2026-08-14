@@ -15,6 +15,20 @@ namespace WM.Api.Tests.Security;
 /// hand. A new endpoint with no policy fails the first test; a new <c>AllowAnonymous</c> fails
 /// the second until it is named here, which is the point: anonymity becomes a decision with a
 /// reviewer attached.
+///
+/// <para>
+/// <b>Grown on 2026-08-11 (003 P2b review) to pin the permission, not merely its presence.</b>
+/// Until then the strongest thing said here was "some registered policy is attached", which is
+/// silent about <em>which</em> — and a permission change that costs no other test nothing at all.
+/// Measured that day: moving <c>GET /api/sites</c> from <c>employees.view</c> to
+/// <c>employees.manage</c> failed no test in the repository. The employee writes 003 P2b scoped
+/// were better off only by accident — downgrading them does trip
+/// <c>WM.Modules.People.Tests</c>, but collaterally, because that project's callers mint exactly
+/// the permission they name, so the endpoint refuses them and the failure reads "Expected:
+/// Created, Actual: Forbidden" — a scope defect, not the policy change it actually is.
+/// <see cref="RequiredPermissions"/> makes the permission itself the assertion, for the whole
+/// surface rather than for the two endpoints that happened to be under review.
+/// </para>
 /// </summary>
 public sealed class EndpointAuthorizationInventoryTests
 {
@@ -41,6 +55,73 @@ public sealed class EndpointAuthorizationInventoryTests
         "/health",
         "/api/health/ready",
     ];
+
+    /// <summary>
+    /// Every non-anonymous transport and the permission it requires. Complete: a new endpoint fails
+    /// <see cref="Every_authorized_transport_requires_the_permission_we_chose_for_it"/> until it is
+    /// named here, for the same reason <see cref="DeliberatelyAnonymous"/> is complete.
+    ///
+    /// <para>
+    /// The permissions are written as literals rather than as <see cref="WmPermissions"/> constants
+    /// on purpose. The string is the contract — it is what a role grant stores and what an issued
+    /// token carries — so renaming a constant's <em>value</em> is exactly the change that should
+    /// land here for a reviewer to see, not one the pin should silently follow.
+    /// </para>
+    ///
+    /// <para>
+    /// The key is the transport, not the route: <c>GET</c> and <c>PUT</c> on one path are two
+    /// decisions, and the hub's two legs are two endpoints (see
+    /// <see cref="Both_legs_of_the_realtime_transport_require_the_attendance_permission"/>, which
+    /// keeps saying so in its own words). <see cref="AuthenticatedOnly"/> is the deliberate empty
+    /// entry.
+    /// </para>
+    /// </summary>
+    private static readonly (string Transport, string Permission)[] RequiredPermissions =
+    [
+        // Identity — sign-in itself is anonymous; everything after it is not.
+        ("GET /api/auth/me", AuthenticatedOnly),
+        ("GET /api/users", "users.manage"),
+        ("POST /api/users", "users.manage"),
+        ("PUT /api/users/{id:guid}", "users.manage"),
+        ("GET /api/users/roles", "users.manage"),
+        ("POST /api/users/{id:guid}/reset-password", "users.manage"),
+        ("GET /api/users/{id:guid}/security-groups", "users.manage"),
+        ("PUT /api/users/{id:guid}/security-groups", "users.manage"),
+        ("GET /api/access-diagnostics/{userId:guid}", "users.manage"),
+        ("GET /api/security-groups", "roles.manage"),
+        ("POST /api/security-groups", "roles.manage"),
+        ("PUT /api/security-groups/{id:guid}", "roles.manage"),
+        ("DELETE /api/security-groups/{id:guid}", "roles.manage"),
+
+        // People. The two writes are the pair 003 P2b scoped: the split between view and manage is
+        // load-bearing, since employees.view is the permission an ordinary supervisor holds.
+        ("GET /api/employees", "employees.view"),
+        ("GET /api/employees/{id:guid}", "employees.view"),
+        ("POST /api/employees", "employees.manage"),
+        ("PUT /api/employees/{id:guid}", "employees.manage"),
+        ("GET /api/sites", "employees.view"),
+
+        // Time & attendance.
+        ("GET /api/attendance/live", "attendance.view"),
+        ("GET /api/attendance/timesheet/{employeeId:guid}", "attendance.view"),
+        ("GET /api/punches/recent", "attendance.view"),
+        ("POST /api/punches", "punches.record"),
+        ("/hubs/attendance", "attendance.view"),
+        ("/hubs/attendance/negotiate", "attendance.view"),
+
+        // Self-service: one permission for the whole "my own record" surface, because every one of
+        // these reads its subject from the token claim rather than from the request.
+        ("GET /api/me/employee", "selfservice.access"),
+        ("GET /api/me/punches", "selfservice.access"),
+        ("GET /api/me/timesheet", "selfservice.access"),
+        ("POST /api/me/punch", "selfservice.access"),
+    ];
+
+    /// <summary>
+    /// <c>RequireAuthorization()</c> with no argument: signed in, no permission. Written as a named
+    /// constant so the empty string in the table above reads as a decision rather than a gap.
+    /// </summary>
+    private const string AuthenticatedOnly = "";
 
     [Fact]
     public async Task Every_mapped_endpoint_is_authorized_or_deliberately_anonymous()
@@ -102,6 +183,29 @@ public sealed class EndpointAuthorizationInventoryTests
         Assert.Equal([], unknown);
     }
 
+    [Fact]
+    public async Task Every_authorized_transport_requires_the_permission_we_chose_for_it()
+    {
+        // "Which policy", not "a policy". The test above proves an endpoint carries something and
+        // the one below proves the name resolves; neither notices employees.manage becoming
+        // employees.view, which is a silent grant of write access to every viewer in the estate.
+        await using var host = ApiTestHost.Compose();
+
+        var actual = host.Endpoints
+            .Where(e => !IsAnonymous(e))
+            .Select(e => $"{Transport(e)} -> {string.Join(", ", Policies(e).Distinct().Order(StringComparer.Ordinal))}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        var expected = RequiredPermissions
+            .Select(x => $"{x.Transport} -> {x.Permission}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
     private static bool IsAnonymous(Endpoint endpoint) =>
         endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
 
@@ -114,6 +218,18 @@ public sealed class EndpointAuthorizationInventoryTests
         endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
             .Select(a => a.Policy)
             .Where(p => !string.IsNullOrEmpty(p))!;
+
+    /// <summary>
+    /// The route, prefixed by the methods that reach it. A hub leg carries no method metadata, so
+    /// it is named by route alone rather than by an empty prefix.
+    /// </summary>
+    private static string Transport(Endpoint endpoint)
+    {
+        var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
+        return methods.Count == 0
+            ? Route(endpoint)
+            : $"{string.Join('|', methods.Order(StringComparer.Ordinal))} {Route(endpoint)}";
+    }
 
     private static string Route(Endpoint endpoint) =>
         endpoint is RouteEndpoint route
