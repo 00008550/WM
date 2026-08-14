@@ -1,4 +1,4 @@
-﻿# WM вЂ” Workforce Management
+﻿# WM Workforce Management
 
 Modern workforce management platform: **.NET 9 modular monolith API + Angular SPA**, with real-time attendance, signed licensing, and a plugin architecture. Architecture plan: `../TlwNext/docs/ARCHITECTURE.md`.
 
