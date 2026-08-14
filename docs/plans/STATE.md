@@ -327,7 +327,7 @@ the access model.
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both merged** — `5406575`, `1240dbc`; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
-| **007** | **The person record: employment as a date, and three defects under it** | **5** | **draft — awaiting approval** |
+| **007** | **The person record: employment as a date, and three defects under it** | **5** | **draft — awaiting approval. P1 built on `feat/007-p1` (`e482f83`) and provenance-audited 2026-08-14: window design confirmed against legacy, `OnLeave` deletion confirmed correct, but `Employment.IsEmployedOn` folds `IsSuspended` into the window against the plan's own P1 note, and the leaver record is 3 of legacy's 6 fields. See the ⛔ block under P1.** |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first**; **007 adds field-group write rights to its scope** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision, and now also on 007 P1** (a replay cannot know who was employed on the day replayed) |
 

@@ -92,7 +92,8 @@ WebSite/Misc/HorioSiteStructure.cs                       (Personnel branch)
 WebSite/Misc/Localization.Personnel.cs                   (:74, :223)
 Database/Versioning/76.V5.22.0.0.sql:25-46               (IsActiveEmployment, ActiveEmployeesView)
 Database/Versioning/77.V5.23.0.0.sql:1273-1544           (Employees_Update_Trigger)
-Database/Versioning/78.V5.24.0.0.sql:74-80               (ActiveEmployeesView, latest revision)
+Database/Versioning/78.V5.24.0.0.sql:74-80               (ActiveEmployeesView, 3rd of 4 revisions — still defective)
+Database/Versioning/79.V5.25.0.0.sql:728-734             (ActiveEmployeesView, LATEST revision — defect FIXED)
 Database/Versioning/81.V5.27.0.0.sql:566-601             (GetDepartmentWithChildren, DepartmentHeirarchyView)
 ```
 
@@ -207,11 +208,37 @@ Three consequences, all real:
 > | `Employees.DischargeDate` — `Date`, nullable | `HorioDB.designer.cs:29831` |
 > | `Employees.LeaveReasonId` — nullable FK, association `LeaveReason_Employee` | `:30707`, `:34148` |
 > | `Employees.AdditionalLeaverComments` — `nvarchar(500)` | `:32539` |
-> | `dbo.LeaveReason` — `Id`, `Name`, `IsActive` | `:53138-53148` |
+> | `dbo.LeaveReasons` — `Id`, `Name(200)`, `IsActive` | `:53169-53209` |
 >
 > So **leaving is a date, a reason chosen from a customer-maintained list, and free-text comments.**
 > `IsActive` on the lookup means a reason is retired rather than deleted, which keeps historical
 > leavers readable — the right pattern, and one WM should copy.
+>
+> **Correction to the correction, 2026-08-14 — the table above is still short by three fields and a
+> second lookup.** It was assembled from the *write path* (`SetEmployeesLeaver`) plus a column scan,
+> and the leaver **screen** was never opened. `WebSite/Views/Personnel/Controls/_Leaver.cshtml`
+> (113 lines, the whole tab) renders **six** controls:
+>
+> | Control | Field | Line in `_Leaver.cshtml` | Column |
+> |---|---|---|---|
+> | dropdown | `LeaveReasonId` | `:7-11` | `:30707` → `dbo.LeaveReasons` (3 cols) |
+> | dropdown | `LeaveNoticePeriodId` | `:17-20` | `:32515` → **`dbo.LeaveNoticePeriods`** (2 cols, `:182854-182874`) |
+> | calendar | `DischargeDate` | `:26-36` | `:29831` |
+> | calendar | `ResignationDate` | `:42-45` | `:32579` |
+> | calendar | `FinalEmploymentDate` | `:51-58` | `:32559` |
+> | textarea(500) | `AdditionalLeaverComments` | `:64-67` | `:32539` |
+>
+> `dbo.LeaveNoticePeriods` is a **second** customer-maintained lookup with its own service
+> (`Logic/Settings/LeaveNoticePeriodService.cs`), its own controller
+> (`WebSite/Controllers/PersonnelSetupController/LeaveNoticePeriodsController.cs`, 28 hits) and its
+> own three screens (`Views/PersonnelSetup/LeaveNoticePeriods.cshtml`, `AddLeaveNoticePeriod.cshtml`,
+> `EditLeaveNoticePeriod.cshtml`). It is missing from `SCREEN-TREE.md`.
+>
+> **The table naming, settled.** The schema says **`dbo.LeaveReasons`**, plural
+> (`HorioDB.designer.cs` `TableAttribute(Name="dbo.LeaveReasons")`). `:210` above said
+> `dbo.LeaveReason`, singular; `:260` said plural. Corrected to plural. WM's entity stays
+> `LeavingReason` by user decision (plan 007 decision 4) — that divergence is deliberate; the
+> singular *legacy* name was simply a transcription slip.
 >
 > Point 3's *conclusion* survives: there is still no **temporary** "on leave" state on the person,
 > and absence remains a separate subsystem. What was wrong was the implication that leaving itself
@@ -303,19 +330,200 @@ contains **no** reference to `DischargeDate`, `IsActive` or `EnterDate`, and
 `SetEmployeesLeaver:122-145` does not touch absence requests. A leaver keeps approved absence past
 their leave date. *Invert* candidate when Absence is planned.
 
-> **Legacy defect worth recording, because it shows the trap.** `dbo.ActiveEmployeesView`
-> (latest revision `Database/Versioning/78.V5.24.0.0.sql:74-80`, unchanged since
-> `76.V5.22.0.0.sql:40-46`) reads:
+> ### ⚠️ Correction, 2026-08-14 — this defect was **fixed in legacy six releases ago**
+>
+> This block previously read *"latest revision `78.V5.24.0.0.sql:74-80`, unchanged since
+> `76.V5.22.0.0.sql:40-46`"*. **That is wrong.** `dbo.ActiveEmployeesView` is defined **four**
+> times, and the highest-numbered definition is the one that runs:
+>
+> | Script | Line | Predicate | Defective? |
+> |---|---|---|---|
+> | `76.V5.22.0.0.sql` | `:40-46` | `IsActive = 1 AND DischargeDate IS NULL OR DischargeDate >= …` | yes |
+> | `77.V5.23.0.0.sql` | `:1547-1553` | same | yes |
+> | `78.V5.24.0.0.sql` | `:74-80` | same | yes |
+> | **`79.V5.25.0.0.sql`** | **`:728-734`** | **`IsActive = 1 AND (DischargeDate IS NULL OR DischargeDate >= …)`** | **no — parenthesised** |
+>
+> No later script redefines it (exhaustive grep of `E:\Tlw\Database` for
+> `CREATE|ALTER … (FUNCTION|VIEW) … (IsActiveEmployment|ActiveEmployeesView)` returns exactly those
+> five hits, four for the view and one for the function). The shipping product — v6.7 — has the
+> **correct** view. The historical defect is real and instructive, but it is **not** a live legacy
+> behaviour and must not be cited as one.
+>
+> **Method note.** `Database/Versioning/*.sql` is an append-only migration log using
+> `CREATE OR ALTER`. Reading one script tells you what was true *at that release*, not what is true
+> now. **Every citation into `Versioning/` must be checked against higher-numbered scripts before
+> it is used as evidence.** This one was not, and the error propagated into
+> `plans/007-the-person-record.md:132-133` and into the shipped XML doc-comment on
+> `Employment.StatusOn`.
+>
+> **What the defect was**, for the record:
 > ```sql
 > WHERE IsActive = 1 AND DischargeDate IS NULL OR DischargeDate >= CAST(GETDATE() AS date);
 > ```
-> `AND` binds tighter than `OR`, so this is `(IsActive = 1 AND DischargeDate IS NULL) OR
-> (DischargeDate >= today)`. **An inactive employee with a future discharge date is returned as
-> active** — and that view gates device enrolment (`KioskExternalAccessService.cs:152, 201`,
-> `IrTemplatesService.cs:76`, `FaceService.cs:176`, `DevicesService.cs:1230`) and HR notifications
-> (`HRService.cs:1450, 1487, 1524, 1561, 1598`). A suspended person can badge in.
-> Two orthogonal facts written as one boolean expression, wrongly — which is exactly the argument
-> for WM computing employment from dates in one place rather than re-deriving it per query.
+> `AND` binds tighter than `OR`, so between v5.22 and v5.24 this meant
+> `(IsActive = 1 AND DischargeDate IS NULL) OR (DischargeDate >= today)` — an inactive employee with
+> a future discharge date was returned as active, through the view that gates device enrolment
+> (`KioskExternalAccessService.cs:152, 201`, `IrTemplatesService.cs:76`, `FaceService.cs:176`,
+> `DevicesService.cs:1230`) and HR notifications (`HRService.cs:1450, 1487, 1524, 1561, 1598`).
+>
+> **The design argument survives the correction and does not depend on it.** Employment should be
+> computed once from the dates rather than re-derived per query — because legacy re-derives it in
+> six places (§4.1a point 3) and needed three releases to notice one typo in one of them.
+
+### 4.1b The leaver record has **rules**, not just columns (measured 2026-08-14)
+
+§4.1a established the leaver *columns*. It never opened the edit screen or its validator, so none of
+the following was known when 007 P1 was built. Every item is a behaviour, not a field.
+
+**1. Leaving is an all-or-nothing triple, enforced server-side.**
+`WebSite/Models/PersonnelModels/PersonnelModels.cs:1354-1368`:
+
+```csharp
+if (LeaveReasonId != null || FinalEmploymentDate != null || DischargeDate != null)
+{
+    if (LeaveReasonId == null)        AddError(… LeaveReasonId required);
+    if (FinalEmploymentDate == null)  AddError(… FinalEmploymentDate required);
+    if (DischargeDate == null)        AddError(… DischargeDate required);
+}
+```
+
+Setting **any one** of `LeaveReasonId` / `DischargeDate` / `FinalEmploymentDate` makes **all three**
+mandatory. A leaver in legacy is never "just a date". `ResignationDate`, `LeaveNoticePeriodId` and
+`AdditionalLeaverComments` stay optional.
+
+**2. The reason is the gate, and clearing it wipes the record.**
+`WebSite/Scripts/Employees/addEditEmployee.js:1104-1143` (`updateLeaverControls`, re-run on every
+widget create at `:1145-1153`): `DischargeDate`, `FinalEmploymentDate`, `ResignationDate` and
+`LeaveNoticePeriodId` are **disabled** while `LeaveReasonId` is empty, and **cleared to null** the
+moment it is cleared. You cannot record a leaving date without first picking a reason.
+
+**3. Ordering invariants, enforced in the pickers.**
+`_Leaver.cshtml:74-112` + `_General.cshtml:178-187`:
+`EnterDate ≤ DischargeDate ≤ FinalEmploymentDate`. Setting `DischargeDate` **defaults**
+`FinalEmploymentDate` to the same day if empty (`:78-83`); setting `FinalEmploymentDate` first
+**back-fills** `DischargeDate` (`:86-97`). Setting `DischargeDate` also **disables**
+`ProbationDueDate` and clamps it down to the discharge date if it was later
+(`addEditEmployee.js:1016-1035`).
+
+**4. The two write paths disagree.** The single-employee screen enforces the triple above. The bulk
+action does not: `PersonnelService.SetEmployeesLeaver:122-145` takes `int? leaveResonId` — nullable,
+unvalidated — writes only `DischargeDate` + `LeaveReasonId`, and **never writes
+`FinalEmploymentDate`**. `PersonnelController.SetLeavers:1877-1903` adds exactly one check, that
+`EnterDate <= dischargeDate`, and silently skips the employees that fail it while succeeding for the
+rest. **Bulk "make leaver" therefore creates rows the edit screen would reject as invalid.**
+
+**5. Un-leaving is asymmetric and leaves debris.** `SetEmployeesActive:151-173` clears
+`IsActive = 1, DischargeDate = null, LeaveReasonId = null` — and leaves `FinalEmploymentDate`,
+`ResignationDate`, `LeaveNoticePeriodId` and `AdditionalLeaverComments` **stale on the row**. Since
+accruals read `FinalEmploymentDate ?? DischargeDate` (§4.1a point 1), a reinstated employee keeps a
+phantom employment end in the accrual engine. Legacy defect; *Invert*.
+
+**6. Editing an employment date is a recalculation event, not a scalar write.**
+`Database/Versioning/87.V5.33.0.0.sql:768-806`, inside `Employees_Update_Trigger`. When any of
+`DepartmentId`, `EmployeeLocationId`, `EmploymentTypeId`, `DischargeDate`, `EnterDate`,
+`ContinuousServiceDate`, `FinalEmploymentDate` changes, the trigger:
+
+```sql
+DELETE EAC FROM dbo.EmployeeAccrualCalculations AS EAC JOIN ChangedEmployees CE ON …   -- :782-784
+INSERT INTO dbo.AccrualsCalculationQueue (SerializedMessage, …)                        -- :800-806
+SELECT '{"employeeIds":[…],"fromDate":"' + CONVERT(varchar(10), CE.FromDate, 126) + …' -- FromDate = i.EnterDate
+```
+
+It **deletes the employee's entire stored accrual history and requeues recalculation from their
+start date**. This is the `calc_*` smell applied to the employment window: the window is an input to
+stored derived values. WM's replay design is the right answer, but *something* must invalidate on an
+`EmployedFrom` / `EmployedUntil` edit, and nothing in 007 P1 does.
+
+**7. Two employment-end dates with different consumers — this is domain truth, not redundancy.**
+Access, directory, devices, T&A and licensing use `DischargeDate` alone
+(`dbo.IsActiveEmployment`, `EmployeeExtensions.NotFired`). Holiday accrual uses
+`FinalEmploymentDate ?? DischargeDate` (`EmployeeAccrualCalculationsService.cs:728-730`, `:941`).
+Combined with invariant 3 (`FinalEmploymentDate >= DischargeDate`), the pair reads as **last day
+physically at work** vs **contractual end of employment / end of paid notice**. Entitlement accrues
+to the contractual end; the badge stops at the physical end. Classify **Keep**, not "defer".
+
+**8. Two employment *start* dates, likewise.** `EnterDate` (`:29731`, `Date NOT NULL`, General tab,
+required) is this employment's start. `ContinuousServiceDate` (`:32495`, nullable, General tab
+`_General.cshtml:195-203`) is continuous-service start for entitlement — TUPE, re-hire, group
+transfer — and is selected by the accrual repository alongside the others
+(`AccrualsCalculationRepository.cs:53-57`). WM's `EmployedFrom` maps to `EnterDate` only;
+`ContinuousServiceDate` has no owner.
+
+**9. Two further employment-lifecycle dates drive live notifications.**
+`HorioNotifier/Notifications/EmployeesNotificationsWorker.cs`: `ProbationDueDate` (`:32663`) fires
+`NotifyProbationDueDateExpiry` on the day (`:60-63`, `:87-104`); `FixedTermEndDate` (`:32643`) fires
+`NotifyFixedTermEndDateExpiry` **six weeks ahead** (`:18` — `FixedTermEndDateExpiryPeriod = 7 * 6`,
+`:73-76`, `:106-118`). `FixedTermEndDate` is a *third* employment end date, and unlike the other two
+it is a **planned** end known at hire.
+
+**10. "Six re-derivations, two of them disagree" — recount: it is eight, and the two live
+disagreements are not the ones WM cited.** The cited one (`ActiveEmployeesView`'s precedence) was
+fixed in v5.25 (§4.1 correction block). The eight sites:
+
+| # | Site | Reference date |
+|---|---|---|
+| 1 | `dbo.IsActiveEmployment` — `76.V5.22.0.0.sql:25-38` | parameter |
+| 2 | `dbo.ActiveEmployeesView` — `79.V5.25.0.0.sql:728-734` | hard-coded `GETDATE()` |
+| 3 | `EmployeeExtensions.NotFired<T>(query, referenceDate)` — `:251-256` | parameter; no-arg overload `:258-261` uses `DateTime.Now.Date` |
+| 4 | `EmployeeExtensions.IsNotFired<T>(employee, referenceDate)` — `:41-44` | parameter; no-arg `:46-49` uses `DateTime.Today` |
+| 5 | `EmployeeExtensions.Leavers<T>` `:263-273` / `InactiveOrLeavers` `:280-284` | `DateTime.Today` |
+| 6 | `PersonnelService.FilterEmployeesByStatus` — `:1862-1870` | `DateTime.Today.Date` |
+| 7 | `PersonnelService.FilterEmployeeIdsByStatus` — `:1890-1904` | SQL `getdate()` |
+| 8 | `PlanningService.GetAllEmployees` — `:39-42`, `:52-56` | `DateTime.Now.Date`, never the planned period |
+
+**Live disagreement A — the two `PersonnelService` filters disagree on "nothing selected", and one
+fails open.** Same class, same intent, opposite answers:
+
+```csharp
+// FilterEmployeesByStatus:1854-1858        →  ALL THREE OFF ⇒ return EVERYTHING
+if ((includeActiveEmployees && includeLeaverEmployees && includeInactiveEmployees) ||
+    (!includeActiveEmployees && !includeLeaverEmployees && !includeInactiveEmployees))
+    return employees;
+
+// FilterEmployeeIdsByStatus:1885-1888      →  ALL THREE OFF ⇒ return NOTHING
+if (!includeActiveEmployees && !includeInactiveEmployees && !includeLeaverEmployees)
+    return Enumerable.Empty<int>();
+```
+
+A fourth fail-open of exactly the shape §8 already classifies as **Invert**, and it is current.
+
+**Live disagreement B — "inactive" means two different things, and one produces duplicates.**
+`FilterEmployeesByStatus:1868-1870` scopes the inactive branch to non-leavers
+(`!e.DischargeDate.HasValue || e.DischargeDate >= today`). `FilterEmployeeIdsByStatus:1903` does
+not — `inactiveEmployeeIds = statuses.Where(x => !x.IsActive)`, no leaver exclusion — so when both
+flags are on, an **inactive leaver is appended twice**, at `:1914` and again at `:1918`, into a
+`List<int>` that is never `Distinct()`-ed (`:1906-1921`). Any caller counting the result over-counts.
+
+Both are unrecorded until now, both are in the shipping product, and together they are a better
+argument for WM's single tested predicate than the fixed view ever was.
+
+### 4.1c `IsActive` is a seat/visibility flag, and legacy never folds it into the window
+
+WM P1 models legacy `IsActive` as `IsSuspended` (inverted) **and folds it into the employment
+predicate**. The second half is not what legacy does.
+
+Legacy keeps them **composed, never fused**. `EmployeeExtensions.cs:22-27` — `ActiveNotFired()` *is*
+`Active().NotFired()`, two separate `Where` clauses the caller opts into. `NotFired()` is used
+**without** `Active()` in production paths: `PersonnelService.cs:1841`, `TipsService.cs:79`,
+`EposDinerService.cs:279`, `GlobalNotificationsService.cs:557, 596`, `ServiceTasks.cs:214`. The SQL
+function takes **only** the discharge date — `dbo.IsActiveEmployment(@dischargeDate, @referenceDate)`
+— and cannot see `IsActive` at all. The clocking view filters on the date alone:
+`78.V5.24.0.0.sql:971` — `WHERE (e.DischargeDate is null OR IsActiveEmployment(e.DischargeDate,
+c.[Date]) = 1) --don't show clockings after discharge date`.
+
+What `IsActive` actually gates, measured:
+
+| Use | Where |
+|---|---|
+| licence seat count | `LicenseService.cs:169-176` (`IsActive = 1 AND IsActiveEmployment(...) = 1`) |
+| bulk on/off toggle, no date, no reason, no audit of *why* | `PersonnelService.cs:93-114`, `:151-173`; switch at `_General.cshtml:188-194` |
+| MIS de-provisioning — set 0 when a person vanishes from the feed | `SIMSIntegrationService.cs:593-605` |
+| import re-provisioning — set 1 on every create/update | `Evalu8EmployeesImportService.cs:171` |
+
+Two of the four are **"archived / not in the feed"**, not "suspended". `IsSuspended` is a narrowing
+reinterpretation. It may still be the better WM name — but it is a product decision that was never
+put to the user, and the fold into `IsEmployedOn` is a behaviour change that §4.1a point 1 already
+warned against in writing (*"means `IsSuspended` must not be folded into the accrual window"*).
 
 ### 4.2 `JobRoleId` → `JobTitle`
 
