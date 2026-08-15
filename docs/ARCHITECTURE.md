@@ -386,10 +386,14 @@ The completeness check. Every meaningful TLW capability, where it lands in WM, a
 | **`Clockings` — the daily aggregate (249 cols)** | TimeAttendance + Rules | ▢ **not started** — see [`TLW-CLOCKING-MODEL.md`](./TLW-CLOCKING-MODEL.md) |
 | Pay categories (`CPTN01..20`, 20 fixed slots) | Rules | ▢ planned — hard ceiling of 20 in legacy |
 | Clocking generation ("calendar" job, nightly) | Worker | ▢ not started |
-| Swipe→day allocation (night shift, offset, prev/next day) | TimeAttendance | ▢ not started |
+| Swipe→day allocation (night shift, offset, prev/next day, **shift matching**) | TimeAttendance | ▢ **not started** — measured 2026-08-14: it is a **T-SQL scalar function**, `dbo.ProcessQueryGetClockingForSwipe(@employeeid, @swipeTime)` (`30.V3.0.0.ProcessQuery module.sql:429-528`, the only definition in the tree), with **five** branches not three, and **no time zone enters it** — every comparison is `time` vs `time`. A swipe whose resolved day has no pre-generated clocking row is **rejected** (`73.V5.19.0.0.sql:233-256`). See [`TLW-TIME-MODEL.md`](./TLW-TIME-MODEL.md) §3. Plan **002** owns the rules; plan **008 P4** builds the seam |
+| **Time-zone resolution — which clock a date is measured against** | People (owns `Site.TimeZone`) + SharedKernel | ⚠️ **half-built and dead.** `Site.TimeZone` exists (`Employee.cs:9`, column `20260720080022_Initial.cs:65`), is written by the seeder (`PeopleSeeder.cs:26-28`) and **read by nothing** in `src/**` or `frontend/**`; it is unvalidated `text` and there is no `POST`/`PUT /api/sites` to set it. Meanwhile "today" is UTC everywhere (`PunchService.cs:158`, `TimeAttendanceModule.cs:60,77`, `PeopleModule.cs:38`). Legacy has **no per-site zone at all** — one `SoftwareMainOptions.SystemTimeZone` (a **Windows** id) per install, plus a per-device `TimeZoneCode`. **So WM's UTC choice is not inherited and not defensible as "what TLW did".** Plan **008** |
+| **Stored-time model — wall clock vs instant** | TimeAttendance | ◐ **WM's storage is already better and must not regress; its *use* of it is not.** Legacy stores naked local wall clock: **577** `time` + **457** `datetime` + **146** `date` columns against **6** `datetimeoffset`, none of the six attendance. `Clockings.Date` + `BadgeTime1..12 Time` is *not* an instant, and two shipped legacy exports prove it — People First emits `End < Start` for every night shift (`TimeHelper.cs:198-200`), Sage HR throws and drops the clocking (`TimeSheetService.cs:148`). WM's `Punch.Timestamp` is `DateTimeOffset`. **The defect is that WM discards the offset at the day boundary**, not that it fails to store one. Any flat 12-slot projection (plan 002) must carry the day-carry explicitly |
+| **Offline punch clock (no safe legacy precedent — WM must invert)** | TimeAttendance | ⚠️ **unspecified.** Legacy's offline path takes the phone's naked wall clock as two strings, with no offset transmitted, none stored and no validation (`ExternalAccessControllerHelper.cs:106-112`); an online punch uses the QR point's zone instead, and the row does not say which. WM defaults a missing timestamp to `UtcNow` and guards only the future (`PunchService.cs:36-37`), records no receipt instant, and does not require an offset. Punches are offline-queued by invariant 3, so this is the legacy path WM inherits most directly. Plan **008 P5** |
+| **DST (ambiguous and invalid local times)** | TimeAttendance + Rules | ▢ **not started, and legacy has no answer to copy.** `IsDaylightSavingTime`/`IsAmbiguousTime`/`IsInvalidTime` appear in **exactly one** non-package legacy file, programming a Suprema terminal's offset (`Communication.Suprema\BLL\Terminal.cs:163-166`). On fall-back legacy stores both 01:30s indistinguishably; on spring-forward it silently shifts a wall clock that never existed. Plan **008 P4** decides both |
 | Clocking change audit (`ClockingsLog`, 97 cols) | Admin + `wm.audit` | ▢ planned |
 | **Tariffs / rates (`TariffValues`: 20 rate + 20 charge-rate, date-versioned)** | Rules | ▢ **not started** — the hours→money path |
-| **Global calculation settings (`Calculations`, 45 cols)** | Rules | ▢ **not started** — incl. the 8-window day-boundary matrix |
+| **Global calculation settings (`Calculations`, 45 cols)** | Rules | ▢ **not started** — incl. the **7**-window night-hours band (`MonTueStart/End` … `SunMonStart/End`, 14 cols, `HorioDB.designer.cs:14979-15239`). **Corrected 2026-08-14:** this row previously said *"the 8-window day-boundary matrix"* — wrong count **and** wrong meaning. The UI header is `CalculationIndex_NightHours` (`Views\Calculation\Index.cshtml:88-104`) and the consumer reads them as `nightStartTime`/`nightEndTime` (`DataCache.cs:207-269`). The day boundary is a different mechanism entirely — see the *Swipe→day allocation* row |
 | **Per-install options (`SoftwareMainOptions`, 227 cols)** | Admin | ▢ **not started** — period locking, recalc control, QR toggles |
 | Employee contracts + thresholds (`…Effective` resolution) | People + Rules | ▢ not started |
 | Cost-centre counter split (`CostCentreCounters`) | Rules | ▢ not started |
@@ -488,6 +492,25 @@ Legend: ✅ done · ◐ partial / foundation laid · ▢ planned · ⏹ intentio
 > after `Clockings` and the authorization surface. **A `◐` on a bucket is a survey backlog item,
 > not a status.** Full measurement: [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md); executable
 > work: [`plans/007-the-person-record.md`](./plans/007-the-person-record.md).
+>
+> **Time model measured 2026-08-14.** Building 007 P1 left a comment in shipped code
+> (`PeopleModule.cs:31-38`) saying WM computes "today" as UTC, that `Site.TimeZone` exists and
+> nothing resolves against it, and that the decision belongs to a later plan. Measured against
+> `E:\Tlw` at SWF v6.7: **legacy has no per-site time zone and no concept of one** — one
+> `SoftwareMainOptions.SystemTimeZone` (a Windows id) per installation, plus a per-device
+> `TimeZoneCode` that only sets a terminal's wall clock. Attendance is stored as **naked local wall
+> clock** (`time` 577 · `datetime` 457 · `date` 146 · `datetimeoffset` **6**, none attendance), and
+> the swipe→day function does not consult a zone at any point. **A legacy deployment is
+> single-timezone by construction** (one database and one website copy per customer), which is
+> precisely why legacy never had to answer this — so *"UTC because that's what TLW did"* is false
+> twice over: legacy uses server-**local**, and it has one zone rather than none.
+> **Four new rows** above (zone resolution, the stored-time model, the offline punch clock, DST);
+> two existing rows corrected — the `Calculations` row said *"the 8-window day-boundary matrix"*
+> when it is **7** windows and they are the **night-hours band**, and the swipe→day row named three
+> rules when the T-SQL function has five. Full measurement, including **seven fail-opens in the
+> clock path** and an explicit list of what was *not* measured:
+> [`TLW-TIME-MODEL.md`](./TLW-TIME-MODEL.md); executable work:
+> [`plans/008-a-day-has-a-place.md`](./plans/008-a-day-has-a-place.md).
 
 ---
 
