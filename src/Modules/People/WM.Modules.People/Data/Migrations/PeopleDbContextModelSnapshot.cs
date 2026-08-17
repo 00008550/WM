@@ -75,6 +75,9 @@ namespace WM.Modules.People.Data.Migrations
                     b.Property<DateOnly?>("EmployedUntil")
                         .HasColumnType("date");
 
+                    b.Property<DateOnly?>("FinalEmploymentDate")
+                        .HasColumnType("date");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -92,6 +95,9 @@ namespace WM.Modules.People.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<Guid?>("LeaveNoticePeriodId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("LeaverComments")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -102,6 +108,9 @@ namespace WM.Modules.People.Data.Migrations
                     b.Property<string>("Phone")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<DateOnly?>("ResignationDate")
+                        .HasColumnType("date");
 
                     b.Property<Guid>("SiteId")
                         .HasColumnType("uuid");
@@ -117,11 +126,35 @@ namespace WM.Modules.People.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
+                    b.HasIndex("LeaveNoticePeriodId");
+
                     b.HasIndex("LeavingReasonId");
 
                     b.HasIndex("SiteId");
 
                     b.ToTable("Employees", "people");
+                });
+
+            modelBuilder.Entity("WM.Modules.People.Domain.LeaveNoticePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("LeaveNoticePeriods", "people");
                 });
 
             modelBuilder.Entity("WM.Modules.People.Domain.LeavingReason", b =>
@@ -173,6 +206,11 @@ namespace WM.Modules.People.Data.Migrations
 
             modelBuilder.Entity("WM.Modules.People.Domain.Employee", b =>
                 {
+                    b.HasOne("WM.Modules.People.Domain.LeaveNoticePeriod", null)
+                        .WithMany()
+                        .HasForeignKey("LeaveNoticePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WM.Modules.People.Domain.LeavingReason", null)
                         .WithMany()
                         .HasForeignKey("LeavingReasonId")

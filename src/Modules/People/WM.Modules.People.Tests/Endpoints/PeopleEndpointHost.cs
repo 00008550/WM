@@ -45,9 +45,15 @@ namespace WM.Modules.People.Tests.Endpoints;
 /// </summary>
 internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
 {
+    /// <param name="callerEmployeeId">
+    /// The employee the signed-in caller <i>is</i>, for the self-service endpoints. Null — the
+    /// default — is an account with no employee record linked, which is the honest default for a
+    /// project that mostly tests the write paths.
+    /// </param>
     public static async Task<PeopleEndpointHost> StartAsync(
         EffectiveDataScope scope,
-        Action<PeopleDbContext>? seed = null)
+        Action<PeopleDbContext>? seed = null,
+        Guid? callerEmployeeId = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -66,9 +72,8 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
         builder.Services.AddDbContext<PeopleDbContext>(o => o.UseInMemoryDatabase(databaseName));
 
         builder.Services.AddScoped<IDataScopeResolver>(_ => new FixedScope(scope));
-        // Only /api/me/employee resolves this, and it resolves it before touching the database, so
-        // an unlinked caller is the honest default for a project that tests the write paths.
-        builder.Services.AddScoped<ICurrentUser>(_ => new UnlinkedCaller());
+        // Only /api/me/employee resolves this, and it resolves it before touching the database.
+        builder.Services.AddScoped<ICurrentUser>(_ => new TestCurrentUser(callerEmployeeId));
 
         builder.Services.AddAuthentication(TestCaller.SchemeName)
             .AddScheme<AuthenticationSchemeOptions, TestCaller>(TestCaller.SchemeName, null);
@@ -124,11 +129,16 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
             Task.FromResult(scope);
     }
 
-    private sealed class UnlinkedCaller : ICurrentUser
+    /// <summary>
+    /// The caller as the self-service endpoints see them. <paramref name="employeeId"/> null is an
+    /// account with no employee record; a value is the employee they are, which is the only way
+    /// <c>/api/me/employee</c> can be reached — the id comes from the token, never the request.
+    /// </summary>
+    private sealed class TestCurrentUser(Guid? employeeId) : ICurrentUser
     {
         public Guid? UserId => Guid.Empty;
         public string? UserName => "tester";
-        public Guid? EmployeeId => null;
+        public Guid? EmployeeId => employeeId;
         public bool IsAuthenticated => true;
         public IReadOnlySet<string> Permissions => new HashSet<string>();
         public bool HasPermission(string permission) => false;

@@ -9,24 +9,30 @@ namespace WM.Modules.People.Tests.Data;
 /// <b>Read this before trusting these tests.</b> They exercise the migration <i>as a program</i> — the
 /// operations it emits and the status map its SQL is written from — and they <b>never execute a line of
 /// SQL</b>. There is no Postgres harness in this repository: every test project uses the EF in-memory
-/// provider, which does not run migrations at all, and on this machine neither a Postgres service nor a
-/// Docker engine is available to stand one up.
+/// provider, which does not run migrations at all.
+///
+/// <para>
+/// <b>Not because the machine cannot.</b> Docker is available here and on GitHub's runners, and this
+/// migration <i>was</i> executed against <c>postgres:17-alpine</c> by hand — up, down, and the values in
+/// between (the transcript is in plan 007's As-built note). Standing that up as a <i>harness</i> —
+/// Testcontainers, wired into CI so it re-runs — is real work with a real failure mode of its own: a
+/// flaky container blocks every later PR. It belongs to a portion of its own, and that is the reason it
+/// is absent, not an absence of tooling. The alternative — a test that silently skips when no database
+/// answers — is how a suite comes to report green while proving nothing.
+/// </para>
 ///
 /// <para>
 /// So the following are <b>not</b> covered here and must not be reported as if they were: that the DDL
 /// executes; that the two <c>UPDATE</c> statements match the rows they are meant to; that
 /// <c>CAST(… AT TIME ZONE 'UTC' AS date)</c> yields the date intended; that <c>Down</c> leaves a schema
-/// the previous build can actually run against. What <i>was</i> verified outside the test suite is that
-/// both directions generate valid provider SQL offline —
-/// <c>dotnet ef migrations script</c> in each direction, pasted into the portion's PR.
+/// the previous build can actually run against. A hand-run is evidence about one afternoon; nothing
+/// re-runs it, and the next migration inherits the same gap.
 /// </para>
 ///
 /// <para>
 /// This is the same gap that swallowed 001 P2's promised "migration up/down on a seeded DB" test, which
 /// was never written and whose review passed anyway (<c>docs/plans/STATE.md</c>, and the audit note in
-/// <c>PHASE-AUDIT.md</c>). It is named rather than papered over: a harness is real work and belongs to a
-/// portion of its own, and the alternative — a test that silently skips when no database answers — is
-/// how a suite comes to report green while proving nothing.
+/// <c>PHASE-AUDIT.md</c>).
 /// </para>
 /// </summary>
 public sealed class EmploymentMigrationTests
@@ -157,10 +163,40 @@ public sealed class EmploymentMigrationTests
     {
         // IsActive is only meaningful if a delete cannot take its place. RESTRICT is what makes
         // "retire the reason" the sole way to withdraw one, at the database rather than by convention.
-        var foreignKey = Assert.Single(Operations(m => m.UpOperations).OfType<AddForeignKeyOperation>());
+        // Both lookups, held by the same rule: LeaveNoticePeriods carries no behaviour yet, and the
+        // moment it does it must not be the one that behaves differently.
+        var foreignKeys = Operations(m => m.UpOperations).OfType<AddForeignKeyOperation>().ToList();
 
-        Assert.Equal("LeavingReasons", foreignKey.PrincipalTable);
-        Assert.Equal(ReferentialAction.Restrict, foreignKey.OnDelete);
+        Assert.Equal(
+            ["LeaveNoticePeriods", "LeavingReasons"],
+            foreignKeys.Select(fk => fk.PrincipalTable).Order().ToArray());
+        Assert.All(foreignKeys, fk => Assert.Equal(ReferentialAction.Restrict, fk.OnDelete));
+    }
+
+    [Fact]
+    public void The_columns_this_portion_stores_without_reading_are_all_here()
+    {
+        // "Schema now, behaviour later" (user, 2026-08-15) only pays off if the schema is complete:
+        // the whole point of riding this migration is not needing a second one against a table it has
+        // already rewritten. A column dropped from Up by a later edit fails here by name rather than
+        // being noticed when the entitlement portion cannot find it.
+        var up = Operations(m => m.UpOperations);
+        var added = up.OfType<AddColumnOperation>().Select(o => o.Name).ToArray();
+
+        Assert.Contains("FinalEmploymentDate", added);   // FinalEmploymentDate ?? DischargeDate — legacy's real window end
+        Assert.Contains("ResignationDate", added);       // notice handed in; neither end of the window
+        Assert.Contains("LeaveNoticePeriodId", added);   // FK to the second lookup
+        Assert.Contains("LeaveNoticePeriods", up.OfType<CreateTableOperation>().Select(o => o.Name).ToArray());
+
+        // And nothing here is read yet: no default, no backfill, no NOT NULL. A default would be a
+        // decision about what the value means, made by the portion that deliberately is not making it.
+        foreach (var column in up.OfType<AddColumnOperation>()
+                     .Where(o => o.Name is "FinalEmploymentDate" or "ResignationDate" or "LeaveNoticePeriodId"))
+        {
+            Assert.True(column.IsNullable, $"{column.Name} must be nullable — nothing can set it yet");
+            Assert.Null(column.DefaultValue);
+            Assert.Null(column.DefaultValueSql);
+        }
     }
 
     /// <summary>

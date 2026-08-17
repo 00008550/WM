@@ -79,7 +79,11 @@ public sealed class PeopleModule : IModule
                 e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
                 e.LeavingReasonId, e.LeaverComments,
                 Status = e.StatusOn(asAt),
-                IsEmployed = e.IsEmployedOn(asAt),
+                // Composed here, not inside IsEmployedOn: the window and the suspension are two facts
+                // (Employment's remarks), and this column's question is the one that needs both —
+                // "could this person be at work on that day?". A caller asking who was on the payroll
+                // asks the window alone.
+                IsEmployed = !e.IsSuspended && e.IsEmployedOn(asAt),
                 AsAt = asAt,
             }).ToList();
 
@@ -110,6 +114,13 @@ public sealed class PeopleModule : IModule
             if (!scope.PermitsWrite(employeeId: null, request.SiteId, request.DepartmentId))
                 return OutOfScope();
 
+            // The window is validated against the date the record will actually carry, not against the
+            // body: an omitted EmployedFrom means "today" here (below), so comparing the two request
+            // fields would wave through a create whose stored window ends before it starts.
+            var employedFrom = request.EmployedFrom ?? Today();
+            if (WindowInverted(employedFrom, request.EmployedUntil) is { } backwards)
+                return Results.Problem(backwards, statusCode: StatusCodes.Status400BadRequest);
+
             var code = request.Code.Trim();
             // Case-insensitive: 'E1030' and 'e1030' are the same badge number.
             if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower(), ct))
@@ -129,7 +140,7 @@ public sealed class PeopleModule : IModule
                 JobTitle = Blank(request.JobTitle),
                 SiteId = request.SiteId,
                 DepartmentId = request.DepartmentId,
-                EmployedFrom = request.EmployedFrom ?? Today(),
+                EmployedFrom = employedFrom,
                 IsSuspended = request.IsSuspended ?? false,
             };
             ApplyLeaving(employee, request);
@@ -143,6 +154,10 @@ public sealed class PeopleModule : IModule
             {
                 // The unique index is the real guarantee; the check above races.
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
+            {
+                return MissingReference();
             }
             return Results.Created($"/api/employees/{employee.Id}", employee);
         }).RequireAuthorization(WmPermissions.EmployeesManage);
@@ -166,6 +181,17 @@ public sealed class PeopleModule : IModule
             if (!scope.PermitsWrite(id, request.SiteId, request.DepartmentId))
                 return OutOfScope();
 
+            // Validated against the EFFECTIVE start, which is the whole point: on a PUT an omitted
+            // EmployedFrom means "leave it alone", so a body carrying only an EmployedUntil has no
+            // start date in it to compare against. Comparing the two request fields let
+            // `{employedFrom: null, employedUntil: <before the stored start>}` through with a 200 —
+            // and the SPA sends exactly that shape when the field is left blank. The stored window
+            // then contained no dates at all: IsEmployedOn was false for every date, the record read
+            // Leaver forever, and after 007 P2 that person could never punch again.
+            var employedFrom = request.EmployedFrom ?? employee.EmployedFrom;
+            if (WindowInverted(employedFrom, request.EmployedUntil) is { } backwards)
+                return Results.Problem(backwards, statusCode: StatusCodes.Status400BadRequest);
+
             var code = request.Code.Trim();
             if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower() && e.Id != id, ct))
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
@@ -184,7 +210,7 @@ public sealed class PeopleModule : IModule
             employee.JobTitle = Blank(request.JobTitle);
             employee.SiteId = request.SiteId;
             employee.DepartmentId = request.DepartmentId;
-            if (request.EmployedFrom is { } from) employee.EmployedFrom = from;
+            employee.EmployedFrom = employedFrom;
             if (request.IsSuspended is { } suspended) employee.IsSuspended = suspended;
             ApplyLeaving(employee, request);
             employee.UpdatedAt = DateTimeOffset.UtcNow;
@@ -197,24 +223,35 @@ public sealed class PeopleModule : IModule
             {
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
+            {
+                return MissingReference();
+            }
             return Results.Ok(employee);
         }).RequireAuthorization(WmPermissions.EmployeesManage);
 
+        // Everything decidable from the body alone. The employment window is NOT here: deciding it
+        // needs the date the record will end up carrying, which on a PUT lives in the database.
         static string? Validate(EmployeeUpsertRequest r) =>
             string.IsNullOrWhiteSpace(r.Code) ? "Employee code is required."
             : string.IsNullOrWhiteSpace(r.FirstName) ? "First name is required."
             : string.IsNullOrWhiteSpace(r.LastName) ? "Last name is required."
             : r.SiteId == Guid.Empty ? "A site must be selected."
-            // The window must be a window. Nothing downstream — accruals, replay, a timesheet —
-            // has a sane answer for an employment period that ends before it starts.
-            : r.EmployedUntil is { } until && r.EmployedFrom is { } from && until < from
-                ? "The last day of employment cannot be before the first."
             // A reason without a leaving date is the contradiction legacy avoids by writing the two
             // together (SetEmployeesLeaver:122-145). Refused rather than silently dropped, because
             // silently dropping it loses an HR answer the user thought they had recorded.
             : r.EmployedUntil is null && (r.LeavingReasonId is not null || !string.IsNullOrWhiteSpace(r.LeaverComments))
                 ? "A leaving reason or leaver comments need a last day of employment."
             : null;
+
+        // The window must be a window. Nothing downstream — accruals, replay, a timesheet — has a
+        // sane answer for an employment period that ends before it starts, and IsEmployedOn answers
+        // false for every date in existence, which reads as a leaver who was never employed at all.
+        // Both callers pass the EFFECTIVE first day, never request.EmployedFrom.
+        static string? WindowInverted(DateOnly employedFrom, DateOnly? employedUntil) =>
+            employedUntil is { } until && until < employedFrom
+                ? "The last day of employment cannot be before the first."
+                : null;
 
         static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -264,13 +301,29 @@ public sealed class PeopleModule : IModule
             "The site or department you selected is outside your data scope.",
             statusCode: StatusCodes.Status403Forbidden);
 
+        // Postgres 23503 — foreign key violation — reached when the reason passed the check above and
+        // was deleted before SaveChanges, the same race the 23505 handler beside it covers. Without
+        // it the caller gets a 500 for a request that is merely wrong, and the 400 that
+        // LeavingReasonRefused returns would be the only thing standing between them: delete that
+        // branch and the failure mode changes from "bad request" to "server error".
+        //
+        // The leaving reason and the notice period are the only foreign keys on Employees today, and
+        // nothing can set the second yet. 007 P4 adds one for DepartmentId — at that point this must
+        // read PostgresException.ConstraintName and say which reference is missing, because
+        // "leaving reason" would then be a wrong answer half the time.
+        static IResult MissingReference() => Results.Problem(
+            "The selected leaving reason does not exist.", statusCode: StatusCodes.Status400BadRequest);
+
         // The maintained leaving-reason vocabulary. Ships EMPTY — resignation, redundancy, TUPE and
         // dismissal are one customer's list and not another's, so WM seeds none of them.
         //
         // Read-only in this portion: it is the surface that decides what is "offered", which is the
         // half of IsActive a leaver record depends on. Maintenance (create/rename/retire, and the
         // screen for it) is not in 007 P1's Done-when and is recorded in the plan's As-built note.
-        endpoints.MapGet("/api/leaving-reasons", async (PeopleDbContext db, bool includeRetired, CancellationToken ct) =>
+        // `= false` is load-bearing, not tidiness: minimal-API binding makes a non-nullable value-type
+        // query parameter REQUIRED, so without the default every call that omits ?includeRetired=
+        // is a 400 — including the SPA's own, which asks for the offered list and passes nothing.
+        endpoints.MapGet("/api/leaving-reasons", async (PeopleDbContext db, CancellationToken ct, bool includeRetired = false) =>
         {
             var query = db.LeavingReasons.AsNoTracking();
             // Retired reasons are readable — a leaver filed under one must still render — but they
@@ -290,11 +343,33 @@ public sealed class PeopleModule : IModule
 
         // Self-service: the signed-in user's OWN employee record. Id comes from the
         // token claim, never the request — an employee can only ever see themselves.
+        //
+        // PROJECTED, not the entity: LeaverComments is HR's note ABOUT this person — "poor
+        // timekeeping", "would not re-hire" — and returning the whole row put it in the JSON their
+        // own browser receives (user decision, 2026-08-15). Everything else on the record is
+        // theirs to see, including the employment window and the leaving reason, which are facts
+        // about their own employment rather than somebody's opinion of them.
+        //
+        // This is a field-level exclusion hard-coded at one endpoint, which is not a permission
+        // model. Plan 004's field-group write rights are where that belongs; until then the comments
+        // remain readable by anyone holding employees.view, and the list and detail endpoints still
+        // return them.
         endpoints.MapGet("/api/me/employee", async (ICurrentUser user, PeopleDbContext db, CancellationToken ct) =>
         {
             if (user.EmployeeId is not { } employeeId)
                 return Results.NotFound(new { message = "This account is not linked to an employee." });
-            var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId, ct);
+            var employee = await db.Employees.AsNoTracking()
+                .Where(e => e.Id == employeeId)
+                .Select(e => new
+                {
+                    e.Id, e.Code, e.FirstName, e.LastName, e.Email, e.Phone, e.JobTitle,
+                    e.SiteId, e.DepartmentId,
+                    e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
+                    e.LeavingReasonId,
+                    e.FinalEmploymentDate, e.ResignationDate, e.LeaveNoticePeriodId,
+                    e.CreatedAt, e.UpdatedAt,
+                })
+                .FirstOrDefaultAsync(ct);
             return employee is null ? Results.NotFound() : Results.Ok(employee);
         }).RequireAuthorization(WmPermissions.SelfService).WithTags("Self-service");
     }

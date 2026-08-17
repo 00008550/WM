@@ -98,11 +98,16 @@ public sealed class PunchService(
         // Restrict to employees the caller may see before touching punches — otherwise
         // the feed would leak the existence and movements of out-of-scope staff.
         //
-        // Employed *today*, which is what ListActiveAsync used to mean and is still what a live feed
-        // wants. It is also still narrower than what RecordAsync accepts, so WM can continue to take
-        // a punch it will not display — plan 007 P2 closes that by deriving both from the punch's own
+        // Employed *today* AND not suspended, which is what ListActiveAsync used to mean and is still
+        // what a live feed wants. The two halves are written out because the directory answers the
+        // window question only — suspension is a separate fact and a caller replaying who was on the
+        // payroll must not have it applied behind its back (IEmployeeDirectory.ListEmployedOnAsync).
+        //
+        // It is also still narrower than what RecordAsync accepts, so WM can continue to take a punch
+        // it will not display — plan 007 P2 closes that by deriving both from the punch's own
         // timestamp. This portion changed the contract under it and deliberately left the defect.
         var visible = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
+            .Where(e => !e.IsSuspended)
             .ToDictionary(e => e.Id, e => e.FullName);
         if (visible.Count == 0)
             return [];
@@ -132,8 +137,11 @@ public sealed class PunchService(
             .Select(g => g.OrderByDescending(p => p.Timestamp).First())
             .ToListAsync(ct);
 
-        // Who is on the payroll today, against whom presence is reported.
-        var active = await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        // Who could be at work today, against whom presence is reported: employed today and not
+        // administratively suspended. Composed here rather than in the directory — see GetRecentAsync.
+        var active = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
+            .Where(e => !e.IsSuspended)
+            .ToList();
         var byId = active.ToDictionary(e => e.Id);
 
         var present = latestPunches

@@ -9,6 +9,7 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<LeavingReason> LeavingReasons => Set<LeavingReason>();
+    public DbSet<LeaveNoticePeriod> LeaveNoticePeriods => Set<LeaveNoticePeriod>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -32,6 +33,15 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
             e.HasIndex(x => x.Name).IsUnique();
         });
 
+        // Same shape as LeavingReason, deliberately: legacy's dbo.LeaveNoticePeriods is the same
+        // two-column customer vocabulary, and a second lookup that behaves differently from the first
+        // is a trap. Schema only in 007 P1 — nothing writes it yet.
+        b.Entity<LeaveNoticePeriod>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.HasIndex(x => x.Name).IsUnique();
+        });
+
         b.Entity<Employee>(e =>
         {
             e.HasIndex(x => x.Code).IsUnique();
@@ -49,6 +59,11 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
             e.HasOne<LeavingReason>()
                 .WithMany()
                 .HasForeignKey(x => x.LeavingReasonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne<LeaveNoticePeriod>()
+                .WithMany()
+                .HasForeignKey(x => x.LeaveNoticePeriodId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Employment is computed from EmployedFrom/EmployedUntil/IsSuspended at a reference date,

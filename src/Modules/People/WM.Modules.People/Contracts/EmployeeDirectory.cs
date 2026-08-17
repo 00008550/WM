@@ -19,6 +19,13 @@ public interface IEmployeeDirectory
     /// mean "now" pass <see cref="DateOnly.FromDateTime"/> of today explicitly rather than letting
     /// the directory guess — legacy's planning board guessed, and answered next quarter's roster
     /// against today's date (<c>PlanningService.cs:32-57</c>).
+    /// <para>
+    /// <b>The window only — suspended employees are included.</b> Suspension is a separate fact and
+    /// travels on every <see cref="EmployeeSummary"/>, so a caller whose question is "who may work?"
+    /// filters on <see cref="EmployeeSummary.IsSuspended"/> and one whose question is "who was on the
+    /// payroll that day?" — a replay, an accrual pro-rate — does not. Folding it in here would
+    /// silently answer the second question with the first one's answer.
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnAsync(DateOnly on, CancellationToken ct = default);
 
@@ -43,6 +50,14 @@ public interface IEmployeeDirectory
 /// </para>
 ///
 /// <para>
+/// <paramref name="IsSuspended"/> is a <b>separate</b> raw fact, not folded into
+/// <see cref="IsEmployedOn"/>. A consumer deciding whether someone may punch composes
+/// <c>!IsSuspended &amp;&amp; IsEmployedOn(timestamp)</c> — or reads
+/// <see cref="StatusOn"/> <c>== Active</c>, which is the same thing — while a consumer replaying who
+/// was on the payroll uses the window alone.
+/// </para>
+///
+/// <para>
 /// Nothing here is optional, including <paramref name="DepartmentId"/>, which used to default to
 /// null. A defaulted employment window would default to <i>employed since 0001-01-01, forever</i> —
 /// a fail-open, in the one record whose purpose is to fail closed.
@@ -60,7 +75,7 @@ public sealed record EmployeeSummary(
     bool IsSuspended)
 {
     /// <inheritdoc cref="Employment.IsEmployedOn"/>
-    public bool IsEmployedOn(DateOnly on) => Employment.IsEmployedOn(IsSuspended, EmployedFrom, EmployedUntil, on);
+    public bool IsEmployedOn(DateOnly on) => Employment.IsEmployedOn(EmployedFrom, EmployedUntil, on);
 
     /// <inheritdoc cref="Employment.StatusOn"/>
     public EmployeeStatus StatusOn(DateOnly on) => Employment.StatusOn(IsSuspended, EmployedFrom, EmployedUntil, on);

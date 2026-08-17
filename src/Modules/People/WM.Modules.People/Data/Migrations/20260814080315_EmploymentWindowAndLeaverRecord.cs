@@ -32,6 +32,19 @@ namespace WM.Modules.People.Data.Migrations
     /// recorded here rather than in a backlog note because there is no later opportunity to recover
     /// the information: it was never written down.
     /// </para>
+    ///
+    /// <para>
+    /// <b>Four things here are schema with no behaviour yet</b>, by the user's decision of
+    /// 2026-08-15: <c>FinalEmploymentDate</c>, <c>ResignationDate</c>, <c>LeaveNoticePeriodId</c> and
+    /// the <c>LeaveNoticePeriods</c> lookup. Nothing writes them, nothing validates them and no screen
+    /// shows them; they ride this migration because the alternative is a second migration against a
+    /// table this one has already rewritten. Their meanings are on the entity
+    /// (<c>Domain/Employee.cs</c>); the rules that will use them — legacy's mandatory
+    /// reason + discharge + final triple, and its
+    /// <c>EnterDate ≤ DischargeDate ≤ FinalEmploymentDate</c> ordering — are deliberately
+    /// <b>not</b> implemented here, so that the portion which builds them does not first have to undo
+    /// a guess made now.
+    /// </para>
     /// </summary>
     public partial class EmploymentWindowAndLeaverRecord : Migration
     {
@@ -118,6 +131,34 @@ namespace WM.Modules.People.Data.Migrations
                 type: "uuid",
                 nullable: true);
 
+            // ---- the three leaver columns this portion stores but does not yet read ----
+            //
+            // Legacy's employment window actually ends at FinalEmploymentDate ?? DischargeDate — the
+            // final date wins (EmployeeAccrualCalculationsService.cs:728-730, :941). WM keeps ending
+            // it at EmployedUntil for now; the column exists so that adopting the precedence later is
+            // a behaviour change with tests rather than another migration on this table.
+            migrationBuilder.AddColumn<DateOnly>(
+                name: "FinalEmploymentDate",
+                schema: "people",
+                table: "Employees",
+                type: "date",
+                nullable: true);
+
+            // The date notice was handed in — neither end of the window (_Leaver.cshtml:42-45).
+            migrationBuilder.AddColumn<DateOnly>(
+                name: "ResignationDate",
+                schema: "people",
+                table: "Employees",
+                type: "date",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "LeaveNoticePeriodId",
+                schema: "people",
+                table: "Employees",
+                type: "uuid",
+                nullable: true);
+
             // Ships empty. Leaving reasons are customer vocabulary — one install's "TUPE" is another
             // install's nothing — so WM seeds none and offers the lookup instead of an enum.
             migrationBuilder.CreateTable(
@@ -134,6 +175,24 @@ namespace WM.Modules.People.Data.Migrations
                     table.PrimaryKey("PK_LeavingReasons", x => x.Id);
                 });
 
+            // Same two columns and the same retire-don't-delete flag as LeavingReasons, because
+            // legacy's dbo.LeaveNoticePeriods is the same kind of customer vocabulary
+            // (_Leaver.cshtml:17-20). Ships empty, and inherits the same gap: there is no maintenance
+            // endpoint or screen for either lookup yet, so both can only be filled by SQL.
+            migrationBuilder.CreateTable(
+                name: "LeaveNoticePeriods",
+                schema: "people",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_LeaveNoticePeriods", x => x.Id);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_Employees_LeavingReasonId",
                 schema: "people",
@@ -141,9 +200,22 @@ namespace WM.Modules.People.Data.Migrations
                 column: "LeavingReasonId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Employees_LeaveNoticePeriodId",
+                schema: "people",
+                table: "Employees",
+                column: "LeaveNoticePeriodId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_LeavingReasons_Name",
                 schema: "people",
                 table: "LeavingReasons",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_LeaveNoticePeriods_Name",
+                schema: "people",
+                table: "LeaveNoticePeriods",
                 column: "Name",
                 unique: true);
 
@@ -157,6 +229,16 @@ namespace WM.Modules.People.Data.Migrations
                 column: "LeavingReasonId",
                 principalSchema: "people",
                 principalTable: "LeavingReasons",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Restrict);
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Employees_LeaveNoticePeriods_LeaveNoticePeriodId",
+                schema: "people",
+                table: "Employees",
+                column: "LeaveNoticePeriodId",
+                principalSchema: "people",
+                principalTable: "LeaveNoticePeriods",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Restrict);
 
@@ -206,7 +288,8 @@ namespace WM.Modules.People.Data.Migrations
         /// see <see cref="StatusFrom"/>. Rolling back restores a schema the old code can run against;
         /// it does not restore information this migration never had (the true leaving date) nor keep
         /// information only the new schema can hold (a future-dated leaver, a leaving reason, leaver
-        /// comments, the distinction between suspended-and-leaving and merely leaving).
+        /// comments, a final employment or resignation date, a notice period, the distinction between
+        /// suspended-and-leaving and merely leaving).
         ///
         /// <para>
         /// One cosmetic residue, measured rather than assumed: <c>Status</c> comes back as the
@@ -255,12 +338,26 @@ namespace WM.Modules.People.Data.Migrations
                 schema: "people",
                 table: "Employees");
 
+            migrationBuilder.DropForeignKey(
+                name: "FK_Employees_LeaveNoticePeriods_LeaveNoticePeriodId",
+                schema: "people",
+                table: "Employees");
+
             migrationBuilder.DropTable(
                 name: "LeavingReasons",
                 schema: "people");
 
+            migrationBuilder.DropTable(
+                name: "LeaveNoticePeriods",
+                schema: "people");
+
             migrationBuilder.DropIndex(
                 name: "IX_Employees_LeavingReasonId",
+                schema: "people",
+                table: "Employees");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Employees_LeaveNoticePeriodId",
                 schema: "people",
                 table: "Employees");
 
@@ -281,6 +378,21 @@ namespace WM.Modules.People.Data.Migrations
 
             migrationBuilder.DropColumn(
                 name: "LeavingReasonId",
+                schema: "people",
+                table: "Employees");
+
+            migrationBuilder.DropColumn(
+                name: "FinalEmploymentDate",
+                schema: "people",
+                table: "Employees");
+
+            migrationBuilder.DropColumn(
+                name: "ResignationDate",
+                schema: "people",
+                table: "Employees");
+
+            migrationBuilder.DropColumn(
+                name: "LeaveNoticePeriodId",
                 schema: "people",
                 table: "Employees");
 

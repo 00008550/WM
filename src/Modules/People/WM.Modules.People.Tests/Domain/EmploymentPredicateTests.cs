@@ -67,14 +67,45 @@ public sealed class EmploymentPredicateTests
         // Legacy's dbo.ActiveEmployeesView says this person is ACTIVE, because `AND` binds tighter
         // than `OR` in `IsActive = 1 AND DischargeDate IS NULL OR DischargeDate >= today`
         // (78.V5.24.0.0.sql:74-80) — so a suspended employee with a future discharge date can badge
-        // in. WM answers not-employed, and this is the test that says so.
+        // in. WM answers not-available, and this is the test that says so.
+        //
+        // "Wins" is about the COMPOSED answer, not about the window: IsEmployedOn is the window
+        // alone, so it still says this person is on the payroll (they are — they are being paid while
+        // suspended). What must not happen is the composed answer coming out as available.
         var suspended = Employed(until: Today.AddDays(47), suspended: true);
 
-        Assert.False(suspended.IsEmployedOn(Today));
+        Assert.False(Available(suspended, Today));
         Assert.Equal(EmployeeStatus.Suspended, suspended.StatusOn(Today));
         // And not merely today: suspension is undated, so it holds across the whole window.
-        Assert.False(suspended.IsEmployedOn(Hired));
-        Assert.False(suspended.IsEmployedOn(Today.AddDays(47)));
+        Assert.False(Available(suspended, Hired));
+        Assert.False(Available(suspended, Today.AddDays(47)));
+        // The window itself is untouched by it — the fact legacy keeps separate, and the one an
+        // accrual pro-rate reads (EmployeeAccrualCalculationsService.cs:728-741 never reads IsActive).
+        Assert.True(suspended.IsEmployedOn(Today));
+        Assert.True(suspended.IsEmployedOn(Today.AddDays(47)));
+        Assert.False(suspended.IsEmployedOn(Today.AddDays(48)));
+    }
+
+    [Fact]
+    public void The_window_predicate_does_not_read_suspension_at_all()
+    {
+        // The defect this pins: IsEmployedOn once took `isSuspended` and ANDed it in, so every
+        // "who was employed on D?" question — a replay, a payroll re-run, an entitlement pro-rate —
+        // silently answered "…and not currently suspended", a fact about TODAY leaking into a
+        // question about the past. Legacy never fuses the two: ActiveNotFired() is literally
+        // Active().NotFired() (EmployeeExtensions.cs:22-27), NotFired() ships alone in production
+        // paths (PersonnelService.cs:1841, ServiceTasks.cs:214, GlobalNotificationsService.cs:557),
+        // dbo.IsActiveEmployment takes only dates, and TipsService.cs:75-79 gates the two on
+        // independent caller flags.
+        var suspended = Employed(until: null, suspended: true);
+        var notSuspended = Employed(until: null, suspended: false);
+
+        foreach (var reference in ReferenceDates)
+            Assert.Equal(notSuspended.IsEmployedOn(reference), suspended.IsEmployedOn(reference));
+
+        // And the composition the callers who DO care must write is still available and still right.
+        Assert.False(Available(suspended, Today));
+        Assert.True(Available(notSuspended, Today));
     }
 
     [Fact]
@@ -153,12 +184,20 @@ public sealed class EmploymentPredicateTests
 
         var sql = db.Employees.Where(Employee.EmployedOn(Today)).ToQueryString();
 
-        Assert.Contains("\"IsSuspended\"", sql);
         Assert.Contains("\"EmployedFrom\"", sql);
         Assert.Contains("\"EmployedUntil\"", sql);
-        // The pieces of the rule, in SQL: not suspended, started, and either open or not yet ended.
-        Assert.Contains("NOT (e.\"IsSuspended\")", sql);
-        Assert.Contains("IS NULL", sql);
+
+        // The predicate itself, not the projection: IsSuspended is a column of the entity, so it is
+        // in every SELECT list and only its appearance in the WHERE clause means anything.
+        var where = sql[(sql.IndexOf("WHERE", StringComparison.Ordinal) is var i && i >= 0
+            ? i
+            : throw new Xunit.Sdk.XunitException($"the filter produced no WHERE clause:\n{sql}"))..];
+
+        // The pieces of the rule, in SQL: started, and either open or not yet ended.
+        Assert.Contains("IS NULL", where);
+        // And the unfold, at the level where it would actually bite: a WHERE clause that mentions
+        // IsSuspended is a query that has quietly dropped suspended people from a payroll question.
+        Assert.DoesNotContain("IsSuspended", where);
     }
 
     [Fact]
@@ -170,14 +209,24 @@ public sealed class EmploymentPredicateTests
         // into the window would collapse two facts into one and change entitlement figures.
         var suspendedButEmployed = Employed(until: null, suspended: true);
 
-        Assert.False(suspendedButEmployed.IsEmployedOn(Today));
+        Assert.False(Available(suspendedButEmployed, Today));
         Assert.Null(suspendedButEmployed.EmployedUntil);
         Assert.Equal(EmployeeStatus.Suspended, suspendedButEmployed.StatusOn(Today));
 
-        // Un-suspending restores employment with no date having been touched.
-        suspendedButEmployed.IsSuspended = false;
+        // Un-suspending restores availability with no date having been touched — and the window said
+        // "employed" throughout, because suspension never entered it.
         Assert.True(suspendedButEmployed.IsEmployedOn(Today));
+        suspendedButEmployed.IsSuspended = false;
+        Assert.True(Available(suspendedButEmployed, Today));
     }
+
+    /// <summary>
+    /// The composition a caller writes when its question needs both facts — "may this person be at
+    /// work on that day?". Exactly <c>StatusOn(...) == Active</c>, and exactly what
+    /// <c>GET /api/employees</c>'s <c>isEmployed</c> column and TimeAttendance's live feed compute.
+    /// </summary>
+    private static bool Available(Employee employee, DateOnly on) =>
+        !employee.IsSuspended && employee.IsEmployedOn(on);
 
     [Fact]
     public void A_one_day_engagement_is_employed_on_exactly_that_day()
@@ -189,6 +238,26 @@ public sealed class EmploymentPredicateTests
         Assert.True(oneDay.IsEmployedOn(Today));
         Assert.False(oneDay.IsEmployedOn(Today.AddDays(-1)));
         Assert.False(oneDay.IsEmployedOn(Today.AddDays(1)));
+    }
+
+    [Fact]
+    public void Status_Active_is_exactly_the_two_facts_composed()
+    {
+        // The unfold leaves callers composing, so the composition needs one authority — otherwise
+        // "!IsSuspended && IsEmployedOn(d)" spreads as a copied incantation and drifts, which is how
+        // legacy ended up with six predicates. StatusOn is that authority: Active means available.
+        List<string> mismatches = [];
+
+        foreach (var employee in EveryWindow)
+        foreach (var reference in ReferenceDates)
+        {
+            var composed = !employee.IsSuspended && employee.IsEmployedOn(reference);
+            var byStatus = employee.StatusOn(reference) == EmployeeStatus.Active;
+            if (composed != byStatus)
+                mismatches.Add($"{employee.Code} at {reference:O}: composed {composed}, status {byStatus}");
+        }
+
+        Assert.Equal([], mismatches);
     }
 
     private static readonly DateOnly[] ReferenceDates =

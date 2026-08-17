@@ -181,6 +181,134 @@ public sealed class LeaverRecordEndpointTests
     }
 
     [Fact]
+    public async Task A_leaving_date_before_the_STORED_start_is_refused_even_when_the_body_omits_the_start()
+    {
+        // The reachable version of the test above, and the one it did not cover. On a PUT an omitted
+        // EmployedFrom means "leave it alone", so a body with only a leaving date has no start date
+        // in it — and comparing the two REQUEST fields therefore compared null to something and let
+        // it through with a 200. The SPA sends exactly this shape: employees.component.ts:320 posts
+        // `employedFrom: this.form.employedFrom || null`, which is null whenever the field is blank.
+        //
+        // What used to be saved: Ada hired 2024-01-15, EmployedUntil 2023-06-30. IsEmployedOn is
+        // false for every date in existence including her own first day, the list reads Leaver
+        // forever, and after 007 P2 she can never punch again — with no error anywhere.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+            "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
+            EmployedFrom: null, EmployedUntil: new DateOnly(2023, 6, 30)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("cannot be before the first", await response.Content.ReadAsStringAsync());
+
+        var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
+        Assert.Null(saved.EmployedUntil);
+        Assert.Equal(Hired, saved.EmployedFrom);
+        Assert.True(saved.IsEmployedOn(Hired));
+    }
+
+    [Fact]
+    public async Task A_leaving_date_after_the_stored_start_still_saves_when_the_body_omits_the_start()
+    {
+        // The other half: the fix must not refuse the legitimate shape it now inspects, which is the
+        // ordinary "record that she leaves on the 30th" edit.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+            "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
+            EmployedFrom: null, EmployedUntil: LastDay));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
+        Assert.Equal(Hired, saved.EmployedFrom); // untouched, as an omitted field must be
+        Assert.Equal(LastDay, saved.EmployedUntil);
+    }
+
+    [Fact]
+    public async Task A_create_whose_leaving_date_precedes_the_defaulted_start_is_refused()
+    {
+        // Same hole on POST, one step further along: an omitted EmployedFrom defaults to today, and
+        // the default was applied AFTER the guard had already skipped the comparison. So a create
+        // with a past leaving date and no start produced a record that was never employed.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        var response = await client.PostAsJsonAsync("/api/employees", new EmployeeUpsertRequest(
+            "E2002", "Grace", "Hopper", null, null, null, SiteA, null,
+            EmployedFrom: null, EmployedUntil: new DateOnly(2020, 1, 1)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("cannot be before the first", await response.Content.ReadAsStringAsync());
+        Assert.False(host.Read(db => db.Employees.AsNoTracking().Any(e => e.Code == "E2002")));
+    }
+
+    [Fact]
+    public async Task A_leaving_reason_that_does_not_exist_is_refused()
+    {
+        // Nothing pinned this branch before, so deleting it left the suite green — and the failure it
+        // would then produce is not a 400 but a 500: Postgres raises 23503 on the foreign key, which
+        // the upsert's catch clauses only learned to handle alongside this test.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+        var noSuchReason = Guid.Parse("cccccccc-0000-0000-0000-00000000dead");
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/employees/{Ada}", Leaving(LastDay, noSuchReason, "Left."));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("does not exist", await response.Content.ReadAsStringAsync());
+
+        // And nothing was written — the refusal happens before the leaver record is applied.
+        var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
+        Assert.Null(saved.EmployedUntil);
+        Assert.Null(saved.LeavingReasonId);
+    }
+
+    [Fact]
+    public async Task A_create_naming_a_leaving_reason_that_does_not_exist_is_refused()
+    {
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        var response = await client.PostAsJsonAsync("/api/employees", new EmployeeUpsertRequest(
+            "E2003", "Grace", "Hopper", null, null, null, SiteA, null,
+            EmployedFrom: Hired, EmployedUntil: LastDay,
+            IsSuspended: null, LeavingReasonId: Guid.Parse("cccccccc-0000-0000-0000-00000000dead")));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("does not exist", await response.Content.ReadAsStringAsync());
+        Assert.False(host.Read(db => db.Employees.AsNoTracking().Any(e => e.Code == "E2003")));
+    }
+
+    [Fact]
+    public async Task The_offered_reasons_can_be_read_with_no_query_string_at_all()
+    {
+        // `bool includeRetired` with no default made minimal-API binding treat it as REQUIRED, so
+        // this exact call — the one the shipped SPA makes (workforce.api.ts:113-114) — was a 400.
+        // The suite missed it because every other test here appends the parameter.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesView);
+
+        var response = await client.GetAsync("/api/leaving-reasons");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var reasons = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            ["Redundancy", "Resignation"],
+            reasons.EnumerateArray().Select(r => r.GetProperty("name").GetString()!).Order().ToArray());
+
+        // Omitting it means the offered list, not everything: a retired reason must not reappear
+        // simply because the caller said nothing.
+        Retire(host, Redundancy);
+        var afterRetiring = await client.GetFromJsonAsync<JsonElement>("/api/leaving-reasons");
+        Assert.Equal(
+            ["Resignation"],
+            afterRetiring.EnumerateArray().Select(r => r.GetProperty("name").GetString()!).ToArray());
+    }
+
+    [Fact]
     public async Task The_list_derives_the_status_at_the_date_it_is_asked_about()
     {
         // The same row is a leaver today and was active in March. A stored status can only ever answer
