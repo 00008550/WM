@@ -392,16 +392,21 @@ empty**; customer vocabulary), `LeavingReasonId` and `LeaverComments(500)` — a
 `EmployedUntil` clears both, as `SetEmployeesActive:151-173` does. `IEmployeeDirectory` carries the
 window and an `IsEmployedOn`, so `ListActiveAsync` becomes `ListEmployedOnAsync(date)` and no consumer
 reads People's tables. **002's blocker is cleared**: "who was employed on 3 March?" now has an answer,
-verified against the running stack.
+pinned by `LeaverRecordEndpointTests.The_list_derives_the_status_at_the_date_it_is_asked_about` —
+in memory, over the endpoint. No running stack was involved.
 
 Two things about it worth carrying forward:
 
 - **The migration was executed against real Postgres, and there is still no harness.** 001 P2's
   identical promise went unwritten because none exists, so P1 did both halves and labels them
-  differently: six xUnit tests read the migration's *operations* (round-trip, backfill-before-drop,
+  differently: seven xUnit tests read the migration's *operations* (round-trip, backfill-before-drop,
   `Down` drops everything `Up` adds) and execute **no SQL**; a **one-off manual** up/down run on
-  `postgres:17-alpine` covered the SQL itself, including a `Pacific/Kiritimati` session proving the
-  `AT TIME ZONE 'UTC'` cast is deterministic. Nothing re-runs the manual half. **A real Postgres test
+  `postgres:17-alpine` covered the SQL itself, with `Pacific/Kiritimati` set on the **database** —
+  not the session — so that EF's own migrator connection inherited UTC+14 and the
+  `AT TIME ZONE 'UTC'` cast was exercised where it actually runs. **A session-level `SET` proves
+  nothing here**: it never reaches that connection, so it passes with or without the cast. Shown by
+  falsification — guard removed *with* the database setting, the backfill landed a day out; guard
+  removed *without* it, the dates were right. Nothing re-runs the manual half. **A real Postgres test
   harness is now the clearest gap in this repository's testing** — Docker exists on the dev box and on
   GitHub's runners, so it is buildable; it wants a portion, not a smuggled-in dependency.
 - **`LeavingReason` has no maintenance surface.** Read-only endpoint, no create/rename/retire, no

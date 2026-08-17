@@ -630,12 +630,22 @@ deactivating a reason leaves existing references readable and stops it being off
 > and retiring reasons is a customer-administration screen with its own permission question
 > (`employees.manage`, or an administration permission of its own), and it should be planned, not
 > improvised here. **Until it exists the table can only be filled by SQL**, so the leaver *reason* is
-> reachable through the API but not through any UI; `LeaverComments` likewise. Worth a portion.
+> reachable through the API but not through any UI; `LeaverComments` likewise. Worth a portion — and
+> the portion that gates the leaver record on a reason is **the same one**, never an earlier one
+> (decision 5's ordering note: gating an unfillable empty lookup makes the leaver record
+> unreachable).
 
 ### [ ] P2 — The punch boundary fails closed
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
 `TimeAttendanceModule.cs` if the error shape changes; `WM.Modules.People.Tests` or a new
-`WM.Modules.TimeAttendance.Tests`.
+`WM.Modules.TimeAttendance.Tests`; **`ARCHITECTURE.md:385`** — the "Swipe capture" §13 row. Its
+*substance* is still true after P1 (the boundary does accept terminated employees — `PunchService.cs:106-108`
+says so in a comment, and P1 left it deliberately to P2), but its evidence has rotted: it cites
+`PeopleModule.cs:197-207` and `ListActiveAsync`, which P1 renamed to `ListEmployedOnAsync`, and it
+attributes the fix to **007 P1**. P2 is what closes the row, so P2 is what rewrites it — listed here
+rather than corrected in P1, because a three-way conflict on that table while
+[#59](https://github.com/00008550/WM/pull/59) and [#60](https://github.com/00008550/WM/pull/60) are
+open costs more than the stale citation does (reviewer's ruling, 2026-08-17).
 **Done when:** `RecordAsync` and `RecordForEmployeeAsync` reject a punch whose **timestamp** falls
 outside the employee's employment window, with the same problem shape as an unknown code;
 `GetRecentAsync`'s visibility set and the accept decision are derived from the same predicate, so
@@ -751,7 +761,12 @@ documented in the portion's PR.
 
 ### [ ] P4 — `DepartmentId` is a real reference
 **Touches:** `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs:77-113,
-115-154`, `WM.Modules.People.Tests`.
+115-154`, **`PeopleModule.cs:314`** — `MissingReference()`, which answers *"The selected leaving
+reason does not exist."* to **any** `23503`. Correct for every input reachable today (two foreign
+keys, and nothing can set `LeaveNoticePeriodId`), and wrong half the time the moment P4 adds a third.
+The remedy is named in a code comment at `:310-313` — read `PostgresException.ConstraintName` and say
+which reference is missing — but a comment nobody greps is not a plan, so the line is listed here.
+Also `WM.Modules.People.Tests`.
 **Done when:** `Employee.DepartmentId` has a foreign key and an index; create and update reject a
 department that does not exist or belongs to a different site than `SiteId`; the migration nulls
 orphaned references and **reports how many** rather than failing.
@@ -831,6 +846,13 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
    portion that is explicitly declining to make it. **This needs a portion**, alongside the
    `LeavingReason`/`LeaveNoticePeriods` maintenance surface the As-built note also defers — the two
    are the same gap seen from the write side and the admin side.
+
+   **⛔ Ordering, and it is not negotiable: the reason-gating rule must never land before the
+   `LeavingReason` maintenance surface.** Both lookups ship **empty** and can be filled only by SQL
+   today. A rule that refuses a leaving date without a reason, applied to an empty and unfillable
+   vocabulary, makes the leaver record **unreachable** — every attempt to record that someone left is
+   a 400 with no way for the user to clear it. The gate and the surface are **one portion**, in that
+   order (reviewer, 2026-08-17).
 
 6. **`LeaverComments` is excluded from `GET /api/me/employee`.** *(User, 2026-08-15.)* The leaver
    comments are HR's note **about** this person — "poor timekeeping", "would not re-hire" — so
