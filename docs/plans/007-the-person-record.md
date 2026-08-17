@@ -295,7 +295,7 @@ the status dropdown; the list shows the derived badge.
 
 ## Portions
 
-### [x] P1 — Employment is a date, not an enum
+### [ ] P1 — Employment is a date, not an enum  ·  built 2026-08-14 on `feat/007-p1`, awaiting review
 **Touches:** `src/Modules/People/WM.Modules.People/Domain/Employee.cs`,
 `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs` (list projection, upsert,
 `EmployeeDirectory`), `Contracts/EmployeeDirectory.cs`, `Data/PeopleSeeder.cs`;
@@ -359,24 +359,261 @@ deactivating a reason leaves existing references readable and stops it being off
 > *Tests* line asked for a `Down()` test and a status round-trip, and this repository has no Postgres
 > test harness (that gap is what swallowed 001 P2's identical promise). Both halves were done, and
 > they are not the same kind of evidence:
-> - **In the suite** (`EmploymentMigrationTests`, 6 tests, xUnit, runs in CI): the round-trip
+> - **In the suite** (`EmploymentMigrationTests`, **7** tests, xUnit, runs in CI): the round-trip
 >   `status → window → status` over the migration's own `StatusMap`/`StatusFrom`; that the backfill
 >   SQL says what the map says; that the backfill runs **before** `Status` is dropped; that `Down`
->   restores the status before dropping what it is computed from; and that `Down` drops every column
->   `Up` adds, computed rather than listed. These read the migration's operations. **They execute no
->   SQL.**
-> - **Manually, once, on 2026-08-14**, against `postgres:17-alpine` in a throwaway database: five rows
->   seeded at the pre-migration schema (`Active`, `OnLeave`, `Terminated` with `UpdatedAt`,
->   `Terminated` with `UpdatedAt NULL`, and an unrecognised `7`), `Up` applied, values checked, `Down`
->   applied, values and schema checked. Session `TimeZone` was deliberately set to `Pacific/Kiritimati`
->   (UTC+14) and the 22:30Z row still backfilled to its own UTC date — the `AT TIME ZONE 'UTC'` guard
->   earning its place. Full output in the PR.
+>   restores the status before dropping what it is computed from; that `Down` drops every column
+>   `Up` adds, computed rather than listed; that both lookups' foreign keys are `RESTRICT`; and that
+>   the four schema-only items are all present, nullable and defaultless. These read the migration's
+>   operations. **They execute no SQL.**
+> - **By hand against real Postgres**, re-run in full on **2026-08-17** and transcribed below. The
+>   first run (2026-08-14) is **void**: three columns and a second lookup table were added to this
+>   migration after it, so it no longer described the migration that exists.
 >
-> **A manual run is not a regression test.** Nothing re-runs it, and the next migration inherits the
-> same gap. **Standing up a real Postgres test harness deserves a portion of its own** — Docker is
-> available on the dev machine and on GitHub's runners, so Testcontainers is viable; it was not done
-> here because a flaky container in CI blocks every later PR and that trade is not this portion's to
-> make.
+> #### The transcript, 2026-08-17 — `Up` and `Down` against `postgres:17-alpine`
+>
+> Read what this is before reading it: **the EF migrator executing this migration's own SQL against a
+> real server**, not a test. It is reproducible from the commands shown, and nothing re-runs it.
+>
+> Four properties were required of it and each is shown rather than asserted: **one transaction each
+> direction**; the **backfill strictly before `DROP COLUMN "Status"`**; `Down` restoring the original
+> schema **including the absence of a `DEFAULT` on `Status`**; and **unrecognised status values
+> failing closed to suspended**.
+>
+> Two choices make the run harsher than the last one. The hostile timezone is set on the
+> **database**, not the session, so EF's own connection inherits UTC+14 and the `AT TIME ZONE 'UTC'`
+> guard is tested where it actually runs — a session-level `SET` never reached the migrator at all.
+> And `log_statement = 'all'` puts the server's own account of what executed into the record, which
+> is what makes the transaction and ordering claims checkable by a reader instead of taken on trust.
+>
+> **Environment.** Docker engine 27.1.1; `wm-dev-postgres-1` = `postgres:17-alpine`, PostgreSQL
+> 17.10; `dotnet ef` 10.0.10. Throwaway database `wm_p1_verify`; the dev `wm` database was never
+> touched and both throwaways were dropped at the end.
+>
+> ```
+> $ psql -d postgres -c 'CREATE DATABASE wm_p1_verify;'
+> CREATE DATABASE
+> $ psql -d postgres -c "ALTER DATABASE wm_p1_verify SET TimeZone = 'Pacific/Kiritimati';"
+> ALTER DATABASE
+> $ psql -d postgres -c "ALTER DATABASE wm_p1_verify SET log_statement = 'all';"
+> ALTER DATABASE
+> $ psql -d wm_p1_verify -tAc 'show TimeZone;'
+> Pacific/Kiritimati
+> ```
+>
+> **1. The pre-migration schema**, applied by the migrator itself so it is the real thing:
+>
+> ```
+> $ dotnet ef database update 20260720080022_Initial --context PeopleDbContext \
+>     --connection 'Host=localhost;Port=5432;Database=wm_p1_verify;...'
+> Done.
+>
+> $ psql -d wm_p1_verify -c '\d people."Employees"'
+>     Column    |           Type           | Nullable | Default
+> --------------+--------------------------+----------+---------
+>  ...
+>  HireDate     | date                     | not null |
+>  Status       | integer                  | not null |          <-- NO DEFAULT. The baseline for Down.
+>  CreatedAt    | timestamp with time zone | not null |
+>  UpdatedAt    | timestamp with time zone |          |
+> ```
+>
+> **2. Six rows seeded at that schema — every value the enum could hold, and two it could not.**
+> Five rows was not enough: `-1` was added because "unrecognised" has two sides, and a row was later
+> given a state the enum cannot express at all.
+>
+> ```
+>     Code     | Status |  HireDate  |       CreatedAt        |       UpdatedAt
+> -------------+--------+------------+------------------------+------------------------
+>  E-ACTIVE    |      0 | 2024-01-15 | 2024-01-15 23:00:00+14 |
+>  E-ONLEAVE   |      1 | 2023-05-01 | 2023-05-01 23:00:00+14 | 2026-02-03 00:00:00+14
+>  E-TERM-UPD  |      2 | 2020-03-02 | 2020-03-02 23:00:00+14 | 2025-03-11 12:30:00+14
+>  E-TERM-NULL |      2 | 2019-07-01 | 2022-12-01 13:45:00+14 |
+>  E-BOGUS-7   |      7 | 2021-09-09 | 2021-09-09 23:00:00+14 | 2024-04-05 02:00:00+14
+>  E-BOGUS-NEG |     -1 | 2022-02-02 | 2022-02-02 23:00:00+14 |
+> ```
+>
+> The two `Terminated` rows are the timezone trap, and rendering it first is what makes the result
+> below mean anything — the stored instants are 2025-03-10 **22:30Z** and 2022-11-30 **23:45Z**, so
+> under UTC+14 the naive cast lands on the *following* day:
+>
+> ```
+>     Code     |          src           |  utc_date  | naive_local_date
+> -------------+------------------------+------------+------------------
+>  E-TERM-NULL | 2022-12-01 13:45:00+14 | 2022-11-30 | 2022-12-01
+>  E-TERM-UPD  | 2025-03-11 12:30:00+14 | 2025-03-10 | 2025-03-11
+> ```
+>
+> **3. `Up`.** `dotnet ef database update` → `Done.`, and the backfill landed on `utc_date` both
+> times, including through `COALESCE` to `CreatedAt`:
+>
+> ```
+>     Code     | EmployedFrom | EmployedUntil | IsSuspended | FinalEmploymentDate | ResignationDate | LeaveNoticePeriodId
+> -------------+--------------+---------------+-------------+---------------------+-----------------+---------------------
+>  E-ACTIVE    | 2024-01-15   |               | f           |                     |                 |
+>  E-ONLEAVE   | 2023-05-01   |               | t           |                     |                 |
+>  E-TERM-UPD  | 2020-03-02   | 2025-03-10    | f           |                     |                 |
+>  E-TERM-NULL | 2019-07-01   | 2022-11-30    | f           |                     |                 |
+>  E-BOGUS-7   | 2021-09-09   |               | t           |                     |                 |
+>  E-BOGUS-NEG | 2022-02-02   |               | t           |                     |                 |
+> ```
+>
+> `0 → (not suspended, open)`. `1 → (SUSPENDED, open)`. `2 → (not suspended, the UTC date)`.
+> **`7` and `-1` both → suspended, window open: failed closed.** `HireDate` became `EmployedFrom`
+> with every value intact, and the three deferred columns are NULL for every row — nothing backfilled
+> them, which is the point of shipping them inert. Both lookups exist and both are **empty**
+> (`leaving_reasons 0 | leave_notice_periods 0`), and `Status` is gone
+> (`status_columns_remaining 0`).
+>
+> **4. One transaction, and the ordering — the server's own log.** The first `BEGIN`/`COMMIT` pair is
+> EF's history-table bootstrap, not the migration; the second is the entire migration plus its history
+> row:
+>
+> ```
+> statement: BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED
+> execute: CREATE TABLE IF NOT EXISTS people.__ef_migrations ( ...
+> statement: COMMIT
+> statement: BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED     <-- the migration starts
+> execute: LOCK TABLE people.__ef_migrations IN ACCESS EXCLUSIVE MODE
+> execute: ALTER TABLE people."Employees" RENAME COLUMN "HireDate" TO "EmployedFrom"
+> execute: ALTER TABLE people."Employees" ADD "EmployedUntil" date
+> execute: ALTER TABLE people."Employees" ADD "IsSuspended" boolean NOT NULL DEFAULT FALSE
+> execute: ALTER TABLE people."Employees" ADD "LeaverComments" character varying(500)
+> execute: ALTER TABLE people."Employees" ADD "LeavingReasonId" uuid
+> execute: ALTER TABLE people."Employees" ADD "FinalEmploymentDate" date
+> execute: ALTER TABLE people."Employees" ADD "ResignationDate" date
+> execute: ALTER TABLE people."Employees" ADD "LeaveNoticePeriodId" uuid
+> execute: CREATE TABLE people."LeavingReasons" ( ...
+> execute: CREATE TABLE people."LeaveNoticePeriods" ( ...
+> execute: CREATE INDEX "IX_Employees_LeavingReasonId" ...
+> execute: CREATE INDEX "IX_Employees_LeaveNoticePeriodId" ...
+> execute: CREATE UNIQUE INDEX "IX_LeavingReasons_Name" ...
+> execute: CREATE UNIQUE INDEX "IX_LeaveNoticePeriods_Name" ...
+> execute: ALTER TABLE ... ADD CONSTRAINT "FK_Employees_LeavingReasons_LeavingReasonId" ... ON DELETE RESTRICT
+> execute: ALTER TABLE ... ADD CONSTRAINT "FK_Employees_LeaveNoticePeriods_LeaveNoticePeriodId" ... ON DELETE RESTRICT
+> execute: UPDATE people."Employees"                              <-- the backfill
+> execute: ALTER TABLE people."Employees" DROP COLUMN "Status"     <-- strictly AFTER it
+> execute: INSERT INTO people.__ef_migrations ("MigrationId", "ProductVersion")
+> statement: COMMIT                                                <-- one transaction, whole migration
+> ```
+>
+> That `UPDATE` precedes that `DROP COLUMN` **on a real server** is the property the in-suite ordering
+> test infers from the operation list. This is the same claim, executed. (The DDL appears as `execute`
+> rather than `statement` because Npgsql uses the extended query protocol — a reason to read the log
+> for `execute` too, not evidence of a second transaction.)
+>
+> **5. State planted before `Down`, so its documented losses are shown and not merely claimed.** Both
+> lookups were filled — by SQL, since P1 ships no maintenance surface — and `RESTRICT` refused to let
+> a reason in use be deleted, which is the whole argument for `IsActive` over a delete:
+>
+> ```
+> $ DELETE FROM people."LeavingReasons" WHERE "Id" = 'aaaa...0001';
+> ERROR:  update or delete on table "LeavingReasons" violates foreign key constraint
+>         "FK_Employees_LeavingReasons_LeavingReasonId" on table "Employees"
+> DETAIL:  Key (Id)=(aaaaaaaa-0000-0000-0000-000000000001) is still referenced from table "Employees".
+> ```
+>
+> ```
+>     Code     | EmployedFrom | EmployedUntil | IsSuspended |   reason   |          LeaverComments
+> -------------+--------------+---------------+-------------+------------+----------------------------------
+>  E-ACTIVE    | 2027-01-04   |               | f           |            |                     <-- future start
+>  E-ONLEAVE   | 2023-05-01   | 2026-09-30    | t           |            |                     <-- suspended AND leaving
+>  E-TERM-UPD  | 2020-03-02   | 2025-03-10    | f           | Redundancy | Role withdrawn in the March...
+>  ...
+> ```
+>
+> **6. `Down`.** The reverse map, executed:
+>
+> ```
+>     Code     | Status |  HireDate
+> -------------+--------+------------
+>  E-ACTIVE    |      0 | 2027-01-04     <-- a pre-boarded starter becomes Active; 0 cannot say "not yet"
+>  E-ONLEAVE   |      2 | 2023-05-01     <-- suspended AND leaving -> 2: leaving is the stronger fact
+>  E-TERM-UPD  |      2 | 2020-03-02
+>  E-TERM-NULL |      2 | 2019-07-01
+>  E-BOGUS-7   |      1 | 2021-09-09     <-- 7 came back as 1, not 7: fail-closed is one-way, by design
+>  E-BOGUS-NEG |      1 | 2022-02-02
+> ```
+>
+> Every one of those five outcomes is what `StatusFrom`'s remarks say will happen. `E-BOGUS-7` is
+> worth stating plainly: **an unrecognised value does not survive a round trip**, because `Up`
+> deliberately discards it in favour of "suspended". That is the fail-closed choice being paid for,
+> not a defect, and it is why the in-suite round-trip test pins the *three real* statuses only.
+>
+> **7. `Down` restored the original schema — measured, not eyeballed.** A second database was created
+> and taken to `Initial` and no further, then both `people` schemas dumped and diffed:
+>
+> ```
+> $ pg_dump --schema-only -n people -d wm_p1_reference   > reference.sql   # fresh at Initial
+> $ pg_dump --schema-only -n people -d wm_p1_verify      > after_down.sql  # Up, then Down
+> $ diff -u reference.sql after_down.sql
+> @@
+>       "HireDate" date NOT NULL,
+> -     "Status" integer NOT NULL,
+>       "CreatedAt" timestamp with time zone NOT NULL,
+>       "UpdatedAt" timestamp with time zone,
+>       "CreatedBy" uuid,
+> -     "UpdatedBy" uuid
+> +     "UpdatedBy" uuid,
+> +     "Status" integer NOT NULL
+>   );
+> ```
+>
+> **That hunk is the entire difference in the schema** — every table, column, type, nullability,
+> index and constraint is otherwise identical, and the only thing that moved is `Status`'s ordinal,
+> exactly the cosmetic residue `Down`'s remarks predict. Note what the restored line does **not**
+> say: `DEFAULT 0`. `AddColumn` had to invent one to populate existing rows, and `Down`'s
+> `DROP DEFAULT` removes it. The counterfactual, so the claim is falsifiable rather than decorative:
+>
+> ```
+> $ ALTER TABLE people."Employees" ALTER COLUMN "Status" SET DEFAULT 0;   -- i.e. had Down omitted it
+> $ pg_dump ... | grep '"Status"'
+>     "Status" integer DEFAULT 0 NOT NULL          <-- what a reader would see if it were missing
+> $ ALTER TABLE people."Employees" ALTER COLUMN "Status" DROP DEFAULT;
+> $ pg_dump ... | grep '"Status"'
+>     "Status" integer NOT NULL                    <-- what the migration actually leaves
+> ```
+>
+> Both lookup tables are gone, all seven added columns are gone, `EmployedFrom` is `HireDate` again,
+> and `__ef_migrations` holds `Initial` alone.
+>
+> **8. `Down` is also one transaction, and also reads before it drops:**
+>
+> ```
+> statement: BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED
+> execute: LOCK TABLE people.__ef_migrations IN ACCESS EXCLUSIVE MODE
+> execute: ALTER TABLE people."Employees" ADD "Status" integer NOT NULL DEFAULT 0
+> execute: UPDATE people."Employees"                                   <-- restore, while the window still exists
+> execute: ALTER TABLE people."Employees" ALTER COLUMN "Status" DROP DEFAULT
+> execute: ALTER TABLE ... DROP CONSTRAINT "FK_Employees_LeavingReasons_LeavingReasonId"
+> execute: ALTER TABLE ... DROP CONSTRAINT "FK_Employees_LeaveNoticePeriods_LeaveNoticePeriodId"
+> execute: DROP TABLE people."LeavingReasons"
+> execute: DROP TABLE people."LeaveNoticePeriods"
+> execute: DROP INDEX people."IX_Employees_LeavingReasonId"
+> execute: DROP INDEX people."IX_Employees_LeaveNoticePeriodId"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "EmployedUntil"   <-- only now
+> execute: ALTER TABLE people."Employees" DROP COLUMN "IsSuspended"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "LeaverComments"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "LeavingReasonId"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "FinalEmploymentDate"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "ResignationDate"
+> execute: ALTER TABLE people."Employees" DROP COLUMN "LeaveNoticePeriodId"
+> execute: ALTER TABLE people."Employees" RENAME COLUMN "EmployedFrom" TO "HireDate"
+> execute: DELETE FROM people.__ef_migrations
+> statement: COMMIT
+> ```
+>
+> **⚠️ None of section 3–8 is a regression test, and it must not be counted as one.** It is one
+> afternoon's evidence about one afternoon. Nothing re-runs it, no CI job would fail if the migration
+> were changed to break any property above, and the next migration inherits the same gap — so the
+> honest coverage claim for this repository is still the one at the top of
+> `EmploymentMigrationTests`: the operations are read, and **no SQL is executed by the suite.**
+> Reading a migration's operations is not executing it, and a transcript is not a harness.
+>
+> **Standing up a real Postgres test harness deserves a portion of its own.** Docker is available on
+> the dev machine — demonstrably, since the above ran on it — and on GitHub's runners, so
+> Testcontainers is viable. It was not done here because a flaky container in CI blocks every later
+> PR, and that trade is not this portion's to make.
 >
 > **3. Two things this portion did that its *Touches* line does not mention**, both forced by the
 > contract change rather than chosen:
@@ -544,7 +781,7 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
 
 ---
 
-## Decisions (user, 2026-08-06)
+## Decisions (user; 1–4 on 2026-08-06, 5–6 on 2026-08-15)
 
 1. **Employee code uniqueness: case-insensitive only, not padding.** Padding-equivalence is a
    badge-format workaround from fixed-width readers, and WM has no physical devices by decision
@@ -576,6 +813,37 @@ dimension. ARCHITECTURE §12 (OWASP/GDPR) applies; if it needs a design change, 
    "leave" means *absence*, so `LeaveReason` beside a future `AbsenceType` would invite exactly the
    conflation this plan spent a correction untangling. **Legacy's `dbo.LeaveReasons` keeps its name
    in every citation** — that is a fact about TLW, not a name WM chooses.
+
+5. **Schema now, behaviour later — the four remaining leaver items ride P1's migration as columns
+   only.** *(User, 2026-08-15. Recorded here 2026-08-17: the code has cited this decision since it
+   was made — the migration's summary and `EmploymentMigrationTests` both name the date — but the
+   plan never carried it, so the one place a reader looks for decisions did not have it.)*
+   `FinalEmploymentDate`, `ResignationDate`, `LeaveNoticePeriodId` and the `LeaveNoticePeriods`
+   lookup are added by P1's migration, nullable and defaultless. **Nothing writes them, nothing
+   validates them, and no screen shows them.** They ride this migration because the alternative is a
+   second migration against a table P1 has already rewritten.
+
+   Three legacy rules over them are **deliberately not implemented**: the mandatory
+   reason + discharge + final **triple**; the leaving **reason gating** the record; and the
+   `EnterDate ≤ DischargeDate ≤ FinalEmploymentDate` **date ordering**. Each is a behaviour with its
+   own edge cases, and guessing one now would cost the portion that builds it an undo first. A
+   default on any of these columns would itself be a decision about what the value means, made by the
+   portion that is explicitly declining to make it. **This needs a portion**, alongside the
+   `LeavingReason`/`LeaveNoticePeriods` maintenance surface the As-built note also defers — the two
+   are the same gap seen from the write side and the admin side.
+
+6. **`LeaverComments` is excluded from `GET /api/me/employee`.** *(User, 2026-08-15.)* The leaver
+   comments are HR's note **about** this person — "poor timekeeping", "would not re-hire" — so
+   returning the whole employee row put somebody's assessment of them into the JSON their own browser
+   receives. Everything else on the record stays: the employment window and the leaving reason are
+   facts about their own employment, not an opinion of them, and hiding those would make the
+   self-service page lie about their own status.
+
+   Recorded with its limitation, because it is one a later plan must close: this is a **field-level
+   exclusion hard-coded at a single endpoint, and that is not a permission model.** The list and
+   detail endpoints still return `LeaverComments` to any holder of `employees.view`. Plan 004's
+   field-group rights are where the general rule belongs (§*Out of scope* already blocks bank details
+   and salary on the same plan for the same reason).
 
 ## Open questions for the user
 
