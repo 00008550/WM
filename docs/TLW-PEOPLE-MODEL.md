@@ -550,6 +550,33 @@ construction. But `ARCHITECTURE.md:171` attributes WM's direction to TLW: *"(TLW
 …)"*. That is the same class of error as the `WebPages` and one-role-per-user findings: a design
 choice credited to legacy that legacy does not make. Correction proposed in §10.
 
+> **Added 2026-08-18 (plan 009's audit) — the *cardinality* was never measured, and it is not
+> one-to-one.** §4.3 established the *direction* of the link and stopped there.
+> `ARCHITECTURE.md:172` says *"The link is optional and one-to-one"* and §13's user↔employee row
+> says *"one-to-one enforced"*. Neither is a fact about TLW:
+>
+> | Measured | |
+> |---|---|
+> | `HorioDB.designer.cs:7834-7845` | `AssociationAttribute(Name="User_Employee", Storage="_Employees", ThisKey="Id", OtherKey="UserId")` over **`EntitySet<Employee> Employees`** — plural. **One user, many employees.** |
+> | `HorioDB.designer.cs:30451` | `Employees.UserId` is `DbType="Int"`, nullable; the model expresses no uniqueness |
+> | `AuthorizationService.GetEmployeeIdOfUser:1091-1104` | `db.Employees.Where(e => e.UserId == userId).Select(e => e.Id).FirstOrDefault()` — **no `OrderBy`** |
+> | `AuthorizationService.DepartmentOfCurrentUser:1106-1115` | a *second* unordered `FirstOrDefault()` over the same set, selecting `DepartmentId` instead |
+>
+> So legacy permits the many-link and then resolves it arbitrarily, in two places that need not
+> agree: with two employees on one user, *"who am I?"* and *"which department am I in?"* can come
+> from **different rows**, and the answer may change with the query plan.
+> `GetUserByEmployeeId:788-800` is `SELECT TOP 1` in the other direction for the same reason.
+>
+> **WM's one-to-one is an improvement WM invented, not a port** — and it should be described that
+> way. Classification: **Invert**. Plan 009 P5 measures what enforcing it actually costs: the rule
+> lives only in `UserManagementService.cs:91` and `:144`, and there is **no unique index on
+> `Users.EmployeeId`** — `IdentityDbContextModelSnapshot.cs:257-265` declares `Email` and
+> `UserName` as the table's only unique indexes, while `EmployeeId` at `:230-231` carries none.
+>
+> Two corrections are therefore owed to `ARCHITECTURE.md`, both **propose-only**: §1–§12 are design
+> sections, and §13 is being edited by [#62](https://github.com/00008550/WM/pull/62) as this is
+> written. Concrete diffs are in plan 009's *Open questions*.
+
 ### 4.4 `Employees.RoleId` — a second, undocumented role pointer
 
 `dbo.Employees.RoleId` (`:29811`) exists alongside `dbo.UsersInRoles`. `TLW-AUTHORIZATION-MODEL.md`
