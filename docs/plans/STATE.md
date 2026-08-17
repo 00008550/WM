@@ -327,7 +327,7 @@ the access model.
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both merged** — `5406575`, `1240dbc`; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
-| **007** | **The person record: employment as a date, and three defects under it** | 5 (**P1 built — in review**; P2 next in lane C) | **in-progress — approved by the user 2026-08-06, all 5 portions** |
+| **007** | **The person record: employment as a date, and three defects under it** | 5 (**P1 review passed 2026-08-17, open as [#61](https://github.com/00008550/WM/pull/61)**; P2 next in lane C) | **in-progress — approved by the user 2026-08-06, all 5 portions** |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first**; **007 adds field-group write rights to its scope** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision, and now also on 007 P1** (a replay cannot know who was employed on the day replayed) |
 
@@ -381,10 +381,14 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
 
 **Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b merged 2026-08-11 as
 [#57](https://github.com/00008550/WM/pull/57), `1462c0f`), with **006 P1** the lane B alternative
-once 005 P3 has landed. In lane C, **007 P1 is built and in review**; **007 P2** is the next candidate
-there. 006 P2 and P3 have merged (`5406575`, `1240dbc`).
+once 005 P3 has landed. In lane C, **007 P1 has passed review and is open as
+[#61](https://github.com/00008550/WM/pull/61)**; **007 P2** is the next candidate there. 006 P2 and
+P3 have merged (`5406575`, `1240dbc`).
 
-**007 P1 — employment is a date, not an enum — built 2026-08-14, in review.** `Employee` carries
+**007 P1 — employment is a date, not an enum — review passed 2026-08-17 (round 3), open as
+[#61](https://github.com/00008550/WM/pull/61) against `master`. Squash-merge it:** `d132c65` is a
+work-in-progress checkpoint whose "do not merge" message is stale and vanishes under a squash.
+`Employee` carries
 `EmployedFrom` / `EmployedUntil` (last day **inclusive**) / `IsSuspended`; `EmployeeStatus` is
 derived at a reference date and **never stored**, so it cannot disagree with the dates the way
 `dbo.ActiveEmployeesView` does. The leaver record lands with it — a `LeavingReason` lookup (**seeded
@@ -467,6 +471,7 @@ writes them.)*
 | — | survey just-in-time; the `OnLeave` assumption measured | [#49](https://github.com/00008550/WM/pull/49) | ✅ merged to master (`8b005c2`) |
 | — | the WM presence mark, used as the favicon | [#55](https://github.com/00008550/WM/pull/55) | ✅ merged to master (`b3f91d2`) |
 | 003 | P2b — scope the employee writes | [#57](https://github.com/00008550/WM/pull/57) | 🔍 review passed 2026-08-11 (round 2 — both low findings closed on the branch), open against `master` |
+| 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | 🔍 review passed 2026-08-17 (round 3 — F1 data-loss fix and three `STATE.md` claims verified), open against `master`; **squash-merge** |
 
 ## In flight
 

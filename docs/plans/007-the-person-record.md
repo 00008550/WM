@@ -295,7 +295,7 @@ the status dropdown; the list shows the derived badge.
 
 ## Portions
 
-### [ ] P1 — Employment is a date, not an enum  ·  built 2026-08-14 on `feat/007-p1`, awaiting review
+### [x] P1 — Employment is a date, not an enum  ·  review passed 2026-08-17 (round 3), open as [#61](https://github.com/00008550/WM/pull/61)
 **Touches:** `src/Modules/People/WM.Modules.People/Domain/Employee.cs`,
 `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs` (list projection, upsert,
 `EmployeeDirectory`), `Contracts/EmployeeDirectory.cs`, `Data/PeopleSeeder.cs`;
