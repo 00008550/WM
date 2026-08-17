@@ -159,7 +159,7 @@ public sealed class EmployeeWriteScopeTests
         LastName = "Employee",
         SiteId = siteId,
         DepartmentId = departmentId,
-        HireDate = new DateOnly(2024, 1, 15),
+        EmployedFrom = new DateOnly(2024, 1, 15),
     };
 
     private static EffectiveDataScope Sites(params Guid[] siteIds) =>

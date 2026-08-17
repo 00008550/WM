@@ -28,7 +28,7 @@ public sealed class DemoUserSeeder(
             return;
 
         // Seeding runs at startup with no signed-in user, so it must bypass data scope.
-        var active = await employees.ListAllActiveUnscopedAsync(ct);
+        var active = await employees.ListEmployedOnUnscopedAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct);
         if (active.Count < 3)
             return;
 

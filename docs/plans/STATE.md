@@ -327,7 +327,7 @@ the access model.
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both merged** — `5406575`, `1240dbc`; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
-| **007** | **The person record: employment as a date, and three defects under it** | **5** | **draft — awaiting approval. P1 built on `feat/007-p1` (`e482f83`) and provenance-audited 2026-08-14: window design confirmed against legacy, `OnLeave` deletion confirmed correct, but `Employment.IsEmployedOn` folds `IsSuspended` into the window against the plan's own P1 note, and the leaver record is 3 of legacy's 6 fields. See the ⛔ block under P1.** |
+| **007** | **The person record: employment as a date, and three defects under it** | 5 (**P1 review passed 2026-08-17, open as [#61](https://github.com/00008550/WM/pull/61)**; P2 next in lane C) | **in-progress — approved by the user 2026-08-06, all 5 portions** |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first**; **007 adds field-group write rights to its scope** |
 | 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision, and now also on 007 P1** (a replay cannot know who was employed on the day replayed) |
 
@@ -379,10 +379,43 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
 - **007 P1 unblocks 002.** If plan 002 is approved before 007 P1 lands, its replay has no way to
   know who was employed on the day it replays.
 
-**Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b passed review 2026-08-11
-and is open as [#57](https://github.com/00008550/WM/pull/57)), with **006 P1** the lane B alternative
-once 005 P3 has landed, and **007 P1/P2** the lane C candidates **once 007 is approved** — the
-builder refuses `draft`. 006 P2 and P3 have merged (`5406575`, `1240dbc`).
+**Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b merged 2026-08-11 as
+[#57](https://github.com/00008550/WM/pull/57), `1462c0f`), with **006 P1** the lane B alternative
+once 005 P3 has landed. In lane C, **007 P1 has passed review and is open as
+[#61](https://github.com/00008550/WM/pull/61)**; **007 P2** is the next candidate there. 006 P2 and
+P3 have merged (`5406575`, `1240dbc`).
+
+**007 P1 — employment is a date, not an enum — review passed 2026-08-17 (round 3), open as
+[#61](https://github.com/00008550/WM/pull/61) against `master`. Squash-merge it:** `d132c65` is a
+work-in-progress checkpoint whose "do not merge" message is stale and vanishes under a squash.
+`Employee` carries
+`EmployedFrom` / `EmployedUntil` (last day **inclusive**) / `IsSuspended`; `EmployeeStatus` is
+derived at a reference date and **never stored**, so it cannot disagree with the dates the way
+`dbo.ActiveEmployeesView` does. The leaver record lands with it — a `LeavingReason` lookup (**seeded
+empty**; customer vocabulary), `LeavingReasonId` and `LeaverComments(500)` — and clearing
+`EmployedUntil` clears both, as `SetEmployeesActive:151-173` does. `IEmployeeDirectory` carries the
+window and an `IsEmployedOn`, so `ListActiveAsync` becomes `ListEmployedOnAsync(date)` and no consumer
+reads People's tables. **002's blocker is cleared**: "who was employed on 3 March?" now has an answer,
+pinned by `LeaverRecordEndpointTests.The_list_derives_the_status_at_the_date_it_is_asked_about` —
+in memory, over the endpoint. No running stack was involved.
+
+Two things about it worth carrying forward:
+
+- **The migration was executed against real Postgres, and there is still no harness.** 001 P2's
+  identical promise went unwritten because none exists, so P1 did both halves and labels them
+  differently: seven xUnit tests read the migration's *operations* (round-trip, backfill-before-drop,
+  `Down` drops everything `Up` adds) and execute **no SQL**; a **one-off manual** up/down run on
+  `postgres:17-alpine` covered the SQL itself, with `Pacific/Kiritimati` set on the **database** —
+  not the session — so that EF's own migrator connection inherited UTC+14 and the
+  `AT TIME ZONE 'UTC'` cast was exercised where it actually runs. **A session-level `SET` proves
+  nothing here**: it never reaches that connection, so it passes with or without the cast. Shown by
+  falsification — guard removed *with* the database setting, the backfill landed a day out; guard
+  removed *without* it, the dates were right. Nothing re-runs the manual half. **A real Postgres test
+  harness is now the clearest gap in this repository's testing** — Docker exists on the dev box and on
+  GitHub's runners, so it is buildable; it wants a portion, not a smuggled-in dependency.
+- **`LeavingReason` has no maintenance surface.** Read-only endpoint, no create/rename/retire, no
+  screen — so the table can only be filled by SQL today. Deliberate (see the plan's As-built note),
+  and it needs a permission decision before someone improvises one.
 
 **⛔ 003 P3 now carries a blocker, added by the P2b review.** P2b turned the SPA's unconditional
 `departmentId: null` (`employees.component.ts:300`) from silent data loss into a **403 on every save
@@ -438,6 +471,7 @@ writes them.)*
 | — | survey just-in-time; the `OnLeave` assumption measured | [#49](https://github.com/00008550/WM/pull/49) | ✅ merged to master (`8b005c2`) |
 | — | the WM presence mark, used as the favicon | [#55](https://github.com/00008550/WM/pull/55) | ✅ merged to master (`b3f91d2`) |
 | 003 | P2b — scope the employee writes | [#57](https://github.com/00008550/WM/pull/57) | 🔍 review passed 2026-08-11 (round 2 — both low findings closed on the branch), open against `master` |
+| 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | 🔍 review passed 2026-08-17 (round 3 — F1 data-loss fix and three `STATE.md` claims verified), open against `master`; **squash-merge** |
 
 ## In flight
 

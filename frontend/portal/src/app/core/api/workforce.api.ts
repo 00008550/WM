@@ -19,8 +19,19 @@ export interface EmployeeRow {
   email: string | null;
   jobTitle: string | null;
   siteId: string;
+  departmentId: string | null;
+  /** First day of employment, inclusive. */
+  employedFrom: string;
+  /** Last day of employment, **inclusive**; null means open-ended. */
+  employedUntil: string | null;
+  isSuspended: boolean;
+  leavingReasonId: string | null;
+  leaverComments: string | null;
+  /** Derived by the API from the window above, as at `asAt`. Never stored — see 007 P1. */
   status: number;
-  hireDate: string;
+  isEmployed: boolean;
+  /** The date `status` and `isEmployed` were computed for (the `employedOn` query, default today). */
+  asAt: string;
 }
 
 export interface Site {
@@ -39,9 +50,23 @@ export interface EmployeeUpsert {
   jobTitle: string | null;
   siteId: string;
   departmentId: string | null;
-  hireDate: string | null;
-  /** 0 Active, 1 On leave, 2 Terminated. Ignored on create. */
-  status?: number;
+  employedFrom: string | null;
+  /**
+   * Last day of employment, inclusive; null ends the leaver record and **clears the reason and
+   * comments with it**, which is how someone is re-hired.
+   */
+  employedUntil?: string | null;
+  isSuspended?: boolean;
+  /** From `GET /api/leaving-reasons`. Only accepted alongside an `employedUntil`. */
+  leavingReasonId?: string | null;
+  leaverComments?: string | null;
+}
+
+/** A maintained, per-customer vocabulary. Ships empty; retired entries stay readable. */
+export interface LeavingReason {
+  id: string;
+  name: string;
+  isActive: boolean;
 }
 
 export interface LivePresenceEntry {
@@ -83,6 +108,10 @@ export class WorkforceApi {
 
   sites(): Observable<Site[]> {
     return this.http.get<Site[]>(`${this.base}/api/sites`);
+  }
+
+  leavingReasons(): Observable<LeavingReason[]> {
+    return this.http.get<LeavingReason[]>(`${this.base}/api/leaving-reasons`);
   }
 
   createEmployee(request: EmployeeUpsert): Observable<EmployeeRow> {

@@ -46,7 +46,7 @@ import { IconComponent } from '../../core/ui/icon.component';
               <th class="py-3 pr-4 font-medium">Code</th>
               <th class="py-3 pr-4 font-medium">Name</th>
               <th class="py-3 pr-4 font-medium">Role</th>
-              <th class="py-3 pr-4 font-medium">Hired</th>
+              <th class="py-3 pr-4 font-medium">Employed</th>
               <th class="py-3 pr-4 font-medium">Status</th>
               <th class="py-3 font-medium"></th>
             </tr>
@@ -81,7 +81,12 @@ import { IconComponent } from '../../core/ui/icon.component';
                     </div>
                   </td>
                   <td class="py-3 pr-4 text-muted">{{ employee.jobTitle ?? '—' }}</td>
-                  <td class="py-3 pr-4 num text-xs text-muted">{{ employee.hireDate | date: 'MMM y' }}</td>
+                  <td class="py-3 pr-4 num text-xs text-muted">
+                    {{ employee.employedFrom | date: 'MMM y' }}
+                    @if (employee.employedUntil) {
+                      <span class="text-muted/60">→ {{ employee.employedUntil | date: 'MMM y' }}</span>
+                    }
+                  </td>
                   <td class="py-3 pr-4">
                     <span class="font-mono text-[9px] px-1.5 py-0.5 rounded-sm border"
                           [class]="statusClass(employee.status)">{{ statusLabel(employee.status) }}</span>
@@ -187,21 +192,32 @@ import { IconComponent } from '../../core/ui/icon.component';
           </select>
         </label>
 
-        <label class="block">
-          <span class="text-xs uppercase tracking-widest text-muted">Hire date</span>
-          <input [(ngModel)]="form.hireDate" type="date"
-                 class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm num focus:border-pulse/60" />
-        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-xs uppercase tracking-widest text-muted">Employed from</span>
+            <input [(ngModel)]="form.employedFrom" type="date"
+                   class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm num focus:border-pulse/60" />
+          </label>
+          @if (!isNew()) {
+            <label class="block">
+              <span class="text-xs uppercase tracking-widest text-muted">Employed until</span>
+              <input [(ngModel)]="form.employedUntil" type="date"
+                     class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm num focus:border-pulse/60" />
+              <span class="block text-[11px] text-muted/60 mt-1">Last day, inclusive. Blank = still employed.</span>
+            </label>
+          }
+        </div>
 
         @if (!isNew()) {
-          <label class="block">
-            <span class="text-xs uppercase tracking-widest text-muted">Status</span>
-            <select [(ngModel)]="form.status"
-                    class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm focus:border-pulse/60">
-              <option [ngValue]="0">Active</option>
-              <option [ngValue]="1">On leave</option>
-              <option [ngValue]="2">Terminated</option>
-            </select>
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input [(ngModel)]="form.isSuspended" type="checkbox"
+                   class="mt-0.5 accent-amber w-4 h-4 bg-raised border border-line rounded" />
+            <span>
+              <span class="text-xs uppercase tracking-widest text-muted">Suspended</span>
+              <span class="block text-[11px] text-muted/60">
+                Administratively barred from attending. Separate from leaving, and it does not set a date.
+              </span>
+            </span>
           </label>
         }
 
@@ -273,7 +289,16 @@ export class EmployeesComponent implements OnInit {
     this.form = {
       code: e.code, firstName: e.firstName, lastName: e.lastName,
       email: e.email ?? '', phone: '', jobTitle: e.jobTitle ?? '',
-      siteId: e.siteId, hireDate: (e.hireDate ?? '').slice(0, 10), status: e.status,
+      siteId: e.siteId,
+      employedFrom: (e.employedFrom ?? '').slice(0, 10),
+      employedUntil: (e.employedUntil ?? '').slice(0, 10),
+      isSuspended: e.isSuspended,
+      // Carried, not edited. This modal has no editor for either field (there is no maintenance
+      // surface for the reason vocabulary yet — 007 P1's As-built note), but `PUT` is a FULL
+      // REPLACE: omitting them wiped the leaver record on any unrelated edit, so correcting a job
+      // title left a leaver with no reason and no comments and nothing to recover them from.
+      leavingReasonId: e.leavingReasonId ?? '',
+      leaverComments: e.leaverComments ?? '',
     };
     this.isNew.set(false);
     this.error.set(null);
@@ -289,6 +314,10 @@ export class EmployeesComponent implements OnInit {
     this.busy.set(true);
     this.error.set(null);
 
+    // Blank means "no leaving date", which the API treats as un-leaving: it clears the reason and
+    // the comments too. Sending it on create as well keeps the body one shape.
+    const employedUntil = this.form.employedUntil || null;
+
     const payload: EmployeeUpsert = {
       code: this.form.code.trim(),
       firstName: this.form.firstName.trim(),
@@ -298,8 +327,15 @@ export class EmployeesComponent implements OnInit {
       jobTitle: this.form.jobTitle.trim() || null,
       siteId: this.form.siteId,
       departmentId: null,
-      hireDate: this.form.hireDate || null,
-      status: this.form.status,
+      employedFrom: this.form.employedFrom || null,
+      employedUntil,
+      isSuspended: this.form.isSuspended,
+      // The leaver record travels back out with the rest of the body, because the body is a full
+      // replace. Cleared with the date rather than merely carried: the API refuses a reason with no
+      // last day (`PeopleModule.Validate`), so sending a stale reason alongside a blanked date would
+      // turn the re-hire path into a 400.
+      leavingReasonId: employedUntil ? this.form.leavingReasonId || null : null,
+      leaverComments: employedUntil ? this.form.leaverComments.trim() || null : null,
     };
 
     const done = {
@@ -318,7 +354,8 @@ export class EmployeesComponent implements OnInit {
   private blank() {
     return {
       code: '', firstName: '', lastName: '', email: '', phone: '', jobTitle: '',
-      siteId: '', hireDate: '', status: 0,
+      siteId: '', employedFrom: '', employedUntil: '', isSuspended: false,
+      leavingReasonId: '', leaverComments: '',
     };
   }
 
@@ -333,14 +370,19 @@ export class EmployeesComponent implements OnInit {
     return `hsl(${((hash % 360) + 360) % 360} 55% 62% / ${alpha})`;
   }
 
+  /**
+   * Derived by the API from the employment window, never stored — so these labels describe a date's
+   * answer as at `asAt`, not a field somebody set. 0 Active, 1 Suspended, 2 Leaver, 3 Not yet started.
+   */
   statusLabel(status: number): string {
-    return ['ACTIVE', 'ON LEAVE', 'TERMINATED'][status] ?? '?';
+    return ['ACTIVE', 'SUSPENDED', 'LEAVER', 'STARTS LATER'][status] ?? '?';
   }
 
   statusClass(status: number): string {
     return [
       'text-pulse border-pulse/40 bg-pulse/10',
       'text-amber border-amber/40 bg-amber/10',
+      'text-muted border-line bg-raised',
       'text-muted border-line bg-raised',
     ][status] ?? '';
   }
