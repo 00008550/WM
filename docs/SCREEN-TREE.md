@@ -428,6 +428,21 @@ tree was missing:
 And one correction to the **permission model**, which matters more than the tree: group
 scoping has **five** structural dimensions, not two. See §3.
 
+### Correction, 2026-08-14 — two leaver-vocabulary setup screens, one of them unrecorded
+
+Surveying the employment/leaver area for plan 007 found that the *Personnel setup* branch owns
+**two** customer-maintained leaver lookups, each with a list + add + edit screen. Only the first
+was implied by this tree, and neither was named:
+
+| Screen set | Controller | Views | Table |
+|---|---|---|---|
+| **Leave reasons** | `PersonnelSetupController/LeaveReasonsController` | menu key `Menu_Personnel_LeaveReasons` | `dbo.LeaveReasons` (3 cols, `HorioDB.designer.cs:53169-53209`) |
+| **Leave notice periods** | `PersonnelSetupController/LeaveNoticePeriodsController.cs` (+ `Logic/Settings/LeaveNoticePeriodService.cs`, `ILeaveNoticePeriodService.cs`) | `Views/PersonnelSetup/LeaveNoticePeriods.cshtml`, `AddLeaveNoticePeriod.cshtml`, `EditLeaveNoticePeriod.cshtml`, tab in `_Tabs.cshtml` | `dbo.LeaveNoticePeriods` (2 cols, `:182854-182874`) |
+
+Both feed dropdowns on the employee **Leaver** tab
+(`Views/Personnel/Controls/_Leaver.cshtml:7-11`, `:17-20`). WM plan 007 P1 builds the first and has
+no owner for the second. Detail in `TLW-PEOPLE-MODEL.md` §4.1b.
+
 Confirmed dropped after checking: `Events` (AC event types), `Timezone` (door-access
 timezones, unrelated to site time zones), `BulkRegistration` (student lesson
 registration), `Inventory`/`PaymentType`/`ReceiptStatus`/`TipManagement` and the

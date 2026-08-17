@@ -129,12 +129,18 @@ Three states, filtered independently: active / leaver / inactive
 (`Database/Versioning/77.V5.23.0.0.sql`) pushes a **delete** task to every device the moment
 `IsActive` goes 1→0.
 
-> **And legacy still got it wrong once, in the obvious way.** `dbo.ActiveEmployeesView` (latest
-> revision `Database/Versioning/78.V5.24.0.0.sql:74-80`) reads
-> `WHERE IsActive = 1 AND DischargeDate IS NULL OR DischargeDate >= CAST(GETDATE() AS date)`.
-> `AND` binds tighter than `OR`, so an **inactive** employee with a future discharge date is
-> returned as active — and can badge in. That is the argument for computing employment **once**,
-> in one place, rather than re-deriving it in every query.
+> **And legacy got it wrong once, in the obvious way — then fixed it.**
+> ~~`dbo.ActiveEmployeesView` (latest revision `Database/Versioning/78.V5.24.0.0.sql:74-80`)~~
+> **Corrected 2026-08-14:** `78.V5.24.0.0.sql:74-80` is the **third of four** revisions, not the
+> latest. `WHERE IsActive = 1 AND DischargeDate IS NULL OR DischargeDate >= CAST(GETDATE() AS date)`
+> did mean `(IsActive = 1 AND DischargeDate IS NULL) OR (DischargeDate >= today)` between v5.22 and
+> v5.24 — but **`79.V5.25.0.0.sql:728-734` added the parentheses** and no later script redefines the
+> view. The shipping product is correct here. See `TLW-PEOPLE-MODEL.md` §4.1's 2026-08-14 correction
+> block for the full four-revision table and the method note about citing `Versioning/`.
+>
+> The design argument is unaffected and does not rest on this bug: employment should be computed
+> **once**, in one place, because legacy re-derives it in six and needed three releases to notice one
+> typo in one of them.
 
 ### Identity: two uniqueness rules, both stricter than WM's
 
@@ -634,6 +640,76 @@ deactivating a reason leaves existing references readable and stops it being off
 > the portion that gates the leaver record on a reason is **the same one**, never an earlier one
 > (decision 5's ordering note: gating an unfillable empty lookup makes the leaver record
 > unreachable).
+> ### ✅ Provenance audit of P1 as built (2026-08-14) — **both findings resolved before merge**
+>
+> P1 was built at `e482f83` and commits a migration that drops `Status`. This audit re-measured its
+> five load-bearing claims against `E:\Tlw` only. **Three held as written. Two did not** — both were
+> fixed on this branch before it merged, and each is annotated below with what happened. The measured
+> ground truth in the "Holds" section stands as the citation of record. Evidence in
+> `TLW-PEOPLE-MODEL.md` §4.1b and §4.1c.
+>
+> **Holds — measured, correct, no change needed:**
+> - `dbo.IsActiveEmployment(@dischargeDate DATE, @referenceDate DATE) RETURNS BIT`,
+>   `76.V5.22.0.0.sql:25-38`, defined exactly once and never redefined. Last day **inclusive**
+>   (`@dischargeDate < @referenceDate THEN 0`), NULL ⇒ employed. 37 call sites across 21 C# files
+>   plus the SQL estate. "20+" was conservative.
+> - Employment-as-a-date, and the derived three-value label. `PersonnelModels.cs:1741-1744` computes
+>   `Status` from `IsActive` × `IsLeaver` and stores nothing. Precedence there is
+>   **suspended wins over leaver**, which is what `Employment.StatusOn` does.
+> - `OnLeave` has no legacy counterpart. Re-tested independently of the 2026-08-06 narrow check: the
+>   status filter takes exactly three flags (`FilterEmployeesByStatus:1848-1852`), the grid badge
+>   renders exactly three (`Views/Personnel/Index.cshtml:343`), and absence is per-day and
+>   morning/afternoon (`Documentation/Absences Configuration.md`). **The deletion was correct.**
+>
+> **Did not hold — 1. `IsSuspended` was folded into `IsEmployedOn`. ✅ FIXED at `d132c65`** — the
+> parameter was dropped from `IsEmployedOn` / `EmployedOn`, suspension stays in `StatusOn`, and every
+> call site now composes the two halves. Review round 3 mutated the fold back in and confirmed two
+> tests catch it. The finding as originally written follows.
+> `Employment.IsEmployedOn` returns `!isSuspended && employedFrom <= on && …`. Legacy never fuses
+> them: `ActiveNotFired()` *is* `Active().NotFired()` (`EmployeeExtensions.cs:22-27`), `NotFired()`
+> ships alone in five production paths, and `dbo.IsActiveEmployment` cannot see `IsActive` at all.
+> The note at `:348-350` of this plan said *"do not fold `IsSuspended` into the employment window"*
+> and the built `Employee.cs` doc-comment repeats the reason — then folds it. Consequence:
+> `IEmployeeDirectory.ListEmployedOnAsync(date)` silently drops suspended people from every
+> "who was employed on D" question, including the ones P2 and plan 002 will ask.
+> **Fix is small and pre-merge:** drop the `isSuspended` parameter from `IsEmployedOn` /
+> `EmployedOn`, keep it in `StatusOn`, and let callers compose (`IsEmployedOn(d) && !IsSuspended`)
+> exactly as legacy does. See §4.1c.
+>
+> **Did not hold — 2. The leaver record is six fields and two lookups, not three and one.**
+> **◐ SCHEMA CLOSED at `d132c65`, RULES DEFERRED by user decision 2026-08-15** — all six fields and
+> both lookups now exist (`ResignationDate`, `FinalEmploymentDate`, `LeaveNoticePeriodId` and the
+> `LeaveNoticePeriods` table are stored but not yet read). The three legacy *rules* below — the
+> mandatory triple, the reason gating, and the date ordering — are adopted in principle and deferred
+> to a later portion, which **must also build the lookup maintenance surface**: gating on an
+> unfillable empty lookup would make the leaver record unreachable. See decision 5. The finding as
+> originally written follows.
+> `_Leaver.cshtml` renders `LeaveReasonId`, **`LeaveNoticePeriodId`**, `DischargeDate`,
+> **`ResignationDate`**, **`FinalEmploymentDate`**, `AdditionalLeaverComments`. Three of the six and
+> the whole `dbo.LeaveNoticePeriods` lookup (own service, own controller, own three screens) were
+> not in the 2026-08-06 correction and so not in P1. Worse, legacy enforces rules P1 does not know
+> about:
+> - leaving is an **all-or-nothing triple** — reason + discharge + final date, server-side
+>   (`PersonnelModels.cs:1354-1368`). P1 makes the reason optional and omits the final date.
+> - the **reason gates the record** — every leaver date is disabled and cleared while it is empty
+>   (`addEditEmployee.js:1104-1143`). P1 seeds `LeavingReason` **empty**, which under legacy's rule
+>   would make it impossible to record any leaver.
+> - `EnterDate ≤ DischargeDate ≤ FinalEmploymentDate`, enforced in the pickers; P1 has no ordering
+>   constraint between `EmployedFrom` and `EmployedUntil` at all.
+>
+> **None of this invalidates the migration's shape.** `EmployedFrom` / `EmployedUntil` /
+> `IsSuspended` / `LeavingReasonId` / `LeaverComments` are all right, all measured, and the
+> `Active→open` / `OnLeave→suspended` / `Terminated→dated` backfill is sound. What is missing is
+> additive. The one thing that should not ship as-is is the `isSuspended` fold, because it changes
+> the meaning of a contract other portions are about to build on.
+>
+> **Newly measured, no owner in WM, and not among §3.1's 33 as *behaviour*:** the
+> `Employees_Update_Trigger` accrual invalidation (`87.V5.33.0.0.sql:768-806`) — editing
+> `EnterDate`, `DischargeDate`, `ContinuousServiceDate` or `FinalEmploymentDate` **deletes the
+> employee's stored accrual history and requeues recalculation from their start date**. An
+> `EmployedFrom`/`EmployedUntil` edit in WM is therefore a recalculation event, and P1 raises no
+> event at all. Candidate portion. See §4.1b point 6. **Now also recorded as its own `ARCHITECTURE.md`
+> §13 row** ("Employment-date edit ⇒ accrual invalidation"), so it survives outside this plan.
 
 ### [ ] P2 — The punch boundary fails closed
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
