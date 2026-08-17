@@ -147,6 +147,13 @@ The second-largest unsurveyed surface. Not "settings" in a trivial sense — it 
   `QrExpensesEnabled`, `QrDocumentsEnabled`, `QrAbsencesEnabled`, `QrStatisticsEnabled`,
   `QrSwipeRadius`, `QrProcessSwipeWithoutGeo` — 12 toggles. WM plans "QR punching" as one line.
 - **Temporal**: `SystemTimeZone`, `CompanyStartDate`, `YearStartDate`, `WeekNoCalculationMethod`.
+  **Measured 2026-08-14:** `SystemTimeZone` (`NVarChar(250)`, `:70819`) is the **only** geographic
+  time zone in the product outside `Devices.TimeZoneCode` — there is none on `Locations` (4 cols),
+  `Buildings` (5), `ClientSites` (12), `Employees` (153) or `[User]` (30). It is a **Windows** id,
+  it is a singleton (`.Single()`), and it silently falls back to the server's clock in **seven**
+  places when unset. Across the whole model: `time` **577** · `datetime` **457** · `date` **146** ·
+  `datetimeoffset` **6**, and none of the six is attendance —
+  [`TLW-TIME-MODEL.md`](./TLW-TIME-MODEL.md).
 - **Retention/audit**: `NumberOfDaysToKeepLogs`, `RequireFullLogging`.
 - **Policy**: `IsEmployeeContractCompulsory`, `AllowAbsenceRequestsInPast`, `AllowedIps`.
 - Display defaults: `ShowNonActiveByDefault`, `ShowFiredByDefault`, `PageSize`, …

@@ -57,6 +57,50 @@ Three properties that WM's `Punch` model does not have:
    on the *previous* and *next* day's daily template (night-shift end time, offset-to-next-day,
    allocate-to-previous/next-day). Change a template and swipes move between days.
 
+### 2.3a Where that calculation actually lives *(measured 2026-08-14)*
+
+It is a **T-SQL scalar function**, not C#: `dbo.ProcessQueryGetClockingForSwipe(@employeeid int,
+@swipeTime datetime)`, defined at `Database\Versioning\30.V3.0.0.ProcessQuery module.sql:429-528`.
+That is the **only** definition in the whole `Database` tree; later scripts only call it
+(`67.V5.13.0.0.sql:3321`, `:3898`; `73.V5.19.0.0.sql:232`). Nothing in `Source\Logic` implements it —
+a `Grep` for `InterswipeIntervalToMoveToYesterday` across `Logic` hits only the generated model
+(`HorioDB.designer.cs`, `HorioDB.dbml`), and `NightShiftStartTime` / `ShiftToSunday` appear in
+`Logic` in no hand-written file at all.
+
+It opens by discarding the instant — `convert(date, @swipeTime)` / `convert(time, @swipeTime)`
+(`:440-441`) — and then runs **five** branches, first match wins:
+
+| # | Rule | Column | Line |
+|---|---|---|---|
+| 1 | → yesterday if `@time <` yesterday's `NightShiftEndTime` | `DailyModels.NightShiftEndTime` | `:449-454` |
+| 2 | → tomorrow if tomorrow's template has `ShiftToSunday = 1` and `@time > NightShiftStartTime` | `ShiftToSunday`, `NightShiftStartTime` | `:457-463` |
+| 3 | → yesterday if no swipes today and `yesterday + firstSwipe + interval > @swipeTime` | `InterswipeIntervalToMoveToYesterday` | `:465-494` |
+| 4 | → yesterday if yesterday's template is `ModelType = 7` (shift matching) and a matched model has `NightShiftEndTime > @time` | `DailyModelShiftMatchingRules` | `:496-524` |
+| 5 | → today | — | `:527` |
+
+Three things this adds to §2.3 above:
+
+- **Branch 4 is a full fifth rule.** `Documentation\Swipe to clocking allocation.md` gives it one
+  sentence at `:55` and no worked example.
+- **No time zone enters at any point.** Every comparison is `time` against `time`. See
+  [`TLW-TIME-MODEL.md`](./TLW-TIME-MODEL.md) §3.
+- **A swipe whose resolved day has no pre-generated clocking row is rejected** — the function
+  returns `NULL` and the caller answers `'Clock Record not found'`, filing the swipe as unsuccessful
+  (`73.V5.19.0.0.sql:233-256`). This is the mechanism behind
+  `Documentation\Troubleshooting\No Calendar (Clockings) for employee.md`, and it means §2.2's
+  pre-generated calendar is **load-bearing, not a convenience**.
+
+The vault documents four UI labels; the columns behind them
+(`WebSite\Views\DailyModel\_AddEditDailyModelControls.cshtml:1527-1539`) are:
+*Night Shift End Time* → `NightShiftEndTime`; *Offset Transaction to Next Day* → **`ShiftToSunday`**
+(a `Bit`; the name is historical); *If the swipe is after* → `NightShiftStartTime`;
+*Allocate Transactions to Previous/Next Day* → `InterswipeIntervalToMoveToYesterday`.
+
+Finally, the time of day **survives the move**: after allocation the caller re-composes
+`@dateTime = CONVERT(datetime, @time) + CONVERT(datetime, @date)` (`73.V5.19.0.0.sql:259-260`), so a
+02:00 swipe allocated to the previous day is stored as **02:00 on that previous day** — deliberately
+not the instant it happened.
+
 ---
 
 ## 3. Anatomy of the 249 columns
@@ -77,6 +121,15 @@ Three properties that WM's `Punch` model does not have:
 
 Keeping the raw device time *and* the adjusted time side by side is deliberate: rounding is
 auditable and reversible. WM's `Punch` keeps one timestamp.
+
+> **Every one of those slots is SQL `Time` — a naked time of day** (`HorioDB.designer.cs:21446`
+> onward), hung off a single `Clockings.Date DateTime` (`:21426`). There is no offset and **no
+> column that says which calendar day the N-th slot falls on**, so `Date + BadgeTimeN` is not an
+> instant. Two shipped legacy exports get this wrong in the obvious way: People First emits an
+> overnight `End` 22 hours *before* its `Start` (`TimeHelper.cs:198-200`) and Sage HR throws
+> `Time in > Time out` and drops the whole clocking (`TimeSheetService.cs:148`).
+> **Any WM projection that reproduces the flat 12-slot shape must carry the day-carry explicitly**
+> or it inherits both bugs. Measured 2026-08-14 — [`TLW-TIME-MODEL.md`](./TLW-TIME-MODEL.md) §4a.
 
 ### 3b. Twenty pay categories — fixed slots
 `CPTN01 … CPTN20`, `decimal(12,5)`. TLW's own SQL guide maps them explicitly:
