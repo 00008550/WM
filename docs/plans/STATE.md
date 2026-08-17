@@ -217,7 +217,7 @@ attached. *(Plan 006 P2 adds `/health/ready` and will trip that test on purpose.
 to `master`. **Branch protection is not enabled**, so nothing enforces it yet; raised as 006 open
 question 5.
 
-**P2b passed review 2026-08-11 and is open as [#57](https://github.com/00008550/WM/pull/57)** — A2 is
+**P2b passed review 2026-08-11 and merged as [#57](https://github.com/00008550/WM/pull/57) (`1462c0f`)** — A2 is
 now fully closed: `POST /api/employees` refuses a destination outside the caller's scope and
 `PUT /api/employees/{id}` checks the post-image as well as the pre-image, so a manager can no longer
 file someone where they will not then be able to see them. It reuses `EffectiveDataScope.CanSee`
@@ -381,9 +381,22 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
 
 **Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b merged 2026-08-11 as
 [#57](https://github.com/00008550/WM/pull/57), `1462c0f`), with **006 P1** the lane B alternative
-once 005 P3 has landed. In lane C, **007 P1 has passed review and is open as
-[#61](https://github.com/00008550/WM/pull/61)**; **007 P2** is the next candidate there. 006 P2 and
-P3 have merged (`5406575`, `1240dbc`).
+once 005 P3 has landed. In lane C, **007 P1 merged 2026-08-17 as
+[#61](https://github.com/00008550/WM/pull/61) (`ead3bfc`)**; **007 P2 — the punch boundary fails
+closed** is the next candidate there, and a manual test on 2026-08-18 confirmed the defect it owns
+is live (a seven-week-old leaver was accepted into the punch feed, then hidden from presence).
+006 P2 and P3 have merged (`5406575`, `1240dbc`).
+
+> **Audit of the running app against these records, 2026-08-18.** Every ✅/⚠️ claim reachable
+> through the UI was exercised. The records held on the big things — the 007 P1 behaviour, the
+> terminated-punch ⚠️, user↔employee linking — and were wrong in four places, now corrected in
+> `ARCHITECTURE.md` §13: user management claimed a **search** the screen does not have; the
+> **effective-visibility panel is stale** and contradicts its own comment; **punch-code
+> normalisation lives in the SPA**, not the server (invariant 2); and this file still described
+> #57 and #61 as open. A fifth is an environment fact, not a defect: **this dev database has
+> drifted from the seeded baseline** — `Production Plant managers` exists in it but in no seeder —
+> so no headcount measured on that box is reproducible, which is a second reason not to copy any
+> number from it into a test.
 
 **007 P1 — employment is a date, not an enum — review passed 2026-08-17 (round 3), open as
 [#61](https://github.com/00008550/WM/pull/61) against `master`. Squash-merge it:** `d132c65` is a
@@ -470,8 +483,10 @@ writes them.)*
 | — | the person record measured: 153 columns, three defects, plan 007 | [#48](https://github.com/00008550/WM/pull/48) | ✅ merged to master (`9cf8925`) |
 | — | survey just-in-time; the `OnLeave` assumption measured | [#49](https://github.com/00008550/WM/pull/49) | ✅ merged to master (`8b005c2`) |
 | — | the WM presence mark, used as the favicon | [#55](https://github.com/00008550/WM/pull/55) | ✅ merged to master (`b3f91d2`) |
-| 003 | P2b — scope the employee writes | [#57](https://github.com/00008550/WM/pull/57) | 🔍 review passed 2026-08-11 (round 2 — both low findings closed on the branch), open against `master` |
-| 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | 🔍 review passed 2026-08-17 (round 3 — F1 data-loss fix and three `STATE.md` claims verified), open against `master`; **squash-merge** |
+| 003 | P2b — scope the employee writes | [#57](https://github.com/00008550/WM/pull/57) | ✅ merged to master (`1462c0f`) |
+| 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | ✅ merged to master (`ead3bfc`) — review passed round 3 (F1 data-loss fix + three `STATE.md` claims), squash-merged |
+| — | provenance audit of 007 P1 against legacy | [#59](https://github.com/00008550/WM/pull/59) | ✅ merged to master (`6eb52a1`) |
+| — | legacy time survey + plan 008 | [#60](https://github.com/00008550/WM/pull/60) | ✅ merged to master (`211e628`) |
 
 ## In flight
 
