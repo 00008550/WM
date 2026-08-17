@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WM.Modules.People.Data;
@@ -164,6 +165,67 @@ public sealed class LeaverRecordEndpointTests
         var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
         Assert.Equal("Corrected job title", saved.JobTitle);
         Assert.Equal(Redundancy, saved.LeavingReasonId);
+    }
+
+    [Fact]
+    public async Task The_portals_own_edit_body_leaves_the_leaver_record_intact()
+    {
+        // The reachable version of the test above, and the defect it did not catch. The modal has no
+        // editor for the reason or the comments, so until this was fixed it simply omitted them from
+        // the body — and `PUT` is a full replace. Correcting Ada's JOB TITLE returned 200 with her
+        // leaving date intact and her reason and comments set to null: from her last day she read as
+        // LEAVER with no reason, there is no audit store, and nothing could bring the answer back.
+        //
+        // The body below is the one `employees.component.ts:321-339` now builds, key for key and in
+        // its own order, so this test fails if that payload stops carrying the two fields. It is the
+        // only cover the client fix can have: the portal has no `.spec.ts` files at all.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
+
+        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+
+        var response = await client.PutAsync($"/api/employees/{Ada}", PortalEditBody(
+            jobTitle: "Shift supervisor", leavingReasonId: Redundancy, leaverComments: "Site closure."));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
+        Assert.Equal("Shift supervisor", saved.JobTitle);   // the edit the manager actually made
+        Assert.Equal(LastDay, saved.EmployedUntil);
+        Assert.Equal(Redundancy, saved.LeavingReasonId);
+        Assert.Equal("Site closure.", saved.LeaverComments);
+
+        // And the list still answers "why did they leave?", which is the question this portion exists
+        // to answer — a reason surviving only in the table is no answer. Asked as at the day after her
+        // last one, because the last day is inclusive and hers is still in the future: today she is
+        // Active with a leaving date pencilled in, which is the ordinary shape of this edit.
+        var row = await Row(client, Ada, employedOn: LastDay.AddDays(1));
+        Assert.Equal((int)EmployeeStatus.Leaver, row.GetProperty("status").GetInt32());
+        Assert.Equal(Redundancy, row.GetProperty("leavingReasonId").GetGuid());
+        Assert.Equal("Site closure.", row.GetProperty("leaverComments").GetString());
+    }
+
+    [Fact]
+    public async Task A_body_that_omits_the_leaver_fields_clears_them_because_the_PUT_is_a_full_replace()
+    {
+        // The server half of the test above, pinned deliberately rather than fixed. `PUT` replaces the
+        // whole record — 003 P2b's post-image scope check depends on the post-image being the whole
+        // record — so a client that omits a field is asking for it to be cleared, and merging instead
+        // would make "un-leave by blanking the date" unexpressible. This test exists so the next
+        // reader knows the clearing is the contract and the client is what had to change.
+        await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
+        var client = host.ClientWith(WmPermissions.EmployeesManage);
+
+        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+
+        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+            "E1001", "Ada", "Lovelace", null, null, "Shift supervisor", SiteA, null,
+            EmployedFrom: Hired, EmployedUntil: LastDay));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
+        Assert.Equal(LastDay, saved.EmployedUntil);   // the date was in the body, so it stayed
+        Assert.Null(saved.LeavingReasonId);           // these were not, so they went
+        Assert.Null(saved.LeaverComments);
     }
 
     [Fact]
@@ -344,6 +406,36 @@ public sealed class LeaverRecordEndpointTests
         // Suspension is not a leaving date, and must not have invented one.
         Assert.Null(host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada).EmployedUntil));
     }
+
+    /// <summary>
+    /// The body the employee modal sends when a manager saves an edit — written out by hand rather
+    /// than serialised from <see cref="EmployeeUpsertRequest"/>, because the point is to carry the
+    /// SPA's own keys in the SPA's own order (<c>employees.component.ts:321-339</c>). A field the SPA
+    /// stops sending is a field this test stops sending.
+    /// <para>
+    /// <c>phone</c> and <c>departmentId</c> are null because the modal has no editor for the first
+    /// and hard-codes the second. Both are pre-existing on <c>master</c> and neither belongs to 007
+    /// P1 — <c>departmentId</c> is <c>PHASE-AUDIT.md</c> B5, owned by 003 P3 and 007 P4.
+    /// </para>
+    /// </summary>
+    private static StringContent PortalEditBody(string jobTitle, Guid leavingReasonId, string leaverComments) =>
+        new($$"""
+             {
+               "code": "E1001",
+               "firstName": "Ada",
+               "lastName": "Lovelace",
+               "email": null,
+               "phone": null,
+               "jobTitle": {{JsonSerializer.Serialize(jobTitle)}},
+               "siteId": "{{SiteA}}",
+               "departmentId": null,
+               "employedFrom": "{{Hired:yyyy-MM-dd}}",
+               "employedUntil": "{{LastDay:yyyy-MM-dd}}",
+               "isSuspended": false,
+               "leavingReasonId": "{{leavingReasonId}}",
+               "leaverComments": {{JsonSerializer.Serialize(leaverComments)}}
+             }
+             """, Encoding.UTF8, "application/json");
 
     private static EmployeeUpsertRequest Leaving(DateOnly? until, Guid? reasonId = null, string? comments = null) =>
         new("E1001", "Ada", "Lovelace", null, null, null, SiteA, null,

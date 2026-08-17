@@ -293,6 +293,12 @@ export class EmployeesComponent implements OnInit {
       employedFrom: (e.employedFrom ?? '').slice(0, 10),
       employedUntil: (e.employedUntil ?? '').slice(0, 10),
       isSuspended: e.isSuspended,
+      // Carried, not edited. This modal has no editor for either field (there is no maintenance
+      // surface for the reason vocabulary yet — 007 P1's As-built note), but `PUT` is a FULL
+      // REPLACE: omitting them wiped the leaver record on any unrelated edit, so correcting a job
+      // title left a leaver with no reason and no comments and nothing to recover them from.
+      leavingReasonId: e.leavingReasonId ?? '',
+      leaverComments: e.leaverComments ?? '',
     };
     this.isNew.set(false);
     this.error.set(null);
@@ -308,6 +314,10 @@ export class EmployeesComponent implements OnInit {
     this.busy.set(true);
     this.error.set(null);
 
+    // Blank means "no leaving date", which the API treats as un-leaving: it clears the reason and
+    // the comments too. Sending it on create as well keeps the body one shape.
+    const employedUntil = this.form.employedUntil || null;
+
     const payload: EmployeeUpsert = {
       code: this.form.code.trim(),
       firstName: this.form.firstName.trim(),
@@ -318,10 +328,14 @@ export class EmployeesComponent implements OnInit {
       siteId: this.form.siteId,
       departmentId: null,
       employedFrom: this.form.employedFrom || null,
-      // Blank means "no leaving date", which the API treats as un-leaving: it clears the reason and
-      // the comments too. Sending it on create as well keeps the body one shape.
-      employedUntil: this.form.employedUntil || null,
+      employedUntil,
       isSuspended: this.form.isSuspended,
+      // The leaver record travels back out with the rest of the body, because the body is a full
+      // replace. Cleared with the date rather than merely carried: the API refuses a reason with no
+      // last day (`PeopleModule.Validate`), so sending a stale reason alongside a blanked date would
+      // turn the re-hire path into a 400.
+      leavingReasonId: employedUntil ? this.form.leavingReasonId || null : null,
+      leaverComments: employedUntil ? this.form.leaverComments.trim() || null : null,
     };
 
     const done = {
@@ -341,6 +355,7 @@ export class EmployeesComponent implements OnInit {
     return {
       code: '', firstName: '', lastName: '', email: '', phone: '', jobTitle: '',
       siteId: '', employedFrom: '', employedUntil: '', isSuspended: false,
+      leavingReasonId: '', leaverComments: '',
     };
   }
 
