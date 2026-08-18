@@ -565,7 +565,21 @@ choice credited to legacy that legacy does not make. Correction proposed in §10
 > So legacy permits the many-link and then resolves it arbitrarily, in two places that need not
 > agree: with two employees on one user, *"who am I?"* and *"which department am I in?"* can come
 > from **different rows**, and the answer may change with the query plan.
-> `GetUserByEmployeeId:788-800` is `SELECT TOP 1` in the other direction for the same reason.
+>
+> > ⚠️ **One sentence withdrawn, same-day audit 2026-08-18.** This block originally ended
+> > *"`GetUserByEmployeeId:788-800` is `SELECT TOP 1` in the other direction for the same reason."*
+> > **It is not.** The query is `SELECT TOP 1 UserId FROM dbo.Employees WHERE Id = @employeeId`
+> > (`AuthorizationService.cs:788-802`) — it filters on the **primary key**, so it can match at most
+> > one row whatever the cardinality is, and its `TOP 1` is defensive noise that evidences nothing.
+> > The employee→user direction is single-valued by construction anyway: `Employees.UserId` is one
+> > scalar column. **The finding above is unaffected** — it rests on the `EntitySet<Employee>` and on
+> > the two unordered `FirstOrDefault()`s, both re-verified verbatim — but the many-ness lives on the
+> > *employee* side only, and saying otherwise overstates it.
+> >
+> > That asymmetry is worth keeping in view, because **WM's missing constraint is the mirror image,
+> > not the same gap**: legacy leaves *many employees per user* unconstrained (`Employees.UserId`);
+> > WM leaves *many users per employee* unconstrained (`Users.EmployeeId`). Each model's schema makes
+> > the other's bad shape unrepresentable. Consequences for plan 009 P5 are set out there.
 >
 > **WM's one-to-one is an improvement WM invented, not a port** — and it should be described that
 > way. Classification: **Invert**. Plan 009 P5 measures what enforcing it actually costs: the rule

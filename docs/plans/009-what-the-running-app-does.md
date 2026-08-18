@@ -1,6 +1,35 @@
 # 009 — What the running app actually does
 
 Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+
+> ### ✅ Verification pass, 2026-08-18 — every citation opened, six corrections applied
+>
+> This plan was written by a surveyor that died mid-report, so nothing in it had been checked. It
+> has now been audited claim by claim against the tree at `ead3bfc` (the commit it measured) and
+> against `E:\Tlw`. **Every `file:line` in it resolves to what it says it does**, with the
+> exceptions corrected in place below and listed here:
+>
+> | # | Where | What was wrong |
+> |---|---|---|
+> | 1 | *Open questions* 2, P8's ⚠️ block | **The readiness endpoint IS anonymous.** The 401 that prompted the earlier "correction" came from `/health/ready` — the wrong path. Corrected there, with four independent proofs. |
+> | 2 | *Ground truth*, "Test projects that execute SQL: **0**" | `WM.Api.Tests` executes SQL against in-process SQLite. What is zero is *Postgres*, and *migrations*. Corrected — and it strengthens P4. |
+> | 3 | Legacy behaviour → leaver lookups; *Open questions* 1 | `Web.sitemap` carries **two** LeaveReasons nodes, not one. The Personnel-area one is dead. Conclusion unchanged and better evidenced. |
+> | 4 | P3 / *Target design* | The mechanical rule flags **two** things today, not one. The second is the interesting one. |
+> | 5 | P3 / *Out of scope* | **003 P3 already owns the `phone` fix by name**, not only `departmentId`. Stated rather than silently overlapped. |
+> | 6 | P4, edge case 19, *Open questions* 3 | `ryuk` is not pulled; `LeaverRecordEndpointTests.cs:443-474` is helpers not tests; the §13 row is `ARCHITECTURE.md:444`, not `:446`. |
+>
+> **Reproduced exactly, so read them as measured rather than asserted:** the schema numbers (578
+> tables / 8,173 columns, `dbo.Employees` rank 6 at 153 cols); the four full-replace `PUT`s and the
+> fact that the membership one round-trips; `Phone` as the *only* upsert field missing from the list
+> projection; `FindByCodeAsync`'s `e.Code == code` with no collation configured anywhere in `src/`;
+> `openEdit`'s unconditional `phone: ''`; both leaver lookups shipping empty with one read endpoint
+> and no writes; `WmHealthChecks` never inspecting a column; and every legacy citation — the
+> `ToLower()`/`Code ==` pair, the padded uniqueness SQL, `LeaveReasonService` line for line, the
+> `EntitySet<Employee>` and the two unordered `FirstOrDefault()`s, `SetEmployeesActive`, the
+> mandatory triple, and the `77.V5.23.0.0.sql` collation reading.
+>
+> Left `draft`, nothing ticked. — audit, 2026-08-18
+
 Roadmap: ARCHITECTURE.md §14 — **no new roadmap capability.** This is corrective work on code
 already shipped under phases 1, 1b and 1c, plus one piece of test infrastructure the repository has
 never had. Its §13 rows are the ones [#62](https://github.com/00008550/WM/pull/62) adds; this plan
@@ -57,16 +86,43 @@ The two lookups are among the smallest tables in the product — and **each stil
 service, its own controller and three screens.** That is the point of P6: a two-column table is not
 too small to need administering, and legacy did not think so either.
 
+> ✅ **Re-measured 2026-08-18 (audit): 578 / 8,173 and rank 6 / 153 cols / `:28594` all reproduce
+> exactly.** One caveat so nobody "corrects" the other two later: **129 tables have exactly 3 columns
+> and 29 have exactly 2**, so `LeaveReasons` can legitimately print as any rank in **421–549** and
+> `LeaveNoticePeriods` as any rank in **550–578**, depending on how the sort breaks ties
+> (PowerShell's `Sort-Object` is not stable). 459 and 560 are inside their bands. The load-bearing
+> fact is tie-free: **549 of 578 tables are wider than `LeaveNoticePeriods`, and 420 are wider than
+> `LeaveReasons`.**
+
 ### The WM surface, measured at `ead3bfc`
 
 | | Measured |
 |---|---|
 | Test projects in `WM.sln` | **4** — `WM.SharedKernel.Tests`, `WM.Modules.Identity.Tests`, `WM.Api.Tests`, `WM.Modules.People.Tests` |
-| Test projects that execute SQL | **0.** `WM.Modules.People.Tests.csproj:16-19` and `WM.Modules.Identity.Tests.csproj:13-16` both take `Microsoft.EntityFrameworkCore.InMemory`; `PeopleEndpointHost.cs:72` calls `UseInMemoryDatabase`. The in-memory provider **does not run migrations at all.** |
+| Test projects that execute SQL | **1, and it is not the one that matters** — see the correction below. `WM.Modules.People.Tests.csproj:16-19` and `WM.Modules.Identity.Tests.csproj:13-16` both take `Microsoft.EntityFrameworkCore.InMemory`; `PeopleEndpointHost.cs:72` calls `UseInMemoryDatabase`. The in-memory provider **does not run migrations at all.** |
+| Test projects that run a **migration** | **0.** This is P4's actual gap. |
 | Unique indexes on `identity."Users"` | **2** — `Email`, `UserName` (`IdentityDbContextModelSnapshot.cs:259-263`). **`EmployeeId` has none** (`:230-231`). |
 | Full-replace `PUT` transports | **4**, per `EndpointAuthorizationInventoryTests.cs:85, 89, 93, 101` — `PUT /api/users/{id}`, `PUT /api/users/{id}/security-groups`, `PUT /api/security-groups/{id}`, `PUT /api/employees/{id}`. The membership one is easy to overlook and belongs in the rule: it replaces a whole collection from a body the SPA builds out of a `GET` (`users.component.ts:267` → `:301`). |
 | Fields on `EmployeeUpsertRequest` absent from the list projection the SPA reads | **1 — `Phone`.** `PeopleModule.cs:384-397` accepts it; `PeopleModule.cs:75-88` does not return it. |
 | Maintenance endpoints for `LeavingReasons` / `LeaveNoticePeriods` | **1 read, 0 writes** — `GET /api/leaving-reasons` (`PeopleModule.cs:326-336`). `LeaveNoticePeriods` has no endpoint at all. |
+
+> ⚠️ **Correction, measured 2026-08-18 (audit).** The row above originally read *"Test projects that
+> execute SQL: **0**"*. **`WM.Api.Tests` executes SQL.** `ApiTestHost.UseSqlite` opens an in-process
+> SQLite database per module (`ApiTestHost.cs:275, 287`), `SeedIdentity` calls
+> `EnsureCreated()` (`:321`), and `MarkAsMigrated` runs `ExecuteSqlRaw` against the history
+> repository (`:308-310`). Nine tests use it (`ReadinessEndpointTests`, the sign-in path).
+>
+> **This makes P4's case stronger, not weaker.** `MarkAsMigrated`'s own doc comment
+> (`ApiTestHost.cs:290-300`) says why: *"The migrations themselves cannot be replayed here:
+> `AddComposedScopeConstraints` and friends carry schema-qualified Postgres SQL, which SQLite has no
+> notion of. Stamping the history is the honest substitute."* So the repository has a SQL harness
+> that is **structurally incapable of executing a migration**, and a readiness check whose only
+> question — "is anything pending?" — is answered by a table the harness *writes by hand*. Both
+> readiness tests pass against a database that was never migrated.
+>
+> The same inaccuracy is in the product tree at `EmploymentMigrationTests.cs:11-12` (*"every test
+> project uses the EF in-memory provider"*), which is where this plan inherited it. That file is
+> `src/`, so it is not corrected here — it is P4's to fix, and it is listed under P4's *Touches*.
 
 ### Corrections made to WM's records by this survey
 
@@ -87,8 +143,13 @@ it just is not a port. Both §13 and §1–§12 are out of my hands here — §1
 Recorded so that "not mentioned" does not later read as "not checked".
 
 **`SCREEN-TREE.md` deliberately untouched** — a second surveyor is in it for the Work Rules /
-Daily Browser survey. P6 adds two administration screens that will need rows there; that is a note
-for whoever lands next, not an edit made across another agent's working set.
+Daily Browser survey. P6 adds ~~two administration screens~~ **one** administration screen that will
+need a row there; that is a note for whoever lands next, not an edit made across another agent's
+working set. *(⚠️ **"two" corrected to "one" 2026-08-18** — P6's Target design builds one screen, and
+this plan's own* Out of scope *explicitly defers the `LeaveNoticePeriods` surface. Also verified:
+`SCREEN-TREE.md:439-440` already carries rows for both **legacy** screens, correctly attributed to
+`PersonnelSetupController`, so the file needs an addition on the WM side only, not a correction on
+the TLW side.)*
 
 **One imprecise citation flagged, not edited.** Plan 007's *Legacy behaviour → Identity* section
 offers `77.V5.23.0.0.sql:1425` as where SQL Server's `SQL_Latin1_General_CP1_CI_AS` is *"visible"*.
@@ -148,9 +209,33 @@ Two further facts about how legacy treats the code, both relevant:
 | Controller | `WebSite/Controllers/PersonnelSetupController/LeaveReasonsController.cs` — `Index`, `AddLeaveReason` ×2, `EditLeaveReason` ×2, `DeleteLeaveReason` |
 | Screens | `Views/PersonnelSetup/LeaveReasons.cshtml`, `AddLeaveReason.cshtml`, `EditLeaveReason.cshtml` |
 | Menu | `Menu_PersonnelGroup_PersonnelSetup_LeaveReasons` (+ `_AddLeaveReason`, `_EditLeaveReason`) |
-| Sitemap node | `Web.sitemap:69-71`, nested under `PersonnelSetup` (`:60`) — **not** under Personnel |
+| Sitemap node | `Web.sitemap:69-71`, nested under `PersonnelSetup` (`:60`) — **not** under Personnel; see the correction below |
 
 `LeaveNoticePeriods` is identical in shape (`Web.sitemap:87-89`).
+
+> ⚠️ **Correction, measured 2026-08-18 (audit). There are TWO `LeaveReasons` sitemap nodes, and the
+> row above named only one.** The plan's own header table cites `Web.sitemap:53-55` as "read in
+> part" and then concludes *"not under Personnel"* — a reader opening `:53-55` would find the
+> opposite and stop trusting the section. What is actually there:
+>
+> | Node | Controller / action | Status |
+> |---|---|---|
+> | `Web.sitemap:53-55` (inside the **Personnel** group, closes `:58`) | `controller="Personnel"` `action="LeaveReasons" / "AddLeaveReason" / "EditLeaveReason"` | **Dead.** No such action exists on any controller (`grep 'ActionResult LeaveReasons'` finds only `PersonnelSetupController/LeaveReasonsController.cs`), `Views/Personnel/` has no leave views, and `WebSite/Misc/localization1.generated.cs:3163-3165` carries only the `PersonnelSetup` menu keys. |
+> | `Web.sitemap:69-71` (inside **PersonnelSetup**, `:60`) | `controller="LeaveReasons"` | **Live.** Controller, service, three views, three menu keys. |
+>
+> So the screens *moved* from Personnel to PersonnelSetup and the old sitemap entry was never
+> deleted. **The plan's conclusion holds and is stronger than it claimed** — legacy's *shipping*
+> information architecture puts the vocabulary in Setup, and the Personnel-area node is a stale
+> pointer to nothing. `Menu_Personnel_LeaveReasons` still exists, but only in `HealthWebSite`
+> (`HealthWebSite/Misc/localization1.generated.cs:6108`), a different site in the estate.
+
+**A fifth thing, found by the audit and worth having: legacy already exposes the lookup over REST,
+read-only.** `WebSite/Controllers/API/V1/EmployeeLeaveReasonApiController.cs` and
+`API/V2/EmployeeLeaveReasonApiController.cs` both wrap `ILeaveReasonService`, and **both map `GET`
+and nothing else** (V2 `:31, :46`). Maintenance is reachable only from an MVC screen. That makes
+P6's `POST`/`PUT`/`DELETE` an **Improve** against legacy rather than a port, and it is the
+invariant-2 argument in legacy's own evidence: the vocabulary was already considered API-worthy to
+read, and the write half was simply never exposed.
 
 Four behaviours worth naming:
 
@@ -177,6 +262,36 @@ Measured while checking P5, unplanned, and it changes what §13 may claim. Full 
 `DepartmentOfCurrentUser:1106-1115` are two unordered `FirstOrDefault()`s over the same set, so
 *"who am I?"* and *"which department am I in?"* can answer from different rows.
 
+> ✅ **Independently re-measured 2026-08-18 (audit): every element of this is exact.**
+> `AssociationAttribute(Name="User_Employee", Storage="_Employees", ThisKey="Id", OtherKey="UserId")`
+> over `EntitySet<Employee> Employees` at `:7834-7845`, plural and with no `IsUnique`;
+> `Employees.UserId` nullable `Int` at `:30451`; and both `FirstOrDefault()`s are unordered, verbatim
+> as quoted. **The plan's headline legacy claim is right: TLW is one-to-many and resolves it
+> arbitrarily, so WM's one-to-one is an invention, not a port.**
+>
+> **One thing to be precise about, because it decides what P5's migration can find.** The two models
+> put the *many* on **opposite sides**:
+>
+> | | Column that holds the link | What is unconstrained | The bad shape it permits |
+> |---|---|---|---|
+> | TLW | `Employees.UserId` | many **employees** → one user | one login answers as several people; `GetEmployeeIdOfUser` picks one |
+> | WM | `Users.EmployeeId` | many **users** → one employee | several logins each self-service the same person |
+>
+> Each direction is single-valued in the other model's schema, so these are mirror images rather
+> than the same defect. Two consequences, neither of which changes P5's design — **a partial unique
+> index on `Users.EmployeeId` genuinely yields one-to-one in WM, because the reverse multiplicity has
+> no column to live in** — but both worth having written down:
+>
+> 1. **Edge case 15's duplicate pair cannot arrive from legacy data.** It is right to say "planted":
+>    legacy has no `Users.EmployeeId` to import a duplicate *from*. The only source is WM's own race
+>    (edge case 14). The migration must still report and refuse, for the reason given; the *scenario*
+>    is a WM-native one.
+> 2. **A future TLW importer inherits the harder half of this**, and it is nobody's today: legacy's
+>    several-employees-on-one-login has no WM representation at all. Whoever writes the importer must
+>    choose — mint a user per employee, or keep one and drop the rest — and legacy's arbitrary
+>    `FirstOrDefault()` gives no basis for choosing. Named here so it is found rather than
+>    rediscovered; **not P5's, and not this plan's.**
+
 ---
 
 ## Keep / Improve / Invert / Drop
@@ -184,7 +299,7 @@ Measured while checking P5, unplanned, and it changes what §13 may claim. Full 
 | Structure | Class | Reason |
 |---|---|---|
 | Badge-code comparison is **case-insensitive** | **Keep** | Legacy is right and it is what users expect. `E1030` and `e1030` are one badge. |
-| **Where** the case-folding happens — the storage layer vs. the client | **Invert** | Legacy got it for free from the collation, which is fine when there is one client. WM's Postgres default collation is deterministic, and WM's only case-folding is `dashboard.component.ts:260`. A rule enforced in a browser is not a rule (invariant 2). |
+| **Where** the case-folding happens — the storage layer vs. the client | **Invert** | Legacy got it for free from the collation, which is fine when there is one client. WM's Postgres default collation is deterministic — ✅ *audit 2026-08-18: `grep -i collat\|citext src/Modules` returns nothing, so `Employee.Code` takes the database default and no `citext` is in play* — and the only case-folding **on the lookup path** is `dashboard.component.ts:260`. (⚠️ *"WM's only case-folding" corrected 2026-08-18*: `PeopleModule.cs:126` and `:196` also fold, with `.ToLower()` on both sides — but those are the **uniqueness** check, which is 007 P3's, and they are the reason a lower-case code is refused on create yet unfindable on lookup.) A rule enforced in a browser is not a rule (invariant 2). |
 | Storing the code **as typed**, not upper-cased | **Keep** | Legacy never rewrites it, and the code prints on reports and payroll exports. Fold at comparison, never at rest. Also makes P2 migration-free. |
 | Zero-padding-insensitive uniqueness | **Drop** | Already dropped by 007 decision 1. Restated so P2 does not reintroduce it while "matching legacy". |
 | Leaver vocabularies as **customer-maintained, administered lookups** | **Keep — and build the surface** | Legacy gave two-column tables a service, a controller and three screens each. WM ships them read-only and fillable only by SQL. |
@@ -222,7 +337,11 @@ running stack instead, and each is a required test.
 3. `FindByCodeAsync(" E1030 ")` → resolves. The server must trim; today only
    `dashboard.component.ts:260` does.
 4. `FindByCodeAsync("")` / whitespace → **no match**, not "the first employee". A `Trim()` that
-   yields empty must not become an unanchored predicate.
+   yields empty must not become an unanchored predicate. ✅ *Audit 2026-08-18: legacy already agrees
+   and the plan did not know it — `EmployeeExtensions.cs:142-144` guards with
+   `if (isOk)` and otherwise returns `Enumerable.Empty<Employee>().AsQueryable()`, and the `switch`'s
+   `default:` (`:149-150`) does the same. Both are **fail-closed**, so this case is a Keep, not a
+   WM invention. Cite legacy for it.*
 5. `FindByCodeAsync("0042")` where the stored code is `42` → **no match.** Deliberate divergence
    from legacy's padding rule (007 decision 1); asserted so nobody "fixes" it later.
 6. The resolved employee is **out of the caller's data scope** → still no match. `FindByCodeAsync`
@@ -272,8 +391,12 @@ running stack instead, and each is a required test.
 **Leaver vocabulary and the gate (P6)**
 
 19. Create a reason, use it on a leaver, then **retire** it → the leaver still renders it; it is no
-    longer offered for new leavers. Already true and tested (`LeaverRecordEndpointTests.cs:443-474`);
-    the maintenance surface must not break it.
+    longer offered for new leavers. Already true and tested — ⚠️ **citation corrected 2026-08-18:**
+    `:443-474` is the helper block (`Leaving`, `Retire`, `Row`, `Reasons`, `Seed`), not the tests.
+    The tests are `LeaverRecordEndpointTests.cs:93-146` —
+    `Retiring_a_reason_leaves_the_records_that_used_it_readable` (`:94`),
+    `A_retired_reason_is_no_longer_offered` (`:117`) and
+    `A_retired_reason_cannot_be_given_to_a_new_leaver` (`:131`). All three must keep passing.
 20. **Delete** a reason nobody uses → succeeds. **Delete** one in use → 409 with a readable message,
     from the FK, not a 500. Legacy's `DeletionResult.AlreadyUsed` (`LeaveReasonService.cs:75-78`).
 21. Create `Redundancy`, then create `redundancy` → refused. Today **accepted**
@@ -328,8 +451,25 @@ reason it is one portion rather than a one-line fix:
    `EndpointAuthorizationInventoryTests` (`:33-57` is the pattern): every writable property of a
    full-replace request record must be **readable from the list projection of the same resource**,
    or be named in an `IntentionallyWriteOnly` table with a reason. A new `PUT` fails until it is
-   named — anonymity's lesson applied to round-tripping. Applied today this flags exactly one thing:
-   `EmployeeUpsertRequest.Phone`.
+   named — anonymity's lesson applied to round-tripping.
+
+   > ⚠️ **Correction, measured 2026-08-18 (audit).** This said *"Applied today this flags exactly one
+   > thing: `EmployeeUpsertRequest.Phone`."* **It flags two, and the second decides how strict the
+   > rule is.** All four request/projection pairs, compared property by property:
+   >
+   > | Full-replace `PUT` | Request | Projection | Verdict |
+   > |---|---|---|---|
+   > | `/api/employees/{id}` | `EmployeeUpsertRequest` (`PeopleModule.cs:384-397`) | `PeopleModule.cs:75-88` | **`Phone` absent.** The known defect. |
+   > | `/api/users/{id}` | `UpdateUserRequest` (`UserManagementService.cs:21-22`) — `RoleIds: Guid[]` | `UserListItem` (`:11-13`) — `Roles: string[]` | **Flagged.** Different name *and* different type. It does round-trip today, but only because the SPA maps names back to ids against a **second** endpoint (`users.component.ts:254` over `GET /api/users/roles`). |
+   > | `/api/security-groups/{id}` | `SecurityGroupUpsertRequest` (`SecurityGroupService.cs:13-15`) | `SecurityGroupListItem` (`:8-11`) | Clean — every writable property present, name for name and type for type. |
+   > | `/api/users/{id}/security-groups` | `SetUserGroupsRequest` (`SecurityGroupEndpoints.cs:9`) | `GET` returns `Guid[]` (`:49-50`) | Clean. The plan's worked passing case; confirmed. |
+   >
+   > `RoleIds` is the case that keeps the rule honest, and it needs a **third** category beside
+   > "readable" and `IntentionallyWriteOnly`: *reconstructible from a named companion endpoint*.
+   > Without it the builder either files a false positive under `IntentionallyWriteOnly` — which is
+   > how a registry becomes the rubber stamp edge case 12 warns about — or weakens the match until
+   > `Phone` stops being caught. **Decide it in the PR and say which.** 005 collapses `RoleIds` to a
+   > single group, so the entry is temporary either way; the *category* is not.
 2. **Behavioural, per endpoint.** One test per full-replace `PUT` that constructs the body from the
    endpoint's *own* `GET` response and asserts the stored row is unchanged — edge cases 9–11. This
    is the layer that catches "the client omits a field the projection does return", which is what
@@ -345,6 +485,37 @@ Then the actual fix: add `e.Phone` to the list projection (`PeopleModule.cs:75-8
 `departmentId: null` at `:329` is **003 P3's**, not this plan's. Do not touch it; P3 here only has
 to make sure the new tests describe it truthfully rather than encoding it as correct.
 
+> ⚠️ **Correction, measured 2026-08-18 (audit). `phone` is 003 P3's too, and this plan did not say
+> so.** The paragraph above cedes `departmentId` and quietly keeps `phone`. But 003 P3's Done-when
+> names both, twice:
+>
+> - `003-enforcement-gaps.md:253-254` — *"the employee editor carries `departmentId` **and `phone`**
+>   through an edit instead of blanking them."*
+> - `:255-256` — *"editing an employee preserves department **and phone** (the current UI wipes
+>   both — assert the round-trip, not the request body)."*
+> - `:279-280` — *"**`phone` is a data-loss fix; `departmentId` is an availability fix.** If P3 is
+>   ever descoped or split, the department half is the half that cannot be dropped."*
+>
+> **003 is `in-progress` and user-approved.** 007 decision 3 — which this plan invokes two sections
+> down to keep P8 out of 006 — is the rule that an unapproved plan does not silently reshape an
+> approved one, and quietly discharging half of an approved portion's Done-when is the same move in
+> the opposite direction. It is not a veto: `phone` is one line of a defect this plan found
+> independently, and 003 P3 is blocked behind its own ⛔ (`003:260-283`, and 007 P4 must land with or
+> before it), so waiting for it means shipping the round-trip rule with its only live finding
+> already fixed elsewhere. **But it must be a decision, not an accident.** Two options, and the
+> builder must state which in the PR:
+>
+> 1. **009 P3 takes `phone`** and the PR edits `003:252-256` and `:279-280` to strike it, leaving
+>    003 P3 owning `departmentId` and the scoped-caller round-trip alone. Cheapest, and it is a
+>    plan-file edit to an approved plan's *scope*, so it wants a line in the PR body.
+> 2. **009 P3 ships the rule only** — the three layers, with `Phone` as its first *failing* entry —
+>    and 003 P3 makes it pass. The rule is the durable half anyway; a mechanical test that ships red
+>    against a named, owned defect is a legitimate outcome and arguably the better demonstration.
+>
+> Either way, **009 P3 does not discharge 003 P3.** 003 P3's round-trip test must run *as a
+> `Departments`-scoped caller* (`003:273-278`) because `All` short-circuits the scope check; nothing
+> in edge cases 9–12 says anything about the caller's scope, and for `phone` it does not matter.
+
 **P4 — a Postgres migration harness.** `src/TestSupport/WM.TestSupport.Postgres` (or a shared
 fixture inside an existing project — the builder chooses and justifies): a Testcontainers-backed
 `PostgreSqlContainer`, an xUnit collection fixture so one container serves the assembly, and a
@@ -359,8 +530,26 @@ Port it. Two rules, both non-negotiable and both from that note:
   worse than no suite. Fail, loudly, with the reason.
 - **It must run in CI** (`.github/workflows/ci.yml`), or it is a second hand-run.
 
-`ryuk` has been pulled on this machine and Docker is working, so the container availability question
-is already answered.
+> ⚠️ **Correction, measured 2026-08-18 (audit).** This paragraph ended *"`ryuk` has been pulled on
+> this machine and Docker is working, so the container availability question is already answered."*
+> **Half of that is true.** `docker version` → server **27.1.1**, and **`postgres:17-alpine` is
+> already local** (it is also what `deploy/docker-compose.yml:27` runs, so the harness and the demo
+> agree on a version). But **`testcontainers/ryuk` is not present** — 13 local images, none matching
+> `ryuk` or `testcontainers`. Testcontainers starts the reaper alongside every container unless
+> `TESTCONTAINERS_RYUK_DISABLED=true`, so **the first `dotnet test` after this lands will pull an
+> image over the network**, on the dev box and on every CI runner. That is exactly the first-run
+> surprise that makes a new gate look flaky. Decide it explicitly in the PR — pre-pull, pin the ryuk
+> tag, or disable the reaper and dispose containers in the fixture — and say which. It does not
+> change the risk rating; it is why the rating is what it is.
+
+**The in-repo statement of this gap is `EmploymentMigrationTests.cs:8-37`, and P4 owns rewriting
+it.** That doc comment already argues P4's case in P4's own words — *"the alternative — a test that
+silently skips when no database answers — is how a suite comes to report green while proving
+nothing"*, and *"a flaky container blocks every later PR"* — and it names the four things not
+covered (`:25-30`). It also contains the inaccuracy corrected under *Ground truth* (`:11-12`,
+"every test project uses the EF in-memory provider"). When the harness lands, that comment stops
+being true and must be rewritten in the same commit, or the repository's most careful piece of
+self-documentation becomes its most misleading one.
 
 **P5 — one user per employee, held by the database.** A **partial** unique index —
 `CREATE UNIQUE INDEX … ON identity."Users" ("EmployeeId") WHERE "EmployeeId" IS NOT NULL` — because
@@ -398,11 +587,16 @@ deliberate:
 
 ## Out of scope for this plan
 
-- **`/health/ready` reports "migrated" while the schema is wrong.**
+- **`/api/health/ready` reports "migrated" while the schema is wrong.** *(⚠️ path corrected
+  2026-08-18 — it is `/api/health/ready`, `WmHealthChecks.cs:36`. Writing it without the prefix is
+  what produced the withdrawn anonymity claim in* Open questions *2.)*
   `src/Api/WM.Api/Infrastructure/WmHealthChecks.cs:129-142` — verified at this commit; the
-  `DatabaseReadinessCheck<TContext>` compares `GetAppliedMigrationsAsync().Count()` against
-  `GetPendingMigrationsAsync().Count()` and never touches a column, so it answered `Healthy`
-  (`:140-141`) while every employee-list request 500'd with `42703`. **This belongs to 006, not to
+  `DatabaseReadinessCheck<TContext>` reads `GetAppliedMigrationsAsync().Count()` and
+  `GetPendingMigrationsAsync().Count()` into the response body, branches on `pending == 0` alone
+  (⚠️ *not* a comparison of the two counts — corrected 2026-08-18) and never touches a column, so it
+  answered `Healthy` (`:140-141`) while every employee-list request 500'd with `42703`. That last
+  observation is an anecdote from one running instance and the audit could not re-stage it; it is
+  not load-bearing — the defect is visible in `:129-142` without it. **This belongs to 006, not to
   009** (reviewer's ruling): P4's harness would *detect* that class of failure in CI, which is not
   the same as a running host telling the truth about itself. **Not added to 006 by this plan** —
   006 is `in-progress, approved by the user 2026-08-06`, and 007 decision 3 settled that an
@@ -412,7 +606,9 @@ deliberate:
   would accept both, and the comment at `:155` calling the index *"the real guarantee"* is false.
   Referenced, not adopted.
 - **`departmentId: null` in the employee modal** (`employees.component.ts:329`). 003 P3, with the
-  ⛔ blocker P2b's review added. P3 here must describe it, never fix it.
+  ⛔ blocker P2b's review added. P3 here must describe it, never fix it. ⚠️ **2026-08-18 (audit):**
+  003 P3's Done-when claims **`phone` as well** — see the correction under *Target design* P3. The
+  ownership of the phone half is an open decision, not a settled exclusion.
 - **`FinalEmploymentDate`, `ResignationDate`, `LeaveNoticePeriodId`.** Schema exists, nothing writes
   them (007 decision 5). P6 deliberately does **not** adopt legacy's mandatory reason + discharge +
   final-date **triple** (`PersonnelModels.cs:1354-1368`): `FinalEmploymentDate` has no editor, so
@@ -446,6 +642,27 @@ Ordered cheap-and-independent first. **Independence, stated plainly:**
 P1–P4 can be built in any order or in parallel. Nothing in this plan blocks lane A, lane B or
 lane C, and nothing in those lanes blocks P1–P4.
 
+> ✅ **Independence checked line by line, 2026-08-18 (audit). The table above is right about
+> *logical* dependency and silent about *textual* overlap, which is the thing that actually costs a
+> rebase.** 005 `:88` publishes the exact `users.component.ts` ranges it will rewrite —
+> `:138-165`, `:238-241`, `:254-257`, `:267`, `:275-278`, `:289-301`, `:328-329` — so this is
+> checkable rather than a guess:
+>
+> | Portion | Regions it edits | Overlap with 005's published ranges | Verdict |
+> |---|---|---|---|
+> | **P1** | `users.component.ts` header ~`:19-29`, `:22`, `load()` `:317-323` | **none** | Genuinely independent of 005 and of 007. Build it first. |
+> | **P2** | `PeopleModule.cs:401-405`; `dashboard.component.ts:260` | n/a | Independent of 005. Independent of 007 P3 *logically* (different method, same file — the seam note covers it). One ordering note the plan misses: **007 P2 rewrites `PunchService.RecordAsync`** and requires that *"the rejection message does not differ between 'unknown employee' and 'not employed'"* (`007:729-731`). Edge case 1 asserts today's `"Unknown employee code"` text — if 007 P2 lands first, assert the *behaviour* (null → rejected) rather than the string. |
+> | **P3** | `PeopleModule.cs:75-88`; `employees.component.ts:291`; new tests | n/a for 005 | Independent of 005 and 007. **Overlaps 003 P3 on `phone`** — see the correction under *Target design*. Also touches `LeaverRecordEndpointTests.cs:410-438`, whose `PortalEditBody` hard-codes `"phone": null` with a comment calling it pre-existing; that helper must change with the modal or the round-trip test pins the bug. |
+> | **P4** | new project, `ci.yml`, `EmploymentMigrationTests.cs` | none | Fully independent. |
+> | **P5** | `users.component.ts:128-134`, `:224`; `IdentityDbContext`; `UserManagementService.cs:91, 117-131, 144` | frontend **none** (`:138-165` is adjacent, not overlapping); backend: 005 P3 also edits `UserManagementService` | Logically independent — 005 touches roles/groups, P5 touches `EmployeeId`, and the partial index is on a column 005 never reads. Expect a merge conflict in `UserManagementService`, not a design conflict. |
+> | **P6** | `PeopleModule.cs`, `PeopleDbContext.cs:33`, new screen | none | Independent of 005. 007 P1 already merged. Note it also *discharges* 007 decision 5's *"**This needs a portion**, alongside the `LeavingReason`/`LeaveNoticePeriods` maintenance surface"* (`007:922-924`) — this is that portion, so 007 should be told when it lands. |
+> | **P7** | `users.component.ts:168-173`, `:262-268`, `:281-305` | **`:267` and `:289-301` — direct hits** | Logically independent of 005 (no new API, no resolver change) but it edits **two of the seven regions 005 names**. Whichever lands second rebases by hand. If sequencing matters, P7 is cheap and small — land it before 005 P1, or accept the conflict. |
+>
+> Short answer to "which are genuinely independent of 005 and 007": **P1, P2, P3 and P4 are, on both
+> axes.** P5 and P6 are logically independent with a merge-overlap in one backend file each. **P7 is
+> the only one with real textual overlap with 005**, and the plan's *"independent of 005 and can
+> ship any time"* should be read as *"needs no 005 decision"*, not *"will not conflict"*.
+
 ### [ ] P1 — The users list shows more than the first hundred
 **Touches:** `frontend/portal/src/app/pages/users/users.component.ts` (search input + paging
 control + `load()` at `:317-323`), `users.component.spec.ts` (new).
@@ -459,6 +676,14 @@ second one.
 requests the right page; clearing the box restores the unfiltered list. No server change, so no
 xUnit test; **say so in the PR** rather than letting a green `dotnet test` imply coverage.
 **Risk:** low. Frontend only, one file, a sibling component to copy from.
+**✅ Verified 2026-08-18 (audit), and it is better news than the plan assumed.** The repository has
+**zero `*.spec.ts` files**, so whichever of P1/P3/P7 lands first writes the portal's first spec —
+but the runner is already wired (`angular.json:79-86`: `@angular/build:karma`, `zone.js/testing`,
+`tsconfig.spec.json`; karma + jasmine in `package.json:32-40`), **and CI already runs it the moment
+a spec appears**: `.github/workflows/ci.yml:105-116` detects `*.spec.ts` and runs
+`npm run test -- --watch=false --browsers=ChromeHeadless`, otherwise emits a `::warning`. So there is
+no harness to build and no CI step to add — and the first portion to land a spec should delete that
+guard's `else` branch, since its comment says *"Remove this guard once specs are routine."*
 
 ### [ ] P2 — A punch code is normalised by the server, not the browser
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs:401-405` (`FindByCodeAsync`
@@ -481,7 +706,12 @@ whose failure mode is loud.
 **Touches:** `PeopleModule.cs:75-88` (add `e.Phone` to the list projection),
 `frontend/portal/src/app/pages/employees/employees.component.ts:291`,
 `employees.component.spec.ts` (new), `src/Api/WM.Api.Tests/Security/` (new inventory test),
-`src/Modules/People/WM.Modules.People.Tests/`, `src/Modules/Identity/WM.Modules.Identity.Tests/`.
+`src/Modules/People/WM.Modules.People.Tests/` — **specifically
+`Endpoints/LeaverRecordEndpointTests.cs:410-438`**, whose `PortalEditBody` helper hard-codes
+`"phone": null` and documents it as pre-existing (⚠️ *named by the audit 2026-08-18; the plan said
+only "the tests project"*). It mirrors the SPA payload key for key on purpose, so it must change in
+the same commit as `:291` or the round-trip test goes on pinning the defect —
+`src/Modules/Identity/WM.Modules.Identity.Tests/`.
 **Done when:** editing an employee no longer nulls their phone; **and** the three-layer rule in
 *Target design* exists, so the next full-replace `PUT` cannot ship without a round-trip test.
 The inventory test must name all **four** current full-replace `PUT`s
@@ -501,7 +731,9 @@ rather than another careful reviewer.
 
 ### [ ] P4 — A Postgres test harness, so a migration is tested by something that re-runs
 **Touches:** a new test-support project (or shared fixture) wired into `WM.sln`;
-`WM.Modules.People.Tests` (its first executed-SQL test); `.github/workflows/ci.yml`.
+`WM.Modules.People.Tests` (its first Postgres test — ⚠️ *not* its first executed-SQL test in the
+repository; see the *Ground truth* correction); `EmploymentMigrationTests.cs:8-37` (the doc comment
+this portion falsifies); `.github/workflows/ci.yml`.
 **Done when:** a migration can be executed `Up` and `Down` against a real `postgres:17-alpine` from
 `dotnet test`, on the dev box and on GitHub's runners; the harness **fails rather than skips** when
 no container engine answers; and 007 P1's `20260814080315_EmploymentWindowAndLeaverRecord` is the
@@ -571,6 +803,17 @@ sequence it immediately after; **never before.**
 unsaved group changes, and re-fetches after a successful save so reopening never shows stale text;
 and the label no longer invites the reading that ticking a **role** changes data scope, which it
 never does (`DataScopeResolver.cs:25-69`).
+> ⚠️ **Correction, measured 2026-08-18 (audit): one third of that Done-when is already true, and
+> saying so keeps the portion honest.** *"Re-fetches after a successful save so reopening never
+> shows stale text"* describes a defect that does not exist: `save()` closes the drawer on success
+> (`users.component.ts:284`), and `openEdit` clears the panel (`:262`) and re-fetches (`:268`) every
+> time. **Reopening already shows saved state — which is edge case 26, correctly recorded as passing
+> today.** The live defect is edge case 25 only: within an open drawer, ticking a group changes
+> nothing the panel says, while the comment at `:265-266` promises *"an admin can see the effect of a
+> change without leaving the drawer."* So this portion is **the label plus the unsaved-changes
+> hint**, and a post-save re-fetch is optional belt-and-braces, not a fix. Scoping it as a fix would
+> produce a test that passes before the change. `DataScopeResolver.cs:25-69` confirmed for edge
+> case 27: scope comes from `UserSecurityGroup` and `EmployeeId`, never from a role.
 **Tests:** edge cases 25–27, in `ng test`. 27 is the cheap one that documents a real
 misunderstanding: Administrator is a role and roles carry no scope.
 **Risk:** low.
@@ -592,6 +835,19 @@ CLAUDE.md says propose and stop, so this is proposed and stopped. **P6 cannot st
 separate screen in a separate area, and under legacy's model that means a separate screen right
 (`TLW-AUTHORIZATION-MODEL.md`: rights live per screen in `dbo.AccessControlEntry`).
 
+> ✅ **Re-measured 2026-08-18 (audit): this holds, and the one thing that looked like a
+> counter-example is not one.** `Web.sitemap:53-55` *does* carry a `LeaveReasons` node inside the
+> **Personnel** group — see the correction in *Legacy behaviour* — but it points at
+> `controller="Personnel" action="LeaveReasons"`, and **no such action, view or menu key exists in
+> `WebSite`.** It is a stale pointer left behind when the screens moved to Setup. So legacy's
+> shipping IA is unambiguous, and the argument for a permission of its own stands on it. Two facts
+> the audit adds, both pulling the same way: the reason vocabulary is exposed over REST **read-only**
+> in two API versions (`API/V1` and `API/V2/EmployeeLeaveReasonApiController.cs`, `GET` only), and
+> the Setup area holds nine sibling vocabularies of the same shape (`Web.sitemap:61-90` —
+> custom fields, departments, employment types, job roles, salary change reasons, deduction types,
+> entitlement types, currencies, notice periods). Whatever is decided here is the precedent for all
+> nine, which is an argument for the named permission rather than against it.
+
 *My recommendation:* **a new `people.lookups.manage`.** Editing the vocabulary the whole estate's
 HR reporting is grouped by is an administration act, not an employee edit — and `employees.manage`
 is already the permission plan 004 exists to break up, so adding a ninth meaning to it makes 004's
@@ -610,32 +866,70 @@ the shape of something you already signed off. Proposed text, ready to paste:
 ### [ ] P8 — Readiness inspects the schema, not the migration count
 **Touches:** `src/Api/WM.Api/Infrastructure/WmHealthChecks.cs:119-149`, `src/Api/WM.Api.Tests/Security/ReadinessEndpointTests.cs`.
 **Done when:** `/api/health/ready` fails when the database's schema disagrees with the model, not
-merely when a migration row is missing. `DatabaseReadinessCheck` compares applied and pending
-migration *counts* (`:132-142`) and never inspects a column, so it answered `Healthy("migrated")`
-while every employee-list request 500'd with Postgres `42703` (undefined_column) — observed
-2026-08-18. A cheap correct check exists: execute the model's own no-row query per aggregate, or
-compare `GetAppliedMigrations()` against the assembly's migration *ids* rather than their count.
+merely when a migration row is missing. `DatabaseReadinessCheck` reads the applied and pending
+migration counts into the body and then branches on `pending == 0` alone (`:132-142`); it **never
+inspects a column**, so it answered `Healthy("migrated")` while every employee-list request 500'd
+with Postgres `42703` (undefined_column) — observed 2026-08-18. The check that would have caught
+that is to **execute the model's own no-row query per aggregate** (`SELECT … WHERE false`, one per
+`DbContext`): it touches every mapped column and costs one round trip. Note what will *not* work,
+because it looks like it should: comparing applied migrations against the assembly's migration ids
+is what `GetPendingMigrationsAsync()` already does internally, so it is the same check by another
+name.
 **Tests:** a database at head with a column dropped out of band answers Unhealthy; the message
 still leaks no Npgsql text (`ReadinessEndpointTests.cs:60-69` already asserts that and must keep
 passing); the endpoint stays inside the rate-limit bucket 006 P3 gave it.
 
-> ⚠️ **Correction, measured 2026-08-18.** This portion was drafted saying the endpoint "stays
-> anonymous". **It is not anonymous today** — `GET /health/ready` answers **401** to an
-> unauthenticated caller, while `GET /health` answers `200 Healthy`. That is consistent with 003
-> P2a, which fixed the anonymous surface at exactly four transports (`/api/auth/login`, `/refresh`,
-> `/logout`, `/health`) and never added `/health/ready`.
+> ⚠️ **Correction WITHDRAWN — it was itself wrong. Re-measured 2026-08-18 (audit).**
 >
-> **This is a second defect in the same endpoint, and it outranks the schema check.** A readiness
-> probe that requires a bearer token cannot be called by a container `HEALTHCHECK`, by a load
-> balancer or orchestrator probe, or by 006's own smoke check — which is the entire reason 006 P2
-> built it. So today the endpoint both *lies* (reports migrated when the schema disagrees) and is
-> *unreachable* by the things meant to consult it. Whoever takes this portion must settle the
-> authorization question first: either add `/health/ready` to the anonymous four and update the
-> inventory test deliberately, or accept that only authenticated callers may ask and say what
-> probes the demo instead. **Do not build the schema check onto an endpoint nothing can call.**
+> A correction was added to this portion on 2026-08-18 claiming the endpoint *"is not anonymous
+> today — `GET /health/ready` answers **401**"*, and inferring a second, higher-priority defect from
+> it. **The 401 is real but the endpoint is not the cause: the path is wrong.** The readiness
+> endpoint is `/api/health/ready`, with the `/api/` prefix (`WmHealthChecks.cs:36`), because that is
+> the only prefix the portal's nginx proxies. `GET /health/ready` — no prefix — matches **no route
+> at all**, and the repository has a test that says exactly what happens then:
+>
+> > `FallbackPolicyTests.cs:118-131` — `A_path_that_matches_no_endpoint_challenges_instead_of_answering_404`
+> > *"the authorization middleware applies it to unmatched requests too, so an anonymous caller can
+> > no longer probe which routes exist."* Anonymous → **401**; authenticated → 404.
+>
+> So a 401 from `/health/ready` is 003 P2a's default-deny working correctly on a typo, not the
+> readiness endpoint refusing a probe. **`/api/health/ready` is anonymous**, on four independent
+> pieces of evidence:
+>
+> 1. `PlatformEndpoints.cs:54-62` maps it with `.AllowAnonymous()` and a comment explaining why.
+> 2. `ReadinessEndpointTests.cs:114-124` —
+>    `Readiness_answers_an_anonymous_caller_rather_than_challenging_one` asserts no
+>    `WWW-Authenticate` and `NotEqual(401)`. **Run 2026-08-18: passes** (13/13 in that file plus
+>    `EndpointAuthorizationInventoryTests`).
+> 3. `EndpointAuthorizationInventoryTests.cs:39-57` names it as the **fifth** deliberately-anonymous
+>    transport, *"Grown by one on 2026-08-06 (plan 006 P2), deliberately"*, and
+>    `The_anonymous_surface_is_exactly_the_one_we_decided_on` pins the set at five. So the withdrawn
+>    text's claim that 003 P2a *"fixed the anonymous surface at exactly four transports … and never
+>    added `/health/ready`"* is contradicted by the very test it appealed to.
+> 4. `src/Api/WM.Api/Dockerfile:43-44` — `HEALTHCHECK … CMD wget -qO- http://127.0.0.1:8080/api/health/ready`,
+>    plain `wget`, no credentials. Were the endpoint challenged, every container would report
+>    unhealthy.
+>
+> **Nothing about this portion changes except that it gets simpler.** The endpoint *is* reachable by
+> the things meant to consult it; the only defect here is the one the portion was written for — it
+> reports `Healthy("migrated")` while the schema disagrees. The original "stays anonymous" wording
+> was right. Restored below.
+>
+> ⚠️ **Second, smaller correction to this portion's own text, same audit.** The Done-when offers two
+> remedies and **the second is a no-op**: *"compare `GetAppliedMigrations()` against the assembly's
+> migration *ids* rather than their count"* is precisely what `GetPendingMigrationsAsync()` already
+> computes — it returns the assembly's migrations minus the history table's rows, so `pending == 0`
+> **is** the id comparison. (Note also that `:132-142` does not "compare applied against pending":
+> it reads both counts for the response body and branches on `pending == 0` alone.) The real remedy
+> is the first one only: **execute the model's own no-row query per aggregate**, which is the sole
+> check that would have caught the `42703`. Delete the second option before building.
 
-**Risk:** low for the schema check itself — but note P3's carry-over: if the endpoint becomes
-anonymous, it is uncached and public, so a per-request schema probe must stay cheap.
+**Authorization:** unchanged — `/api/health/ready` **stays anonymous**, the fifth entry in
+`EndpointAuthorizationInventoryTests.DeliberatelyAnonymous` (`:50-57`). No inventory-test edit, no
+new decision to take.
+**Risk:** low for the schema check itself — but the endpoint is anonymous, uncached and public
+(006 P3 put it in the sign-in rate-limit bucket for exactly that reason), so a per-request schema
+probe must stay cheap. One no-row `SELECT` per `DbContext`, not a catalogue crawl.
 ```
 
 **3. Two `ARCHITECTURE.md` corrections, propose-only.** Both follow from `TLW-PEOPLE-MODEL.md`
@@ -652,7 +946,8 @@ anonymous, it is uncached and public, so a per-request schema probe must stay ch
 ```
 
 ```diff
- ARCHITECTURE.md:446  (§13 — coordinate with #62)
+ ARCHITECTURE.md:444  (§13 — coordinate with #62; ⚠️ was cited as :446, corrected 2026-08-18 —
+                       :446 is the "User types Administrator/Employee/Manager" row)
 -| User ↔ employee linking … | ✅ built — `User.EmployeeId`, one-to-one enforced, `/api/me/employee` |
 +| User ↔ employee linking … | ⚠️ built — `User.EmployeeId`, `/api/me/employee`. One-to-one is
 +  checked in `UserManagementService.cs:91, 144` and **held by no index**; the picker offers
