@@ -96,12 +96,32 @@ re-running never duplicates; a day with no attendance still has a row.
 
 ### [ ] P3 — Swipe→day allocation
 **Touches:** punch ingestion, allocation service
-**Done when:** the three legacy rules are reproduced in order — night-shift end time,
-offset-to-next-day, allocate-to-previous/next-day — with the documented fallback to the swipe's
-own date. Reassignment works when an adjacent day's template changes.
+**Done when:** the legacy branches are reproduced in order, with the documented fallback to the
+swipe's own date. Reassignment works when an adjacent day's template changes.
 **Tests:** every worked example in `Swipe to clocking allocation.md` becomes a test case. There
 are 11 of them with explicit Given/When/Then — use them verbatim.
 **Risk:** **high** — a swipe landing on the wrong day is a payroll error.
+
+> **Corrected 2026-08-18 (plan 010's survey).** This portion said *"the three legacy rules"*.
+> `dbo.ProcessQueryGetClockingForSwipe` — latest definition `Database\Versioning\37.V3.6.1.0.sql:748-868`,
+> reached from `ProcessInOutSwipe` → `ProcessSwipeValidateData` (`73.V5.19.0.0.sql:232`) — has
+> **five branches plus a two-level master-template override**:
+>
+> 1. → yesterday if `@time < NightShiftEndTime` of yesterday's template (`:775-785`)
+> 2. → tomorrow if `@time > NightShiftStartTime` of tomorrow's template **and** `ShiftToSunday = 1` (`:788-799`)
+> 3. → yesterday if no swipes today and within `InterswipeIntervalToMoveToYesterday` of yesterday's first swipe (`:803-834`)
+> 4. → yesterday if yesterday is `ModelType = 7` (shift matching) and a rule matches (`:839-864`) — **undocumented in the vault**
+> 5. → today (`:867`)
+> 0. before all of them, `EmployeeMasterDailyModels` **overrides** the day's own template for
+>    branches 1–3 unless that template sets `TreatAsMasterDailyModel = 1` (`:765-778`) — also
+>    undocumented, and its date window is tested against yesterday/tomorrow rather than the swipe
+>    date, which looks like a defect (`:768-769`)
+>
+> `008-a-day-has-a-place.md:253-256` already said five branches; this portion was stale against it.
+> The whole Work Rules dependency is **five columns of `DailyModels`** plus
+> `DailyModelShiftMatchingRules` (8) and `EmployeeMasterDailyModels` (5) —
+> **plan 010 P1 delivers exactly that subset**, and 010 P2 the function. Detail and the ten extra
+> edge cases: [`TLW-WORK-RULES.md`](../TLW-WORK-RULES.md) §5.
 
 ### [ ] P4 — Badge-slot provenance
 **Touches:** punch model
@@ -126,6 +146,14 @@ is handled explicitly, not silently truncated.
    normalising, but this is your product decision.
 2. **Does any customer actually hit the 20-pay-category ceiling today?** If yes, that settles
    question 1 immediately and raises this plan's priority above the rest of Phase 2.
+
+   > **Partly answered 2026-08-18 (plan 010's survey).** No customer *can*. `dbo.Counters` is
+   > created and seeded with **exactly 20 rows** in one block
+   > (`Database\Versioning\27.V2.1.12.sql:390-501`), and `CountersController.cs` exposes only
+   > `Index` and `EditCounter` — **no Create, no Delete**. Twenty renameable slots, permanently.
+   > So the question becomes a demand question rather than a data-migration one: the migration is
+   > 20 named rows either way, and normalising buys headroom rather than rescuing overflow. That
+   > lowers the *risk* of normalising without lowering its value.
 3. **Sequencing.** Plan 001 (data scope) is mid-flight with P2–P5 outstanding. This plan is
    larger and more foundational. Finish 001 first (it is short and every query depends on it),
    or pause it here and start 002? I recommend finishing 001 — it is nearly done, and scope

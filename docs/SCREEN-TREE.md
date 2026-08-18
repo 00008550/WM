@@ -30,6 +30,7 @@ surface. That is corrected here.
 | "`SiteStructure` = site/department hierarchy" | It is the **application page tree** (`SiteBranch`/`SiteForm`/`SiteFormTab`). |
 | "Roles and groups are separate" | **A Group *is* a Role** — one object carries per-form read/edit **and** managed departments/locations/employees. |
 | "Time rules" as a branch | Not a TLW concept. The real branch is **Work Rules**, and it already contains absences and accruals alongside templates. |
+| "Day types" and "Calendar day models" are Work Rules screens | They are **Access Control** — `Controllers/AccessControl/DayTypeController.cs` → `dbo.ac_day_type` (5 cols), `AccessControlCalendarController.cs` → `dbo.ac_calendar` (5). Out of scope with the rest of `ac_*`. Corrected 2026-08-18; see §5 note. |
 
 ---
 
@@ -67,28 +68,38 @@ without people to record, accounts to sign in with, and rights to control them.
    Export settings · Import history & error reporting
 
   Work Rules — base                            [required by Time & Attendance]
-      Daily templates · Day types · Calendar day models
-      Master daily model assignment
+      Daily templates                     (dbo.DailyModels, 124 cols)
+      Master daily model assignment       (dbo.EmployeeMasterDailyModels, 5)
       Shift matching · Split shifts · Multi-shift
+                                          (DailyModelShiftMatchingRules 8 /
+                                           DailyModelSplitShifts 7 /
+                                           DailyModelMultiShifts 4)
       Break rules · Rounding rules · Global schedule thresholds
-      Pay categories · Pay periods
-      Corrections & time adjustments
+                                          (DailyModelBreaks 34 /
+                                           RoundingRules 21 /
+                                           GlobalScheduleThresholds 7)
+      Pay categories · Pay periods        (dbo.Counters 7 / dbo.Periods 6)
+      Corrections & time adjustments      (dbo.Corrections, 13)
       Exception setup · Blocked exception rules · Muted exceptions
+                                          (ScoresAbnormalitiesSetup 7;
+                                           blocked-exception rule is 3 global
+                                           modes, not a screen; muting is
+                                           Clockings.ShouldHideExceptions)
 
-      Not optional: Daily Browser cannot render without these. Its controller
-      pulls in HoursCalculation, ClockingPauses and Scores, and
-      DailyBrowserClocking directly carries ClockingCorrection,
-      ClockingShiftCorrection, ClockingPause and ScoresAbnormality. A punch
-      with no template to match, no pay category to classify into and no way
-      to correct it is not a usable attendance product.
+      Measured 2026-08-18: 22 tables, 341 columns. Full anatomy in
+      `TLW-WORK-RULES.md`.
+
+      Required, but less so than this document claimed. Corrected below.
 
 ◆ Work Rules — Periodic & weekly                                 [module]
       Periodic templates · Weekly models
       Weekly/periodic band & hour counters
 
 ◆ Work Rules — Balances                                          [module]
-      Counters · Weekly counters · Flexi balance · Flexi balance tracking
+      Weekly counters · Flexi balance · Flexi balance tracking
       Balance reset · Contract hours limits · Debit/credit rules
+      (~~Counters~~ moved to the base 2026-08-18: `CountersController`
+       over `dbo.Counters` **is** the Pay categories screen, listed twice)
 
 ◆ Work Rules — Absence & leave                                   [module]
       Absences · Predefined absences · Absence allocation
@@ -410,6 +421,8 @@ tabs can be added later without changing the group shape.
    rounding, corrections/adjustments and exceptions ship whenever Time & Attendance
    does — verified in the code, not assumed. Periodic/weekly, Balances, Absence & leave
    and Costing are the genuinely optional sections.
+   *Qualified 2026-08-18: required to run the product, but the Daily Browser **renders**
+   without most of it — see the correction at the end of §5.*
 8. **`My` sub-items inherit their module's licence.** "My expenses" appears only with
    Expenses; "My time" and "My profile" are always present.
 
@@ -443,10 +456,63 @@ Both feed dropdowns on the employee **Leaver** tab
 (`Views/Personnel/Controls/_Leaver.cshtml:7-11`, `:17-20`). WM plan 007 P1 builds the first and has
 no owner for the second. Detail in `TLW-PEOPLE-MODEL.md` §4.1b.
 
+### Correction, 2026-08-18 — the Work Rules base, measured (plan 010)
+
+This document's Work Rules entry was wrong in three ways and overstated the Daily Browser's
+dependencies in a fourth. Full anatomy in [`TLW-WORK-RULES.md`](./TLW-WORK-RULES.md).
+
+**1. "Day types" and "Calendar day models" are Access Control.** `DayTypeController.cs` and
+`AccessControlCalendarController.cs` both live in `WebSite/Controllers/**AccessControl**/`, over
+`dbo.ac_day_type` and `dbo.ac_calendar` (5 columns each) — part of the 12-table `ac_*` door-access
+schema alongside `ac_security_group` and `ac_timezone`. There is no Work Rules "day type": the
+nearest concept is `DailyModels.ModelType` (11 variants,
+`SharedLogic\Enums\ShiftType.cs:4-17`). **This is the third instance of the same misattribution** —
+after `SecurityGroup` (corrected at the top of this document) and `ac_timezone` (corrected at
+`008-a-day-has-a-place.md:155`). Both tree lines are now fixed.
+
+**2. "Pay categories" and "pay periods" have no tables of those names, and "Counters" was listed
+twice.** A pay category is a row in `dbo.Counters` (7 cols); its value for a day is
+`Clockings.CPTN01..20` — twenty fixed columns, so twenty categories, maximum. A pay period is
+`dbo.Periods` (6 cols, `PeriodsController.cs`), which is **not** `dbo.ac_period`.
+
+`CountersController` over `dbo.Counters` **is** the Pay categories screen, so this tree listed the
+same screen in *both* Work Rules — base and Work Rules — Balances. The duplicate is removed from
+Balances, which keeps `WeeklyCounters` (a different controller and table).
+
+The 20-category ceiling is harder than "a schema limit": `dbo.Counters` is created and seeded with
+**exactly 20 rows** in one block (`Database\Versioning\27.V2.1.12.sql:390-501`), and
+`CountersController` exposes **only `Index` and `EditCounter`** — no Create, no Delete. Twenty
+renameable slots, permanently.
+
+**3. "Blocked exception rules" and "Muted exceptions" are not screens.** The blocked-exception rule
+is three global modes (`Documentation\Blocked Exception Rules.md:11-14`). Muting is a single
+day-level flag, `Clockings.ShouldHideExceptions`, with two grid filters
+(`DailyBrowserController.cs:178-179`). *Authorising* an exception is a genuinely separate,
+per-exception action with a user and timestamp (`dbo.ScoresAbnormalitiesAuthorized`, 8 cols) and was
+missing from this tree entirely.
+
+**4. "Daily Browser cannot render without these" — half right.** Counting call sites in
+`DailyBrowserController.cs` (113 KB, 26 injected services):
+
+| Service | Uses | Path |
+|---|---|---|
+| `IScoreService` | 15 | **read — essential.** It is the grid's row repository (`:1059`) |
+| `IDailyModelService` | 4 | read, but **degrades**: a missing template yields `new DailyModel()` (`DailyBrowserDetailsViewModel.cs:61`) |
+| `IHoursCalculationService` | **2** | **write only** (`:1257`, `:1270`) — reached solely from `Save` |
+| `IClockingPausesService` | **1** | **write only** (`:1725`) |
+| `ClockingService` | **0** | injected, never used |
+
+So the Daily Browser renders from stored `calc_*` columns **without a calculation engine**. And it
+renders 14 columns by default, not 126: the selectable set is 48
+(`Logic\Scores\DailyBrowserColumn.cs`) and the shipped default is
+`"2,3,4,5,6,9,10,11,12,20,22,24,28,29,30"` (`Core\Constants.cs:48`). That is what makes a read-only
+first version possible — plan **010**.
+
 Confirmed dropped after checking: `Events` (AC event types), `Timezone` (door-access
 timezones, unrelated to site time zones), `BulkRegistration` (student lesson
 registration), `Inventory`/`PaymentType`/`ReceiptStatus`/`TipManagement` and the
-ParentPay/Squid/WisePay settings (all EPOS).
+ParentPay/Squid/WisePay settings (all EPOS). Added 2026-08-18: `DayType`,
+`AccessControlCalendar` and `AccessControlPeriod` are AC, not Work Rules.
 
 ## 6. Person type — decide before People is finished
 
