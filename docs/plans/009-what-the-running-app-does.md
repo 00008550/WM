@@ -617,9 +617,25 @@ while every employee-list request 500'd with Postgres `42703` (undefined_column)
 compare `GetAppliedMigrations()` against the assembly's migration *ids* rather than their count.
 **Tests:** a database at head with a column dropped out of band answers Unhealthy; the message
 still leaks no Npgsql text (`ReadinessEndpointTests.cs:60-69` already asserts that and must keep
-passing); the endpoint stays anonymous and inside the rate-limit bucket 006 P3 gave it.
-**Risk:** low — but note P3's carry-over: this endpoint is uncached and anonymous, so a per-request
-schema probe must stay cheap.
+passing); the endpoint stays inside the rate-limit bucket 006 P3 gave it.
+
+> ⚠️ **Correction, measured 2026-08-18.** This portion was drafted saying the endpoint "stays
+> anonymous". **It is not anonymous today** — `GET /health/ready` answers **401** to an
+> unauthenticated caller, while `GET /health` answers `200 Healthy`. That is consistent with 003
+> P2a, which fixed the anonymous surface at exactly four transports (`/api/auth/login`, `/refresh`,
+> `/logout`, `/health`) and never added `/health/ready`.
+>
+> **This is a second defect in the same endpoint, and it outranks the schema check.** A readiness
+> probe that requires a bearer token cannot be called by a container `HEALTHCHECK`, by a load
+> balancer or orchestrator probe, or by 006's own smoke check — which is the entire reason 006 P2
+> built it. So today the endpoint both *lies* (reports migrated when the schema disagrees) and is
+> *unreachable* by the things meant to consult it. Whoever takes this portion must settle the
+> authorization question first: either add `/health/ready` to the anonymous four and update the
+> inventory test deliberately, or accept that only authenticated callers may ask and say what
+> probes the demo instead. **Do not build the schema check onto an endpoint nothing can call.**
+
+**Risk:** low for the schema check itself — but note P3's carry-over: if the endpoint becomes
+anonymous, it is uncached and public, so a per-request schema probe must stay cheap.
 ```
 
 **3. Two `ARCHITECTURE.md` corrections, propose-only.** Both follow from `TLW-PEOPLE-MODEL.md`
