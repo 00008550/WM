@@ -550,6 +550,47 @@ construction. But `ARCHITECTURE.md:171` attributes WM's direction to TLW: *"(TLW
 …)"*. That is the same class of error as the `WebPages` and one-role-per-user findings: a design
 choice credited to legacy that legacy does not make. Correction proposed in §10.
 
+> **Added 2026-08-18 (plan 009's audit) — the *cardinality* was never measured, and it is not
+> one-to-one.** §4.3 established the *direction* of the link and stopped there.
+> `ARCHITECTURE.md:172` says *"The link is optional and one-to-one"* and §13's user↔employee row
+> says *"one-to-one enforced"*. Neither is a fact about TLW:
+>
+> | Measured | |
+> |---|---|
+> | `HorioDB.designer.cs:7834-7845` | `AssociationAttribute(Name="User_Employee", Storage="_Employees", ThisKey="Id", OtherKey="UserId")` over **`EntitySet<Employee> Employees`** — plural. **One user, many employees.** |
+> | `HorioDB.designer.cs:30451` | `Employees.UserId` is `DbType="Int"`, nullable; the model expresses no uniqueness |
+> | `AuthorizationService.GetEmployeeIdOfUser:1091-1104` | `db.Employees.Where(e => e.UserId == userId).Select(e => e.Id).FirstOrDefault()` — **no `OrderBy`** |
+> | `AuthorizationService.DepartmentOfCurrentUser:1106-1115` | a *second* unordered `FirstOrDefault()` over the same set, selecting `DepartmentId` instead |
+>
+> So legacy permits the many-link and then resolves it arbitrarily, in two places that need not
+> agree: with two employees on one user, *"who am I?"* and *"which department am I in?"* can come
+> from **different rows**, and the answer may change with the query plan.
+>
+> > ⚠️ **One sentence withdrawn, same-day audit 2026-08-18.** This block originally ended
+> > *"`GetUserByEmployeeId:788-800` is `SELECT TOP 1` in the other direction for the same reason."*
+> > **It is not.** The query is `SELECT TOP 1 UserId FROM dbo.Employees WHERE Id = @employeeId`
+> > (`AuthorizationService.cs:788-802`) — it filters on the **primary key**, so it can match at most
+> > one row whatever the cardinality is, and its `TOP 1` is defensive noise that evidences nothing.
+> > The employee→user direction is single-valued by construction anyway: `Employees.UserId` is one
+> > scalar column. **The finding above is unaffected** — it rests on the `EntitySet<Employee>` and on
+> > the two unordered `FirstOrDefault()`s, both re-verified verbatim — but the many-ness lives on the
+> > *employee* side only, and saying otherwise overstates it.
+> >
+> > That asymmetry is worth keeping in view, because **WM's missing constraint is the mirror image,
+> > not the same gap**: legacy leaves *many employees per user* unconstrained (`Employees.UserId`);
+> > WM leaves *many users per employee* unconstrained (`Users.EmployeeId`). Each model's schema makes
+> > the other's bad shape unrepresentable. Consequences for plan 009 P5 are set out there.
+>
+> **WM's one-to-one is an improvement WM invented, not a port** — and it should be described that
+> way. Classification: **Invert**. Plan 009 P5 measures what enforcing it actually costs: the rule
+> lives only in `UserManagementService.cs:91` and `:144`, and there is **no unique index on
+> `Users.EmployeeId`** — `IdentityDbContextModelSnapshot.cs:257-265` declares `Email` and
+> `UserName` as the table's only unique indexes, while `EmployeeId` at `:230-231` carries none.
+>
+> Two corrections are therefore owed to `ARCHITECTURE.md`, both **propose-only**: §1–§12 are design
+> sections, and §13 is being edited by [#62](https://github.com/00008550/WM/pull/62) as this is
+> written. Concrete diffs are in plan 009's *Open questions*.
+
 ### 4.4 `Employees.RoleId` — a second, undocumented role pointer
 
 `dbo.Employees.RoleId` (`:29811`) exists alongside `dbo.UsersInRoles`. `TLW-AUTHORIZATION-MODEL.md`
