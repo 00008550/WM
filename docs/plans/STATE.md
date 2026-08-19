@@ -327,9 +327,12 @@ the access model.
 | 005 | One object, one membership (the Identity refactor option A requires) | 6 | **draft — awaiting approval** |
 | 006 | A public demo, kept current by CI/CD | 7 (**P2 [#40](https://github.com/00008550/WM/pull/40) and P3 [#47](https://github.com/00008550/WM/pull/47) both merged** — `5406575`, `1240dbc`; P1 next in lane B, after 005 P3) | **in-progress — approved 2026-08-06** |
 | 001 | Compositional data scope (the model half of Phase 1b) | 5 (P1–P2 done, **P3 ⏹ superseded by 005 P4**) | in-progress, paused after P2 |
-| **007** | **The person record: employment as a date, and three defects under it** | 5 (**P1 review passed 2026-08-17, open as [#61](https://github.com/00008550/WM/pull/61)**; P2 next in lane C) | **in-progress — approved by the user 2026-08-06, all 5 portions** |
+| **007** | **The person record: employment as a date, and three defects under it** | 5 (**P1 merged [#61](https://github.com/00008550/WM/pull/61)** `ead3bfc`; **P2 next** — the punch boundary, whose defect was confirmed live 2026-08-18) | **in-progress — approved by the user 2026-08-06, all 5 portions** |
 | 004 | Screen-level rights (the second half of Phase 1b) | 4 | draft — §4 now decided; **needs 005 to land first**; **007 adds field-group write rights to its scope** |
-| 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision, and now also on 007 P1** (a replay cannot know who was employed on the day replayed) |
+| 002 | The Clocking daily aggregate (Phase 2 prerequisite) | 5 | **draft — blocked on a design decision only.** The 007 P1 half cleared when it merged (`ead3bfc`); a replay can now ask who was employed on the day replayed. **010 P1 is its other prerequisite** and needs no approval from this plan. P3 was also stale: the swipe→day rule is **five branches plus a master override**, not three (`010`, and `008:253-256` already said five) |
+| 008 | A day has a place — per-site time zones | 5 | **draft — awaiting approval.** Direction confirmed by the user 2026-08-18 (per-site with inheritance). P3 sequences after 007 P1, which has merged |
+| **009** | **What the running app does — the defects the 2026-08-18 audit found** | **8** | **draft — awaiting approval.** Claims independently verified; P1–P4 independent of 005 and 007. Open decision: **003 P3 already owns `phone` by name** |
+| **010** | **The Daily Browser** | **5** | **draft — awaiting approval.** **P1 is the five-column daily-template subset** — deliverable before 002 is approved, and 002 P3's only prerequisite. P3–P5 would ship a read-only browser (open question 3) |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
