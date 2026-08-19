@@ -29,10 +29,12 @@
 | Web UI screen folders (Views) | **~230** |
 | Standard DevExpress reports | **67** |
 | Distinct email notification types | **~70** |
-| Daily Template configuration fields | **~150** |
+| Daily Template configuration fields | **163** view-model properties over **124** persisted columns *(measured 2026-08-18; "~150" was an estimate)* |
 | **Columns on `dbo.Clockings`** | **249** — the widest table WM needs |
+| **Columns on `dbo.DailyBrowserView`** | **126** — of which **74 are four fixed-width arrays** |
 | **Columns on `dbo.Employees`** | **153** |
 | **Pay category slots (`CPTN01..20`)** | **20, fixed** — hard ceiling |
+| **Work Rules — base** | **22 tables, 341 columns** + a **~700 KB** calculation engine (`Logic\HoursCalculation\`, 79 files) |
 
 > **Correction (2026-08-04).** "247 entity classes" is roughly half the real table count. The
 > authoritative schema is the LINQ-to-SQL model at
@@ -144,8 +146,12 @@ Clockings, swipes, **clocking actions**, **clocking allocations**, **auto-pauses
 
 ### 3.2 Rules & Calculation — *the deepest part of the product*
 - **Daily Templates** (~150 fields): template types; **shift 1 & 2** IN/OUT with limits and calc-before/after; **core hours** (+2nd half); **12+ exception types** (early/late entry, exit, break start, break end, long break, short break, expected-hours-exceeded, short day, no swipes); breaks (lunch rules, **delta breaks**, **break half-day**, multi-break with paid/pay-category, min/expected duration, max deduction, grace, rounding, cut-off); **debit/credit** full/half day; **rounding policy** with per-swipe **Prime/Enter/Exit/Final score** rounding + corrections; **schedule thresholds** (block swipes outside window); **daily calculation order** by time-bands or duration with **hour counters per weekday and absences**; **shift matching** rules; **split-shifts**; **multi-shift**; night-shift handling, **day/night hours distribution**, **offset transaction to next day**, allocate to previous/next day, **lost premia percentage**; and a **custom SQL statement per template** with reprocess-after-execute.
-- **Periodic Templates**, **Weekly Models** (band + hour counters), **Master Daily Model** assignment, **Calendar day models**, **Day types**.
-- **Rounding rules** (global + per template), **hours calculation**, **counters** & **weekly counters**, **flexi balance** + **flexi balance tracking**, **contract hours limits**, **balance reset**, **periods**, **cost centre allocation**, **tariffs**, **pay categories**, **scores / abnormalities** with **muted exceptions**, **exceptions setup**, **blocked exception rules**.
+- **Periodic Templates**, **Weekly Models** (band + hour counters), **Master Daily Model** assignment (`dbo.EmployeeMasterDailyModels`, 5 cols). ~~**Calendar day models**, **Day types**~~ — **corrected 2026-08-18: these are Access Control**, `Controllers/AccessControl/DayTypeController.cs` → `dbo.ac_day_type` and `AccessControlCalendarController.cs` → `dbo.ac_calendar`. Out of scope with the rest of `ac_*`.
+- **Rounding rules** (global `dbo.RoundingRules` 21 cols **+ the same 18 fields inline on `DailyModels`** — nothing records which wins), **hours calculation**, **counters** & **weekly counters**, **flexi balance** + **flexi balance tracking**, **contract hours limits**, **balance reset**, **periods**, **cost centre allocation**, **tariffs**, **pay categories**, **scores / abnormalities** with **muted exceptions**, **exceptions setup**, **blocked exception rules**.
+  - Measured 2026-08-18: **a pay category is a row in `dbo.Counters`** (7 cols); there is no `PayCategories` table. Its value for a day is `Clockings.CPTN01..20` — a hard ceiling of 20.
+  - **A pay period is `dbo.Periods`** (6 cols) — *not* `dbo.ac_period`, which is door access.
+  - **Blocked exception rules** = three global modes, not a configuration screen (`Documentation\Blocked Exception Rules.md:11-14`). **Muting** = one day-level flag, `Clockings.ShouldHideExceptions`. **Authorising** is separate and per-exception (`dbo.ScoresAbnormalitiesAuthorized`, 8 cols) and was missing from this list.
+  - Whole Work Rules base measured: **22 tables, 341 columns**. See [`TLW-WORK-RULES.md`](./TLW-WORK-RULES.md).
 
 ### 3.3 Scheduling
 Planning, **Planning Control**, **Auto-Planning**, **Roster** + **Roster Calendar** + **roster notification templates**, **employee schedule requests**, **global schedule thresholds**, **Timetables / Timetable Creator** (+ settings).
