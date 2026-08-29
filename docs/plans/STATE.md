@@ -333,7 +333,7 @@ the access model.
 | 008 | A day has a place — per-site time zones | 5 | **draft — awaiting approval.** Direction confirmed by the user 2026-08-18 (per-site with inheritance). P3 sequences after 007 P1, which has merged |
 | **009** | **What the running app does — the defects the 2026-08-18 audit found** | **8** | **draft — awaiting approval.** Claims independently verified; P1–P4 independent of 005 and 007. Open decision: **003 P3 already owns `phone` by name** |
 | **010** | **The Daily Browser** | **5** | **draft — awaiting approval.** **P1 is the five-column daily-template subset** — deliverable before 002 is approved, and 002 P3's only prerequisite. P3–P5 would ship a read-only browser (open question 3) |
-| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** | **in-progress — approved by the user 2026-08-29, all 8 portions.** Lane D. Surveys **WM, not legacy**. **Exactly 1 of 8 is a live defect** (P5) after D2 voided P4's. Build order **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**. P7 unblocked by D1 and needs ADR 0001 first; P8 still after 007 P2 |
+| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** (**P2 review passed — [#67](https://github.com/00008550/WM/pull/67)**; **P5 next**) | **in-progress — approved by the user 2026-08-29, all 8 portions.** Lane D. Surveys **WM, not legacy**. **Exactly 1 of 8 is a live defect** (P5) after D2 voided P4's. Build order **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**. P7 unblocked by D1 and needs ADR 0001 first; P8 still after 007 P2 |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
@@ -594,6 +594,7 @@ writes them.)*
 | 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | ✅ merged to master (`ead3bfc`) — review passed round 3 (F1 data-loss fix + three `STATE.md` claims), squash-merged |
 | — | provenance audit of 007 P1 against legacy | [#59](https://github.com/00008550/WM/pull/59) | ✅ merged to master (`6eb52a1`) |
 | — | legacy time survey + plan 008 | [#60](https://github.com/00008550/WM/pull/60) | ✅ merged to master (`211e628`) |
+| 011 | P2 — the first frontend spec, and CI stops warning | [#67](https://github.com/00008550/WM/pull/67) | 🔍 review passed 2026-08-29, open against `master` — 13 specs, both mutations red **by name**, CI green on the runner (`Angular build` 28 s → 51 s) |
 
 ## In flight
 
