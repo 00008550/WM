@@ -333,7 +333,7 @@ the access model.
 | 008 | A day has a place — per-site time zones | 5 | **draft — awaiting approval.** Direction confirmed by the user 2026-08-18 (per-site with inheritance). P3 sequences after 007 P1, which has merged |
 | **009** | **What the running app does — the defects the 2026-08-18 audit found** | **8** | **draft — awaiting approval.** Claims independently verified; P1–P4 independent of 005 and 007. Open decision: **003 P3 already owns `phone` by name** |
 | **010** | **The Daily Browser** | **5** | **draft — awaiting approval.** **P1 is the five-column daily-template subset** — deliverable before 002 is approved, and 002 P3's only prerequisite. P3–P5 would ship a read-only browser (open question 3) |
-| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** | **draft — awaiting approval.** Lane D. Surveys **WM, not legacy** (legacy opened for one question only). **Only 2 of 8 are live defects**; the rest are absent machinery. **P2 must land before 009 P3**, **P8 after 007 P2**, **P5 after 009 P3**, **P7 after 009 P4**. P7 blocked on a design decision (open question 3) |
+| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** | **in-progress — approved by the user 2026-08-29, all 8 portions.** Lane D. Surveys **WM, not legacy**. **Exactly 1 of 8 is a live defect** (P5) after D2 voided P4's. Build order **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**. P7 unblocked by D1 and needs ADR 0001 first; P8 still after 007 P2 |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
@@ -383,7 +383,7 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
 - **007 P1 unblocks 002.** If plan 002 is approved before 007 P1 lands, its replay has no way to
   know who was employed on the day it replays.
 
-**Lane D — the platform's production machinery (new, 2026-08-29, `draft`):**
+**Lane D — the platform's production machinery (new, 2026-08-29, `approved`):**
 [`011-production-readiness.md`](./011-production-readiness.md) — 8 portions, from an external
 senior-engineer audit the user commissioned (idempotency, transactions, jobs, caching,
 observability, testability, migrations). **Every finding was re-measured before being planned:** two
@@ -391,22 +391,66 @@ were materially wrong, one was already an approved portion, one was understated.
 
 It is the most orthogonal lane yet — six of eight portions touch `README.md`, `ci.yml`,
 `deploy/*.yml`, `Program.cs`, `SharedKernel` and a new architecture-test project, which no other
-lane opens. **Four hard constraints, all recorded in the plan's portions:**
+lane opens.
+
+### Approved 2026-08-29, all 8 portions. Build order: **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**
+
+**P5 is the only live defect in the plan** — two managers editing one employee, last write wins
+silently — and it is the one place WM is measurably **worse than the product it replaces**. It is
+second rather than first, for one concrete reason: **P5 adds a `version` field that must round-trip
+through the SPA**, which is the exact class of bug 009 P3 exists to fix (`phone`, silently nulled by
+a full-replace `PUT`). If the SPA drops `version`, either every save 409s or — worse — the check is
+**silently bypassed and P5 ships a token that never fires**. A green backend suite would prove
+nothing. So P2 (the spec harness) goes first. **Escape hatch:** if P2 cannot be made reliable in a
+timebox, revert it and build P5 anyway with a *labelled manual* SPA check, as 007 P1 did for its
+migration.
+
+**Constraints, all recorded in the plan's portions:**
 
 - **011 P2 → before 009 P3.** 009 P3 writes `employees.component.spec.ts`, and there are **zero**
   specs today, so `ci.yml:105-116` flips from `::warning` to a headless-Chrome `ng test` that has
   **never run in this repository** — inside a PR whose subject is a phone field. Debugging karma
   belongs in its own portion.
+- **011 P5 now runs *before* 009 P3, not after** — changed by the approval. Gating the only live
+  defect on approving a `draft` plan was the wrong trade. **P5 therefore carries 009 P3's
+  `PortalEditBody` amendment** (`LeaverRecordEndpointTests.cs:410-438`) and re-verifies 009 P3's
+  *Touches* citations in its own commit, since it moves `employees.component.ts:291` and
+  `PeopleModule.cs:75-88`.
 - **011 P8 → after 007 P2.** Both rewrite `PunchService.RecordAsync`, and 007 P2 is an approved
   bleeding-defect fix. **They are complementary, not alternatives:** 007 P2's seconds-wide window
   suppresses double-click noise; P8's client key answers the offline queue flushed hours later,
   which no window can catch and which invariant 3 makes the *normal* case.
-- **011 P5 → after 009 P3**, which builds the full-replace-`PUT` inventory test and round-trip rule
-  P5 extends. Reversible if the user prefers the data-loss fix first, at the cost of amending
-  009 P3's *Touches*.
-- **011 P7 → after 009 P4** (the Postgres harness). An outbox is a claim about transaction
-  boundaries and EF's in-memory provider has none; unlike P5, a manual run is **not** an acceptable
-  substitute here.
+- **011 P7 → after 009 P4** (the Postgres harness), **and after ADR 0001**. An outbox is a claim
+  about transaction boundaries and EF's in-memory provider has none; unlike P5, a manual run is
+  **not** an acceptable substitute here.
+
+### Three rulings on 2026-08-29 that changed the plan
+
+- **D1 — the outbox is a small one in `SharedKernel`, not MassTransit in the API.** **P7 unblocked**;
+  `docs/adr/0001-outbox-in-sharedkernel.md` is written before any code. Consequence: **§2:93 is now
+  wrong** (it promises the outbox via MassTransit); the diff is proposed in the plan's open
+  question 1, not applied, because §2 is a design section.
+- **D2 — Redis gets the SignalR backplane job now**, overruling the survey's "premature, one
+  container per customer" recommendation. **P4 was rewritten, not edited**: it was a *defect fix*
+  and is now *added capability*, because the ruling **voids the defect** — a hard `depends_on` on
+  Redis is correct once the API connects to it. P4 now also owns two consequences the original did
+  not contain: what a Redis outage does to a hub that depends on it (answer: degrade the feed, never
+  fail a connection or a request), and the fact that **a backplane silently breaks live scope
+  revocation** — `UserScopeChangedAsync:115` scans an in-process registry, so a scope edit on one
+  instance re-groups only that instance's sockets, downgrading 003 P1's ✅. **The code predicted this
+  in a comment** (`AttendanceConnectionRegistry.cs:19-21`). The fix is to distribute the
+  *notification*, not the registry.
+- **D3 — rollback becomes real tooling**, and it is **not** part of 011. Registered below by name.
+  The ruling is recorded against `ARCHITECTURE.md` §13A:739-740 so the contradiction stops being
+  live.
+
+**One thing measured rather than assumed, because it decided the order.** Does P5 need the Postgres
+harness? **No.** EF Core 10's InMemory provider *does* enforce an explicit concurrency token
+(`DbUpdateConcurrencyException`, A's write survives), and the mutation with the token removed
+reproduces WM's current bug exactly — *"B silently overwrote A"*. **But only for an explicit mapped
+column:** Npgsql's `xmin` is never populated in memory, so an `xmin` token would make every
+concurrency test pass **vacuously**. That is now a design constraint on P5 rather than a trap for
+the builder. The migration's SQL still wants 009 P4.
 
 **What it found that the records did not have.** Legacy runs full-column optimistic concurrency on
 **~99.5%** of its schema (356 `UpdateCheck.Never` of 8,173 columns; `dbo.Employees` checked on
@@ -496,7 +540,20 @@ language;
 **"Per-install configuration"** — `SoftwareMainOptions` (227 cols);
 **"HR records and documents"** — the 8 near-identical document-category tables (16 tables / 140
 columns expressing one idea eight times), bank details and salary. **Blocked on 004** — legacy
-guards these behind 24 per-tab write permissions and WM has one `employees.manage`.
+guards these behind 24 per-tab write permissions and WM has one `employees.manage`;
+**"Rollback that actually rolls back"** — *added 2026-08-29 by user ruling D3, and the only one of
+these names that comes from a **measured contradiction in a shipped promise** rather than from the
+schema.* `ARCHITECTURE.md` §13A:739 promises *"instant rollback — repin `WM_VERSION`"*; §13A:740
+promises *"schema upgrades itself"* via migrate-on-start (`Program.cs:96-98`, every environment).
+**Repinning does not un-migrate.** Its concrete test case already exists and is merged: 007 P1's
+`20260814080315_EmploymentWindowAndLeaverRecord` does `DROP COLUMN "Status"`, so repinning to the
+previous image leaves the old build querying a column that is gone. The user chose the **tooling**
+answer over narrowing the promise, so the plan owes an expand/contract discipline with a mechanical
+check, a rollback path that includes the database, and its relationship to the per-customer
+backup/restore §13A:765 already lists as a deliverable. **Plan 011 measured this and deliberately
+does not absorb it** — see 011's *Out of scope*. It is the strongest candidate of the four for being
+written next, because unlike the others it is a live promise to customers rather than unbuilt
+surface.
 *(These have twice been renumbered while carrying reserved numbers they had not earned — 004/005,
 then 006/007. Both of those numbers are now real written files. They keep names until someone
 writes them.)*

@@ -1,6 +1,6 @@
 # 011 — Production readiness: the machinery this repository claims and does not have
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: **approved** — user, 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
 Roadmap: ARCHITECTURE.md §14 *"Running workstream (not a phase): on-prem rollout tooling"*, plus the
 rows of §2's tech-stack table that are **promised and unbuilt** (`Observability | OpenTelemetry`,
 `Cache / realtime backplane | Redis`, `RabbitMQ … outbox`).
@@ -29,6 +29,53 @@ migrations and backward compatibility. The audit rated the access-model and modu
 and produced eight findings. **Each was re-measured by this survey before being planned**, per the
 standing rule that a claim without `file:line` is a hypothesis. Two were materially wrong, one was
 already owned by an approved portion, and one turned out to be a live defect the audit understated.
+
+---
+
+## Decisions taken (user, 2026-08-29)
+
+**All 8 portions approved.** Three open questions ruled on, and they change this plan materially —
+one portion is rewritten, one is unblocked, and one question left the plan entirely.
+
+### D1 — the outbox is a small one in `SharedKernel`, not MassTransit in the API
+
+**P7 is unblocked.** Written up as an ADR before it is built. This was the recommendation and the
+reason stands: §14A:797 already designates `SharedKernel` as the outbox's home, `WM.Api.csproj`
+carries no MassTransit today, and §7A:264's *"known multi-week detour"* warning is about sagas,
+retry and DLQ — not about a table and a dispatcher.
+
+**Consequence: §2:93 is now wrong.** It reads `Commands & jobs | RabbitMQ via MassTransit (retry,
+outbox, sagas)`, which after this ruling describes a mechanism WM has decided not to use for the
+leg that actually loses events. §2 is a design section, so the correction is **proposed, not
+applied** — concrete diff in *Open questions* 1.
+
+### D2 — Redis gets the SignalR backplane job now
+
+This **overrules** the survey's "premature — one container per customer" recommendation. The
+reasoning was put to the user and the user chose otherwise, so it is settled: build it, and this
+plan does not re-argue it.
+
+**P4 is rewritten rather than edited, because its character changes completely.** It was a defect
+fix; it is now a capability. Specifically, the defect it was written to close **evaporates**: under
+D2 the hard `depends_on: service_healthy` at `docker-compose.prod.yml:92-94` becomes *correct*,
+because the API genuinely will hold a Redis connection. The finding was real when measured and is
+void under the ruling — recorded here rather than quietly deleted, because separating what is
+bleeding from what is machinery is the thing this plan is for.
+
+D2 also surfaces two consequences the original P4 did not contain, both now in the portion: what a
+Redis outage does to a hub that has a hard dependency on it, and the fact that a backplane
+**silently breaks live scope revocation** unless something is done about the in-process connection
+registry. The second is not speculative — `AttendanceConnectionRegistry.cs:19-21` predicted it in a
+comment written when 003 P1 shipped.
+
+### D3 — rollback becomes real tooling, and it is not part of 011
+
+The user chose the tooling answer over the documentation answer for the §13A:739 / §13A:740
+contradiction (repinning `WM_VERSION` does not un-migrate the schema). **This is its own plan and
+011 does not absorb it.** Registered by name in `STATE.md` — *"Rollback that actually rolls back"* —
+alongside the other named-but-unwritten plans, per the convention that a plan number is claimed when
+the file is written, never when the work is merely named. The ruling itself is recorded against
+§13A so the contradiction stops being live.
 
 ---
 
@@ -238,7 +285,13 @@ punch and never touches the broker on the request path, which serves that goal s
 today's code does. The genuine open question is narrower and is listed at the end: §2's outbox
 promise is worded around **MassTransit/RabbitMQ**, and the punch's dual write is **Kafka**.
 
-### F4 — Redis is deployed and unused · **CONFIRMED, and it is a live availability defect, not hygiene**
+### F4 — Redis is deployed and unused · **CONFIRMED, then VOIDED by D2**
+
+> **Read this finding as history.** It was confirmed as measured, and the *availability defect* half
+> was **dissolved by the user's ruling on 2026-08-29** (D2): once the API holds a Redis connection,
+> the hard `depends_on` below is correct rather than wrong. The measurement stands; the conclusion
+> does not. It is kept in full because the reasoning is what justified asking the question, and
+> because P4 now inherits the *other* half — that nothing consumed Redis — as its brief.
 
 No `.csproj` references any Redis client and `Grep` for `StackExchange|IDistributedCache|
 IMemoryCache|Redis` over `src/**` returns nothing but compiled binaries. Confirmed.
@@ -260,10 +313,9 @@ lines below, comments *"Brokers are not a hard dependency: the API starts and se
 or RabbitMQ are still coming up"* (`:106-107`). **The file contradicts itself about the one
 component with no consumer.**
 
-Removing Redis outright contradicts §2:92 and §13A:690, so P4 does not propose that unilaterally —
-see *Open questions* 2. It does, unconditionally and regardless of that answer, remove the
-`depends_on` and the dead environment key, because a hard dependency on an unused service is wrong
-under every option.
+Removing Redis outright would contradict §2:92 and §13A:690, so P4 did not propose it unilaterally.
+**Ruled by the user 2026-08-29 (D2): Redis gets the backplane, and the `depends_on` therefore stays
+and becomes correct.** This paragraph is the half of the finding that D2 voided.
 
 **There is a real job waiting for it,** which is why "delete it" is not obviously right:
 `AttendanceConnectionRegistry` (`:27`) and `AttendanceAudience` (`:50`) hold SignalR connection
@@ -353,6 +405,35 @@ on 148 of `dbo.Employees`' 153 columns, so it **detects** this conflict — and 
 it surfaces as an unhandled `ChangeConflictException`. WM is currently *behind* legacy on detection
 and ahead of it on not-crashing. The target is to be ahead on both.
 
+**Is P5 testable without the Postgres harness? Measured, not assumed — yes, and the answer
+constrains the design.** The concern is fair: a concurrency token is SQL behaviour, `009 P4` is the
+standing testing gap, and this repo has been burned by a promised migration test that no harness
+existed to run (001 P2). So it was run rather than reasoned about, against EF Core **10.0.10**'s
+InMemory provider, two `DbContext`s over one store:
+
+```
+A loaded version 45f9…  B loaded version 45f9…
+A saved OK
+>>> RESULT: DbUpdateConcurrencyException — InMemory DOES enforce the token.
+final Name = A wins
+```
+
+And the mutation, with `.IsConcurrencyToken()` removed, which reproduces **WM's exact current
+behaviour**:
+
+```
+>>> RESULT: NO CONFLICT DETECTED — B silently overwrote A.
+final Name = B overwrites
+```
+
+So the test can fail, and it fails by reproducing the defect. **P5's behaviour is honestly testable
+today with no harness — on one condition, which is now a design constraint on the portion: the
+token must be an explicit mapped column, not Npgsql's `xmin`.** A shadow `xmin` is populated by the
+Postgres storage engine; under InMemory nothing writes it, so it would sit at its default forever
+and every concurrency test would pass *vacuously* — a green suite proving the opposite of what it
+claims. That is precisely the failure this repository keeps catching by mutation, and it is worth
+paying a real column for. The migration's **SQL** still wants 009 P4; the behaviour does not.
+
 **Why a single row version, and not legacy's per-column check.** Full-column comparison lets two
 managers editing *different* fields both succeed. That would be the better trade-off — except WM's
 API shape forecloses it: all four employee/user mutation endpoints are **full-replace `PUT`s**
@@ -374,14 +455,16 @@ version is exactly the right shape for it.
 | `_producer = null` on missing config, one warning, silent forever | **Invert** | A misconfigured event stream must be **loud and ongoing**, not a startup whisper. Fail the readiness check outside Development, or count every skipped publish. → P6. |
 | Legacy's full-column `UpdateCheck.Always` on `dbo.Employees` | **Improve** | The *detection* is right and WM lacks it. The *granularity* is wrong for WM's full-replace `PUT`s, and the *handling* (crash) is wrong outright. → P5. |
 | Legacy exempting `dbo.Clockings` (249/249 `Never`) from concurrency checks | **Keep** | Correct for a wholesale-recalculated aggregate. Carry the reasoning into plan **002** rather than re-deriving it. |
-| Redis as a hard `depends_on` for a service that never connects | **Invert** | An unused component must never be able to prevent startup. Unconditional in P4. |
-| Redis in the design as cache + SignalR backplane | **Keep** (the design) | §2:92. It has a real future job the moment there are two replicas. |
-| Redis shipped in every compose file with no consumer | **Improve or Drop** | User's call — *Open questions* 2. |
+| ~~Redis as a hard `depends_on` for a service that never connects~~ | ⏹ **void under D2** | Was **Invert**: an unused component must never block startup. Once the API holds a Redis connection the dependency is *correct*. The finding was real when measured; the ruling dissolved it. Kept struck through rather than deleted, because "which findings survived a decision" is the part that is expensive to reconstruct later. |
+| Redis in the design as cache + SignalR backplane | **Keep** (the design) | §2:92. **D2 promotes this from "a real future job" to the job P4 builds now.** |
+| Redis shipped in every compose file with no consumer | **Improve** | Settled by **D2** — it gets the backplane, not the exit. → P4. |
+| `AttendanceConnectionRegistry` in-process under a backplane | **Improve** | Not wrong today (one instance) and wrong the moment there are two — live scope revocation would silently become per-instance, downgrading 003 P1's shipped ✅. The registry stays local; the *notification* is what distributes. → P4, consequence 2. |
+| Hub group sends as a hard Redis dependency | **Invert** | The realtime leg is best-effort by design (`EventStreamProducers.cs:125-140`) and must stay so. A Redis blip must degrade the feed, never fail a connection or an HTTP request. → P4, consequence 1. |
 | `UseMessageRetry` configured with no dedup | **Improve** | Retry without idempotency is a guarantee of double-execution, not resilience. → P8. |
 | `Contracts` returning `Domain` types | **Improve** | Makes the only enforceable module rule unenforceable. → P3. |
 | Invariant 1 enforced by reviewer instruction | **Improve** | The reviewer prompt saying *"every single time; it is the most common violation"* is an admission. → P3. |
 | CI emitting `::warning` instead of running `ng test` | **Improve** | Correct behaviour for an empty suite; wrong to leave standing. → P2. |
-| Migrate-on-start (`Program.cs:96-98`) | **Keep** *(with a caveat)* | §13A:740 makes it the on-prem upgrade mechanism, and it is the right call. But see *Open questions* 4 — it collides with §13A:739's rollback promise, and nothing in the repo records or enforces the discipline that reconciles them. |
+| Migrate-on-start (`Program.cs:96-98`) | **Keep** *(with a caveat)* | §13A:740 makes it the on-prem upgrade mechanism, and it is the right call. It collides with §13A:739's rollback promise, and nothing in the repo records or enforces the discipline that reconciles them. **Ruled 2026-08-29 (D3): fixed with tooling, in its own plan** — *"Rollback that actually rolls back"*, registered in `STATE.md`. **Explicitly not 011's.** |
 | Multi-tenancy | **Drop** | §14 decision, `:914`. Recorded here so it stops being asked. |
 | A React/frontend-framework migration | **Drop** | Out of scope by the user's direction. The SPA stays Angular 22. |
 | Anything device-related | **Drop** | CLAUDE.md invariant 3. |
@@ -402,7 +485,7 @@ The behaviour each portion has to get right, and which are testable today.
    `UserManagementService.cs:117-131`. (P8.)
 4. **Key retention.** Keys cannot accumulate forever on an unattended on-prem box (§13A). A retention
    window must be stated and enforced, and the behaviour *after* expiry defined (a very late replay
-   creates a second punch — is that acceptable?). Named in *Open questions* 5.
+   creates a second punch — is that acceptable?). Named in *Open questions* 4.
 5. **Concurrent edit, disjoint fields.** Manager A edits `phone`, Manager B edits `jobTitle`, both
    from the same load. Under a row version the second gets a **409**. Confirm that is wanted before
    building it — under full-replace `PUT`s the alternative is silent loss, not a merge. (P5.)
@@ -454,8 +537,11 @@ decision with a reviewer attached — the `EndpointAuthorizationInventoryTests` 
 `DeliberatelyAnonymous` pattern, which this repo has twice found to be the difference between a
 registry and a rubber stamp. Enforces CLAUDE.md invariant 1 and `ARCHITECTURE.md §3`.
 
-**P4** — `deploy/docker-compose.yml`, `deploy/docker-compose.prod.yml`. Per `ARCHITECTURE.md §2:92`
-and §13A:690.
+**P4** — `Microsoft.AspNetCore.SignalR.StackExchangeRedis` on `AddSignalR()`, plus a
+`wm.scope-changed` Redis pub/sub channel so `IScopeChangeNotifier` reaches every instance and each
+re-groups its own local connections. `AttendanceConnectionRegistry` stays in-process by design.
+Backplane absent when `Redis:ConnectionString` is absent. Per `ARCHITECTURE.md §2:92`, §13A:690, and
+§13:453 — the realtime row whose ✅ this portion must not downgrade.
 
 **P5** — a `Version` concurrency token on `AuditableEntity` (`SharedKernel/Domain/Entity.cs`), a
 migration per module that has one, `409 Conflict` from the four full-replace `PUT`s, and the token
@@ -496,32 +582,88 @@ Kafka consumer lag on `/api/health/ready` per §13A:702. `ARCHITECTURE.md §2:10
 - **Case-insensitive employee-code uniqueness.** Owned by 007 P3.
 - **Reversing the fire-and-forget publish** so a broker outage fails the user's request. §13A:703
   ratifies the current behaviour; P7 preserves it.
-- **Distributed caching as a feature.** P4 decides Redis's *fate*, not a caching strategy. Nothing in
-  WM has a measured cache need; adding one without a measurement would be the "infrastructure
-  nothing consumes" mistake in a new costume.
+- **Distributed caching as a feature.** P4 builds the **backplane** half of §2:92's
+  `Cache / realtime backplane | Redis`, not the cache half. Nothing in WM has a *measured* cache
+  need; adding one without a measurement would be the "infrastructure nothing consumes" mistake in a
+  new costume — which is the finding P4 started life as.
+- **Making rollback real (D3).** The §13A:739/740 contradiction — repinning `WM_VERSION` does not
+  un-migrate the schema — is now **its own plan**, named *"Rollback that actually rolls back"* in
+  `STATE.md` and not yet written. **011 does not absorb it**, and no portion here should grow to
+  cover it. Its concrete test case is 007 P1's `20260814080315_EmploymentWindowAndLeaverRecord`,
+  which `DROP COLUMN "Status"`: repin to the previous image and the old build queries a column that
+  is gone.
 - **Branch protection on `master`.** Still not enabled; already raised as 006 open question 5.
 
 ---
 
 ## Portions
 
-Ordered by the standing rule, **fix what is bleeding first** — with the honest caveat that **most of
-this plan is not bleeding.** Separating the two, as the task required:
+Ordered by the standing rule, **fix what is bleeding first** — with the honest caveat that **almost
+none of this plan is bleeding.** Separating the two, as the task required, **revised under D2**:
 
 | | Portion | Category |
 |---|---|---|
-| **Defects in shipped code** | P4 (Redis `depends_on` blocks startup), P5 (silent data loss on concurrent edit) | 2 of 8 |
+| **Defects in shipped code** | **P5 only** — silent data loss on a concurrent edit | **1 of 8** |
 | **Documentation that is factually wrong** | P1 | 1 of 8 |
-| **Missing capability promised by ARCHITECTURE.md** | P6 (§2:100), P7 (§2:93), P4's Redis job (§2:92) | — |
+| **Missing capability promised by ARCHITECTURE.md** | P4 (§2:92), P6 (§2:100), P7 (§14A:797, and see D1 on §2:93) | 3 of 8 |
 | **Missing capability, no promise — hygiene** | P2, P3, P8 | 3 of 8 |
 
-Only **P5** is both reachable today and losing data, and it is the one portion with a hard
-prerequisite outside this plan. P4's defect is real but low-probability (it needs a Redis
-healthcheck failure). That the audit of a repo this size found one live data-loss defect and one
-availability defect is itself a result worth recording.
+**P4 has moved out of the defect row.** It held the second live defect — a hard `depends_on` on a
+service nothing connected to — and **D2 voids it**: once the API holds a Redis connection, that
+dependency is correct. So an audit of a repository this size found, in the end, **exactly one live
+defect**, and it is the one place WM is measurably worse than the product it replaces.
 
-P1–P4 are independent of every other lane and can run in any order. P5–P8 have stated
-prerequisites.
+### Build order
+
+**P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8.**
+
+This is the coordinator's proposed order with **one correction: P2 moves ahead of P5**, for a
+concrete reason rather than a preference.
+
+**Why P2 first, before the bleeding fix.** P5 adds a `version` field that must round-trip through
+the SPA — `employees.component.ts` and `users.component.ts` must read it on load and echo it on
+save. **That is the exact class of bug 009 P3 exists to fix**: `phone` is silently nulled today
+because a full-replace `PUT` body dropped a field the server expected. If P5's SPA half drops
+`version`, the failure is worse than `phone`'s — the client sends `version: null`, and depending on
+how the server reads it either every save 409s (loud, survivable) or **the concurrency check is
+silently bypassed and P5 ships a token that never fires**. A green backend suite would prove
+nothing, because the defect lives in the browser. P5's frontend half needs a spec, and there is no
+harness to write one in until P2 lands. P2 is one portion and two small specs.
+
+**Escape hatch, so this cannot become a blocker on the one thing that is bleeding.** P2 is the
+plan's CI-risk portion — headless Chrome has never run in this repository. If it does not go green
+inside a reasonable timebox, **revert it and build P5 anyway**, with its SPA half covered by a
+manual round-trip check and *labelled as manual* in the PR — exactly the split 007 P1 used for its
+migration, where seven xUnit tests read the operations and a one-off manual run covered the SQL.
+What is not acceptable is P5 shipping with an untested SPA half that the PR describes as tested.
+
+**The rest of the order, and why.** P1 (an hour, no dependencies) and P3 (independent, and cheapest
+now — an architecture test over 3 modules is trivial, over 8 it is archaeology) come next. P6 before
+P4 and P7 because both of those are better with metrics already in place: P4 wants to see backplane
+health and P7 wants outbox lag, and P6 builds the meter both use. P4 and P7 are the two heavy
+portions and go last. P8 is last of all, behind 007 P2.
+
+### What the re-sequencing changed elsewhere
+
+**One thing broke, and it is fixable in the same commit.** The original plan sequenced
+**P5 after 009 P3**, so that P5 could extend the full-replace-`PUT` inventory test and round-trip
+rule that 009 P3 builds. Putting P5 second inverts that — and 009 is a `draft` awaiting approval, so
+gating the only live defect in this plan on approving *another* plan is the wrong trade. **P5 goes
+first and takes on 009 P3's amendment as part of its own work**, which the original portion text
+already pre-authorised. Concretely, P5 must:
+
+- add the `version` field to `LeaverRecordEndpointTests.cs`'s `PortalEditBody` helper (`:410-438`),
+  which mirrors the SPA payload key-for-key on purpose and will otherwise pin a body that no longer
+  round-trips;
+- re-verify and update **009 P3's *Touches* line citations** in `009-what-the-running-app-does.md`,
+  since P5 moves `employees.component.ts:291` and `PeopleModule.cs:75-88`;
+- and state in its PR that it is **carrying a piece of 009 P3's rule early** — the round-trip
+  discipline — without claiming to have built the inventory test, which stays 009 P3's.
+
+**Nothing else broke.** P2's constraint is with 009 P3, not with P5, and moving P2 earlier only
+strengthens it. P8's constraint with 007 P2 is untouched. P7's dependency on 009 P4 is untouched.
+P4's new consequences create no cross-lane dependency — the backplane touches `Realtime/`, which no
+other plan opens.
 
 ### [ ] P1 — The README describes this repository
 **Touches:** `README.md` (only).
@@ -579,20 +721,112 @@ architecture test with a grandfather clause is the rubber stamp this repo keeps 
 portion is not fixing a violation; it is closing the door before there is one. Say that in the PR,
 because "no violations found" is the expected and correct result.
 
-### [ ] P4 — Redis gets a job or leaves the compose file
-**Touches:** `deploy/docker-compose.yml:43-54, 112`, `deploy/docker-compose.prod.yml:32-42, 92-94,
-103, 140`; `README.md:19` if P1 has landed; `ARCHITECTURE.md` §13A:690 **only if** the user chooses
-removal — and that edit is proposed, not applied, because §13A is a design section.
-**Done when:** unconditionally — `wm-api` no longer has a `depends_on` on `redis` and no longer
-receives `Redis__ConnectionString`, because a hard startup dependency on a service with no consumer
-is wrong under every option; **and** whichever of *Open questions* 2's options the user picks is
-implemented, with the reason in a comment in the compose file rather than only in this plan.
-**Tests:** `docker compose -f deploy/docker-compose.prod.yml config` validates; a smoke check that
-`wm-api` reaches ready with the `redis` service **stopped** — which is the defect this portion
-closes and must be demonstrated failing first.
-**Risk:** low.
-**Note:** the file currently contradicts itself — `:106-107` says brokers are not hard dependencies,
-`:94` makes the one component with no consumer the only hard one. Quote that in the PR.
+### [ ] P4 — Redis does the job it was deployed for: the SignalR backplane
+**Rewritten 2026-08-29 under D2.** It was *"Redis gets a job or leaves the compose file"*, and it was
+a **defect fix** — the defect being a hard `depends_on` on a service nothing connected to. Under D2
+that defect is **void**: the API will genuinely hold a Redis connection, so `docker-compose.prod.yml:92-94`
+becomes correct rather than wrong. This portion is now **added capability**, and it is the largest
+change to a shipped subsystem in this plan after P7. It is not bleeding and the ordering reflects
+that.
+
+**Touches:** `src/Api/WM.Api/WM.Api.csproj` (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`),
+`src/Api/WM.Api/Program.cs:35` (`AddSignalR().AddStackExchangeRedis(...)`),
+`src/Api/WM.Api/Realtime/AttendanceAudience.cs:111-121` (`UserScopeChangedAsync`), a new
+`src/Api/WM.Api/Realtime/ScopeChangeChannel.cs`, `appsettings.json` + `appsettings.Development.json`,
+`deploy/docker-compose.yml:1-20` (the header's graceful-degradation paragraph) and `:43-54`,
+`deploy/docker-compose.prod.yml:92-94, 103`, `WM.Api.Tests/Realtime/`,
+`ARCHITECTURE.md` §13 (the Redis row this survey added, and the realtime-feed row at `:453`).
+
+**Done when:**
+1. The hub uses a Redis backplane, enabled by `Redis:ConnectionString` and **absent when the key is
+   absent**, so `dotnet run` with no Docker still works — the property `docker-compose.yml:1-20`
+   promises for the other brokers.
+2. **Live scope revocation still works across instances.** See the note below; the mechanism is a
+   Redis pub/sub channel that every instance subscribes to, so each re-groups *its own* local
+   connections. `AttendanceConnectionRegistry` stays in-process and stays correct.
+3. **A Redis outage has a stated, tested behaviour** rather than an assumed one — see the note.
+4. Two API instances against one Redis: a punch recorded on instance A reaches a subscribed client
+   on instance B, and a scope edit on A re-groups a socket held by B.
+
+**Tests:** the two-instance case is the whole point and must be exercised, not reasoned about — two
+composed hosts sharing one Redis (or a fake backplane if a container is unavailable, labelled as
+such per 007 P1's precedent). Plus: the backplane is **not** registered when the configuration key is
+absent, proven by mutation (register it unconditionally and confirm a test fails); and a scope edit on
+instance A re-groups a connection on instance B, which is the assertion that fails today and is the
+reason this portion is more than a package reference.
+**Risk:** **medium-high**, and higher than the original P4's *low*. It changes how the punch feed —
+003 P1's shipped guarantee, currently ✅ in §13 — is delivered.
+
+> #### ⚠️ Consequence 1: a Redis outage now degrades realtime, and that is a new failure mode
+>
+> Today the documented and true property is *"the app degrades gracefully — `IEventStreamProducer`
+> no-ops without Kafka and **no request ever fails because a broker is missing**"*
+> (`docker-compose.yml:17-18`), reinforced by `EventStreamProducers.cs:41-42, 56-59` and by
+> §13A:703. The dev header even offers `docker compose stop kafka rabbitmq` as a supported move to
+> reclaim RAM.
+>
+> **A backplane is not like the other brokers.** Once the hub's lifetime manager is Redis-backed,
+> a Redis outage means group sends fail — the punch feed goes dark — and `AddToGroupAsync` /
+> `RemoveFromGroupAsync` can throw, which reaches `AttendanceAudience.SubscribeAsync:68-71`, inside
+> the connection gate.
+>
+> **The ruling this portion must implement:** the realtime leg is already best-effort by design and
+> must stay that way. `BroadcastingEventStreamProducer.PublishAsync:125-140` already wraps the hub
+> send in a timeout and two catches with *"clients will refresh on poll"* — that treatment extends
+> to the backplane and needs no change. What **does** need changing is `SubscribeAsync`: a
+> throwing `AddToGroupAsync` currently propagates out of a hub `OnConnectedAsync`, which would turn
+> a Redis blip into failed *connections* rather than a degraded feed. It must fail the way
+> `ResolveAsync:139-146` already fails — **closed and logged**, the connection kept and hearing
+> nothing, never left holding stale groups. **A Redis outage must degrade the feed; it must never
+> fail an HTTP request or drop a punch**, because the punch write path does not touch the hub at
+> all. State that property in the PR and test it.
+>
+> `docker-compose.yml`'s header paragraph must be amended in this portion: `stop redis` is no longer
+> equivalent to `stop kafka rabbitmq`, and a dev who follows the current text will silently lose the
+> live dashboard and conclude the feed is broken.
+
+> #### ⚠️ Consequence 2: a backplane silently breaks live scope revocation — and the code said so
+>
+> This is not a discovery; it is a prediction the repository already made.
+> `AttendanceConnectionRegistry.cs:19-21`, written when 003 P1 shipped:
+>
+> > *"In-process on purpose: it mirrors the default single-node hub lifetime manager. **A Redis
+> > backplane would have to move this with it** — the punch fan-out would keep working, but a scope
+> > change would only re-group the sockets attached to the node that handled the edit."*
+>
+> Exactly right, and here is the mechanism. `UserScopeChangedAsync:115` calls
+> `registry.ConnectionsFor(userId)`, which scans an in-process `ConcurrentDictionary`
+> (`AttendanceConnectionRegistry.cs:27, 60-61`). Under two instances, an administrator narrowing a
+> manager's scope on instance A re-groups only A's sockets. **A manager connected to instance B
+> keeps the old groups and keeps receiving punches they may no longer see, until they reconnect.**
+> That is precisely the leak 003 P1 exists to close, and §13:453 currently records it as ✅ **scoped**.
+>
+> **A capability portion must not silently downgrade a ✅.** So this portion fixes it, and the fix is
+> small — deliberately smaller than the comment's *"move this with it"* implies:
+>
+> **Do not distribute the registry.** Making the connection→groups map shared would add a
+> consistency problem (two nodes racing the same socket's membership) to solve a problem that is not
+> about *where connections are known* — each node already knows its own, which is all it needs. The
+> gap is only that **the notification does not travel.**
+>
+> **Distribute the notification instead.** `IScopeChangeNotifier.UserScopeChangedAsync` publishes
+> the affected user ids to a Redis pub/sub channel (`wm.scope-changed`) on the multiplexer the
+> backplane already opens; every instance subscribes and runs today's exact loop over **its own**
+> registry. `AttendanceConnectionRegistry` is unchanged, `AttendanceAudience`'s per-connection
+> semaphore stays correct (it only ever serializes operations on a local socket), and the local path
+> is unchanged when no Redis is configured. One new file, one changed method.
+>
+> **If that is judged too large for this portion**, the fallback is *not* to leave it unstated: ship
+> the backplane, and record in `ARCHITECTURE.md` §13:453 and in `AttendanceConnectionRegistry.cs`
+> that live revocation is **per-instance** and therefore that WM must run exactly one API instance
+> until it is fixed — which would make the backplane pointless, since a backplane's only purpose is
+> the second instance. **That contradiction is the argument for doing it here**, and the reviewer
+> should treat a PR that ships the backplane without it as incomplete rather than as a deferral.
+
+**Note:** the compose file also currently contradicts itself — `:106-107` says brokers are not hard
+dependencies while `:94` makes Redis the only hard one. Under D2 the `depends_on` is correct and the
+**comment** is what needs narrowing, to say Kafka and RabbitMQ rather than "brokers". The opposite of
+the original P4's fix, from the same measurement.
 
 ### [ ] P5 — A concurrent edit is refused, not silently lost
 **Touches:** `src/SharedKernel/WM.SharedKernel/Domain/Entity.cs` (a `Version` token on
@@ -604,20 +838,27 @@ so the token round-trips, `frontend/portal/src/app/pages/employees/employees.com
 show; the version is returned on read and echoed on write; the **scope check runs first**, so a 409
 never confirms the existence of a record outside the caller's scope; and all four full-replace `PUT`s
 either carry the token or are named as deliberately exempt in the same inventory test 009 P3 builds.
-**Tests:** edge cases 5–8. Specifically: two loads, two writes, second is 409 (EF's in-memory provider
-enforces concurrency tokens, so the *behaviour* needs no Postgres); a 409 is never returned for an
-out-of-scope record — it is 404, as today; and the mutation that proves it, deleting the token from
-the entity and confirming the concurrency test fails rather than the whole suite.
+**Design constraint, measured — the token is an explicit mapped column, never `xmin`.** See
+*F8* above for the transcript. EF Core 10's InMemory provider enforces an explicit
+`IsConcurrencyToken()` and throws `DbUpdateConcurrencyException`; a shadow `xmin` would never be
+populated in memory and every concurrency test would pass **vacuously**. Npgsql's
+`UseXminAsConcurrencyToken()` is therefore out, and the PR must say why it was rejected — otherwise
+the next reader will "simplify" to it.
+**Tests:** edge cases 5–8. Specifically: two loads, two writes, second is 409 — **the behaviour
+needs no Postgres and this was verified before the portion was written**, not assumed; a 409 is
+never returned for an out-of-scope record — it is 404, as today; and the mutation that proves it,
+removing `IsConcurrencyToken()` and confirming the test fails with *"B silently overwrote A"*, which
+is WM's behaviour today.
 **Risk:** medium — it changes the wire contract of four endpoints and both editor screens.
-**Prerequisites and constraint:** **009 P3 should land first.** It builds the full-replace-`PUT`
-inventory test and the three-layer round-trip rule this portion extends; built the other way round,
-P5 adds a field to a `PUT` contract while 009 P3 is writing the rule about what a `PUT` contract must
-round-trip, and the two collide in `employees.component.ts` and `LeaverRecordEndpointTests.cs`. If
-the user wants P5 first because it is the live data-loss defect, that is defensible — but 009 P3's
-*Touches* must then be amended in the same commit.
-**Also:** the migration's **SQL** wants **009 P4**'s harness. The behaviour does not. If P4 has not
-landed, follow 007 P1's precedent: test the migration's *operations* in xUnit, run the SQL by hand,
-and label the two halves differently in the PR rather than implying one covers the other.
+**Prerequisites, revised 2026-08-29.** P5 is now **second in the build order** and **009 P3 no
+longer precedes it** — see *What the re-sequencing changed elsewhere*. P5 therefore carries 009 P3's
+`PortalEditBody` amendment (`LeaverRecordEndpointTests.cs:410-438`) and re-verifies 009 P3's
+*Touches* citations in the same commit. **P2 lands first**, so the SPA half of the round-trip has a
+spec; if P2 is reverted for CI flakiness, P5 proceeds with a *labelled manual* SPA check rather than
+an unstated gap.
+**Also:** the migration's **SQL** wants **009 P4**'s harness. The behaviour does not. If 009 P4 has
+not landed, follow 007 P1's precedent: test the migration's *operations* in xUnit, run the SQL by
+hand, and label the two halves differently in the PR rather than implying one covers the other.
 **Note:** legacy detects this and crashes (`UpdateCheck.Always` on 148/153 `dbo.Employees` columns;
 no `ChangeConflictException` handling in `Logic/`). Cite it — it is the strongest argument that
 detection is genuine domain truth and not gold-plating.
@@ -664,11 +905,20 @@ confirm a test fails.
 path commits. **It should be the last code portion built**, and if it grows past ~8 files it should
 be split (entity + writer; then dispatcher; then `Acks.All`).
 **Prerequisites:** **009 P4's Postgres harness.** An outbox is a claim about transaction boundaries,
-and EF's in-memory provider does not have any — testing this without real Postgres would produce a
-test that passes for the wrong reason. Unlike P5, this portion should **not** proceed with a manual
-run as a substitute.
-**Blocked on:** *Open questions* 3 — §2:93 promises the outbox on the **MassTransit/RabbitMQ** leg,
-and this is the **Kafka** leg. The mechanism is the user's call before this is built.
+and EF's in-memory provider does not have any — measured for P5 and true in the other direction
+here: InMemory enforces a concurrency token but has no transaction to roll back, so an outbox test
+against it would pass for the wrong reason. Unlike P5, this portion should **not** proceed with a
+manual run as a substitute.
+**Unblocked 2026-08-29 by D1** — was blocked on the mechanism question. The answer is **a small
+outbox in `SharedKernel`**, not MassTransit in the API.
+**Write the ADR first.** `docs/adr/0001-outbox-in-sharedkernel.md`, before any code, recording: that
+§14A:797 already designates `SharedKernel` as the outbox's home; that the leaking dual write is
+**Kafka** while §2:93's promise names **MassTransit/RabbitMQ**, which is why the promise no longer
+fits; that §7A:264's *"known multi-week detour"* warning is about sagas, retry and DLQ rather than a
+table and a dispatcher; and — the part a future reader will want — **what would make us reverse
+this**, namely the first saga or the first job needing compensation, at which point MassTransit's
+outbox earns its place and this one is replaced rather than extended. Cite `EventStreamProducers.cs:22-27`
+as the failure that motivated it.
 
 ### [ ] P8 — A retried request does not become a second record
 **Touches:** new `src/SharedKernel/WM.SharedKernel/Idempotency/` (store + a unique index),
@@ -709,85 +959,92 @@ Applied directly, per this role's boundaries:
 3. **`docs/plans/STATE.md`** — 011 registered in the Queue table; lane D added to the sequence;
    the 007 P2 / 009 P3 / 009 P4 constraints recorded where a builder will see them.
 
+4. **`ARCHITECTURE.md` §14:549** — the Phase 1b row still described *"several groups per user
+   combining as a **union**"*, which the user ruled against on 2026-08-05 and for which §4 was
+   rewritten. §14 is the roadmap, not a design section, and this is staleness against a decision
+   already taken rather than a new proposal, so it is **corrected in place**. Flagged as
+   *Open questions* 2 in case you want it reverted.
+5. **`ARCHITECTURE.md` §13A:739-740** — the rollback/migrate-on-start contradiction now carries the
+   **D3 ruling** and a pointer to the named plan, so it stops reading as a live promise nobody owns.
+6. **`ARCHITECTURE.md` §13** — the Redis and realtime rows updated for D2, and the concurrency row
+   for the measured InMemory result.
+7. **`docs/plans/STATE.md`** — 011 marked `approved`, the build order recorded, and
+   *"Rollback that actually rolls back"* registered among the named-but-unwritten plans.
+
 Proposed, **not** applied (design sections — see *Open questions*):
 
-4. `ARCHITECTURE.md §14:549` still describes Phase 1b as *"several groups per user combining as a
-   **union**"*. The user ruled the opposite on 2026-08-05 (option A, one object one membership) and
-   §4 was rewritten; §14's phase table was not. It now contradicts §4:157 in the same document.
-5. `ARCHITECTURE.md §4:157` ends *"**Multi-tenancy-ready** (tenant id + filter)"* and §14A:797 lists
-   *"multi-tenancy"* as a SharedKernel cross-cutting concern — both against §15:914's *"decided:
-   database per customer"*. One of the three is wrong.
-6. `ARCHITECTURE.md §13A:739 vs :740` — see *Open questions* 4.
+8. **`ARCHITECTURE.md` §2:93** — wrong under D1; concrete diff in *Open questions* 1.
+9. **`ARCHITECTURE.md` §14A:797** — lists *"multi-tenancy"* as a `SharedKernel` cross-cutting concern
+   when nothing implements one and §15:914 decided against it. **The draft's companion claim about
+   §4:157 is withdrawn** — see *Open questions* 3.
 
 ---
 
 ## Open questions for the user
 
-**1. Is the audit's framing right that this is "production readiness" at all?**
-Six of the eight findings are absent machinery rather than broken behaviour, and this plan says so
-in its portion table. The counter-argument for doing it now is that P2, P3 and P6 are all
-*cheaper before* Phase 2 than during it — an architecture test written against 3 modules is trivial
-and against 8 is archaeology. The counter-argument against is that lane A and lane C both have live
-defects queued and 011 competes for the same reviewer. **My recommendation: P1 immediately (an
-hour), P2 before 009 P3 (forced), and P3–P8 behind the current lane A/C defect work.**
+**Questions 2, 3 and 4 of the original draft were ruled on 2026-08-29** and are recorded as D1, D2
+and D3 above. Question 1 ("is this production readiness at all?") is answered by the approval. What
+remains is four documentation items, three of which are now consequences of the rulings rather than
+things I could not settle.
 
-**2. Redis — which of these?** §2:92 and §13A:690 both put it in the design, so I have not decided
-this unilaterally.
-   - **(a) Give it its designed job now** — Redis-backed SignalR backplane, making
-     `AttendanceConnectionRegistry` and `AttendanceAudience` multi-replica-safe. *Honest but
-     premature:* §13A ships one container per customer, so there is no second replica to serve.
-   - **(b) Remove it from both compose files, keep it in §2 as a future component.** *My
-     recommendation.* Nothing is lost, one fewer container on the customer's box, and the design
-     intent survives in writing. Requires a proposed edit to §13A:690's ship list.
-   - **(c) Leave it, with a comment saying why it is there.** Cheapest, but it keeps the false claim
-     that the running system uses a cache.
-   Under all three, P4 removes the `depends_on` and the dead environment key.
+**1. §2:93 is wrong under D1, and this is the diff.** A design section, so proposed rather than
+applied. The tech-stack table currently reads:
 
-**3. The outbox mechanism — MassTransit's, or one of ours?** §2:93 and §7A:264 promise a
-transactional outbox and both name **MassTransit**, which supplies one. But the dual write that is
-actually losing events is the **Kafka** publish in `PunchService`, and the API host does not
-currently reference MassTransit at all (`WM.Api.csproj` has no MassTransit package; only
-`WM.Worker` does). So:
-   - **(a)** Bring MassTransit into the API purely for its outbox, and have the outbox dispatch to
-     Kafka. Uses the promised machinery; adds a dependency to the API for one feature.
-   - **(b)** A small outbox in `SharedKernel`, which §2:797 already designates as its home, publishing
-     to `IEventStreamProducer`. Fewer moving parts, honours §797, but is the hand-rolled thing §7A:264
-     warns is *"a known multi-week detour"* — though that warning is about sagas, retry and DLQ, not
-     about a table and a dispatcher.
-   **This is a design decision and P7 is blocked on it.** I lean **(b)** and would want that
-   recorded as an ADR, but it is your call, not mine.
+```
+| Commands & jobs | **RabbitMQ** via **MassTransit** (retry, outbox, sagas) |
+```
 
-**4. `ARCHITECTURE.md` §13A promises two things that cannot both be true, and I could not resolve
-it from the code.** `:739` promises *"**Versioned rollout and instant rollback** — pin `WM_VERSION`
-per customer, `docker compose pull && up -d` to upgrade, repin to roll back."* `:740` promises
-*"**Schema upgrades itself** — the API applies EF Core migrations on start in every environment."*
-**Repinning `WM_VERSION` downward does not un-migrate the schema.** 007 P1's
-`20260814080315_EmploymentWindowAndLeaverRecord` `DROP COLUMN "Status"` is the concrete case: roll
-that container back and the previous build queries a column that no longer exists. Nothing in the
-repo requires migrations to be backward-compatible with the previous image, and no portion in any
-plan owns this. The honest options are (a) adopt expand/contract as a documented rule with a
-reviewer check, (b) narrow §13A:739 to "rollback requires a database restore" and make per-customer
-backup (§13A:765) a hard prerequisite of upgrade, or (c) both. **This is the audit's "schema
-migrations and backward compatibility" item, and it is the finding I would most want an answer on** —
-it is a live promise to customers, not a code smell. I have not written a portion for it because the
-answer determines whether it is a documentation change or a rollout-tooling workstream.
+After D1 that names a mechanism WM has decided *not* to use for the leg that actually loses events.
+Proposed:
 
-**5. Idempotency key retention.** How long must WM remember a key on an unattended on-prem box, and
-what happens after? A short window (24h) bounds the table and matches an offline queue's realistic
-lifetime; an unbounded one grows forever on a server we cannot reach (§13A). And a replay *after*
-expiry creates a second punch — is that acceptable, or must expiry be long enough that it cannot
-happen? P8 needs a number.
+```
+| Commands & jobs | **RabbitMQ** via **MassTransit** (retry, DLQ, sagas) |
+| Reliable event publication | **Transactional outbox in `SharedKernel`** (ADR 0001) — the Kafka
+  leg is the dual write that loses events; MassTransit's own outbox is not used, see §7A |
+```
 
-**6. The concurrent-edit UX (edge cases 5–7).** A row version 409s a second manager even when they
-edited a different field. Under full-replace `PUT`s the alternative is not a merge — it is today's
-silent revert. Confirm 409 is what you want, and whether the response should carry the current
-record so the SPA can show a diff, or just say *"someone else changed this"*.
+§7A:264's sentence *"MassTransit gives all of that plus a **transactional outbox**, so a database
+commit and its message can never diverge"* stays true as a statement about MassTransit and becomes
+misleading as a statement about WM. Suggest appending one clause: *"— which WM does not use for the
+Kafka leg; see ADR 0001."* **P7 should not be built until this is settled**, not because the code
+depends on it but because the ADR will cite §2 and should not cite something it is about to
+contradict.
 
-**7. Three proposed doc edits I did not apply**, listed in *Corrections* 4–6: §14:549's stale
-"union", the three-way multi-tenancy contradiction (§4:157 / §14A:797 vs §15:914), and §13A:739/740
-above. All are in design sections. Say the word and I will apply them; each is a one-line edit
-except the last.
+**2. §14:549 — applied, flagging it here.** The Phase 1b row still described *"several groups per
+user combining as a **union**"*, which the user ruled against on 2026-08-05 (option A, one object
+one membership) and for which §4 was rewritten. §14 is the roadmap rather than a design section, and
+this is stale relative to a decision already taken rather than a new proposal, so it has been
+**corrected in place**. Revert it if you would rather §14 changed only alongside the plans it
+tracks.
 
-**8. The `CLAUDE.md` edit in *Corrections* 1.** I corrected a factual test-project count inside an
-advisory paragraph. If you would rather no agent edits `CLAUDE.md` for any reason, revert it and I
-will carry the correction in this plan instead.
+**3. Multi-tenancy — I overstated this in the draft and am correcting my own claim.** The draft said
+§4:157's *"**Multi-tenancy-ready** (tenant id + filter)"* and §14A:797's cross-cutting *"multi-tenancy"*
+were **both** contradicted by §15:914's *"decided: database per customer"*, and that *"one of the
+three is wrong"*. On re-reading, **§4:157 is defensible**: "multi-tenancy-*ready*" is a statement
+about design posture, not about a shipped capability, and a single-tenant system can be built ready
+for it. So there is no contradiction there and I withdraw that half.
+
+  **§14A:797 does still read oddly** — it lists *"multi-tenancy"* among the cross-cutting concerns
+  `SharedKernel` owns, alongside audit emission and the outbox, which reads as work to be built
+  rather than a posture. Nothing in `src/SharedKernel/**` implements a tenant id or a tenant filter.
+  It needs one word (`multi-tenancy-readiness`) or removal, and it is a design section, so it is
+  yours. **Low stakes** — nobody has planned against it.
+
+**4. Idempotency key retention — still open, and P8 needs a number.** Unchanged from the draft and
+not covered by any ruling. How long must WM remember a key on an unattended on-prem box (§13A)? A
+short window (24h) bounds the table and matches an offline queue's realistic lifetime; unbounded
+grows forever on a server we cannot reach. And a replay *after* expiry creates a second punch — is
+that acceptable, or must the window be long enough that it cannot happen? **P8 is last in the build
+order, so there is time**, but the builder cannot invent this.
+
+**5. The concurrent-edit UX (edge cases 5–7) — still open, and P5 is second in the build order.**
+A row version 409s a second manager even when they edited a *different* field, because a
+full-replace `PUT` writes every field and a "disjoint edit" cannot exist. Confirm 409 is what you
+want, and whether the response should carry the current record so the SPA can show a diff, or simply
+say *"someone else changed this — reload"*. **The simpler answer is fine for P5** and the richer one
+can follow; the builder needs to know which, because it changes the response contract of four
+endpoints. If no answer arrives, P5 should ship the simple message and say so.
+
+**6. The `CLAUDE.md` edit.** Unchanged from the draft: a factual test-project count corrected inside
+an advisory paragraph (**four**, not two). If you would rather no agent edits `CLAUDE.md` for any
+reason, revert it and the correction will live in this plan instead.
