@@ -440,6 +440,15 @@ migration.
   instance re-groups only that instance's sockets, downgrading 003 P1's ✅. **The code predicted this
   in a comment** (`AttendanceConnectionRegistry.cs:19-21`). The fix is to distribute the
   *notification*, not the registry.
+- **D4 — P5's 409 carries a message, not the current record.** *"Someone else changed this record —
+  reload and try again"*; no current-record payload, so **no client-side diff and no "keep mine /
+  keep theirs"**. It closes the defect at the lowest cost — the bleeding thing is *silence*, not
+  friction — and the richer version stays **purely additive** (a field in the body; the token and
+  the refusal do not change). Recorded as a deliberate omission so it reads later as a first step
+  rather than an oversight. **This still puts WM ahead of legacy**, which detects the conflict
+  (`UpdateCheck.Always` on 148/153 `dbo.Employees` columns) and then throws a
+  `ChangeConflictException` that **nothing in `Logic/` catches**. Detection without handling is a
+  stack trace, not a feature.
 - **D3 — rollback becomes real tooling**, and it is **not** part of 011. Registered below by name.
   The ruling is recorded against `ARCHITECTURE.md` §13A:739-740 so the contradiction stops being
   live.

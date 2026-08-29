@@ -77,6 +77,31 @@ alongside the other named-but-unwritten plans, per the convention that a plan nu
 the file is written, never when the work is merely named. The ruling itself is recorded against
 §13A so the contradiction stops being live.
 
+### D4 — P5's 409 carries a message, not the current record
+
+**Decided: the simple message.** A stale write is refused with the equivalent of *"someone else
+changed this record — reload and try again"*. The response does **not** carry the current record for
+a client-side diff.
+
+**The reasoning: it closes the defect at the lowest cost.** The bleeding thing is *silent* loss —
+the losing manager is never told. A message ends that completely. Everything beyond it improves how
+gracefully the user recovers, not whether their work survives, and it would change the response
+contract of four endpoints for a benefit nobody has asked for yet.
+
+**What it is deliberately not doing**, stated so the richer version stays a recognisable next step
+rather than reading later as an oversight: no current-record payload, so **the SPA cannot show a
+diff** and cannot offer "keep mine / keep theirs". The user reloads and re-enters their edit. That
+is a real cost when two managers collide on a long form, and the moment it is felt, the fix is
+additive — put the current record in the 409 body and the field-level UI on top. **Nothing in P5
+forecloses it**; the token and the refusal are the load-bearing parts and they do not change.
+
+**This still puts WM ahead of legacy, which is worth saying because P5 is the one place WM was
+behind.** TLW *detects* the conflict — full-column `UpdateCheck.Always` on 148 of `dbo.Employees`'
+153 columns — and then throws a `ChangeConflictException` that **nothing in `Logic/` catches**, so
+the losing manager gets a crash. WM refuses the write and tells them what happened, which is
+presumably the behaviour those 8,173-minus-356 checked columns were meant to produce and never did.
+Detection without handling is not a feature; it is a stack trace.
+
 ---
 
 ## Ground truth
@@ -487,12 +512,15 @@ The behaviour each portion has to get right, and which are testable today.
    window must be stated and enforced, and the behaviour *after* expiry defined (a very late replay
    creates a second punch — is that acceptable?). Named in *Open questions* 4.
 5. **Concurrent edit, disjoint fields.** Manager A edits `phone`, Manager B edits `jobTitle`, both
-   from the same load. Under a row version the second gets a **409**. Confirm that is wanted before
-   building it — under full-replace `PUT`s the alternative is silent loss, not a merge. (P5.)
+   from the same load. Under a row version the second gets a **409**. **Settled by D4** — under
+   full-replace `PUT`s the alternative is silent loss, not a merge, so the 409 is correct even
+   though the edits do not overlap. (P5.)
 6. **Concurrent edit, same field, same value.** Two managers set the same phone number. A row version
-   still 409s the second. Acceptable, but the message must not read as data loss.
-7. **The 409 must say what changed.** Legacy crashes; a bare 409 is only marginally better. The
-   response should carry enough for the SPA to say *"someone changed this while you were editing"*.
+   still 409s the second. Accepted under D4, but the message must not read as data loss — nothing
+   was lost, and the wording has to survive this case without alarming anyone.
+7. **The 409 says *that* something changed, not *what*.** **Settled by D4: the simple message**, no
+   current-record payload and no diff. The bar it must clear is that the user understands they should
+   reload rather than retry blindly — legacy's answer here is an uncaught `ChangeConflictException`.
 8. **A version token must not become a scope oracle.** A 409 on a record the caller cannot see would
    confirm its existence — the same class of leak as the still-open 409 enumeration oracle recorded
    in `STATE.md`. The scope check must precede the version check, exactly as 003 P2b's
@@ -834,10 +862,17 @@ the original P4's fix, from the same measurement.
 module, `PeopleModule.cs` (`PUT /{id:guid}`) and `UserManagementService.UpdateAsync`, the read DTOs
 so the token round-trips, `frontend/portal/src/app/pages/employees/employees.component.ts` and
 `users.component.ts`, `WM.Modules.People.Tests`, `WM.Modules.Identity.Tests`.
-**Done when:** a `PUT` carrying a stale version is refused with **409** and a message the SPA can
-show; the version is returned on read and echoed on write; the **scope check runs first**, so a 409
-never confirms the existence of a record outside the caller's scope; and all four full-replace `PUT`s
-either carry the token or are named as deliberately exempt in the same inventory test 009 P3 builds.
+**Done when:** a `PUT` carrying a stale version is refused with **409** and a message the SPA shows
+— per **D4, the simple message** (*"someone else changed this record — reload and try again"*),
+**not** the current record and **not** a diff; the version is returned on read and echoed on write;
+the **scope check runs first**, so a 409 never confirms the existence of a record outside the
+caller's scope; and all four full-replace `PUT`s either carry the token or are named as deliberately
+exempt in the same inventory test 009 P3 builds.
+**Scope of the 409, per D4 — build this and stop.** No current-record payload, no field-level
+"keep mine / keep theirs". The user reloads and re-enters. That is a real cost on a long form and it
+is accepted deliberately, because the defect being fixed is *silence*, not friction. Note in the PR
+that the richer version is **purely additive** — the body gains a field, the token and the refusal do
+not change — so this is a first step, not a ceiling.
 **Design constraint, measured — the token is an explicit mapped column, never `xmin`.** See
 *F8* above for the transcript. EF Core 10's InMemory provider enforces an explicit
 `IsConcurrencyToken()` and throws `DbUpdateConcurrencyException`; a shadow `xmin` would never be
@@ -849,7 +884,8 @@ needs no Postgres and this was verified before the portion was written**, not as
 never returned for an out-of-scope record — it is 404, as today; and the mutation that proves it,
 removing `IsConcurrencyToken()` and confirming the test fails with *"B silently overwrote A"*, which
 is WM's behaviour today.
-**Risk:** medium — it changes the wire contract of four endpoints and both editor screens.
+**Risk:** medium — it changes the wire contract of four endpoints and both editor screens. D4 keeps
+that change as small as it can be: one field out, one field back, no new response shape.
 **Prerequisites, revised 2026-08-29.** P5 is now **second in the build order** and **009 P3 no
 longer precedes it** — see *What the re-sequencing changed elsewhere*. P5 therefore carries 009 P3's
 `PortalEditBody` amendment (`LeaverRecordEndpointTests.cs:410-438`) and re-verifies 009 P3's
@@ -984,8 +1020,9 @@ Proposed, **not** applied (design sections — see *Open questions*):
 
 **Questions 2, 3 and 4 of the original draft were ruled on 2026-08-29** and are recorded as D1, D2
 and D3 above. Question 1 ("is this production readiness at all?") is answered by the approval. What
-remains is four documentation items, three of which are now consequences of the rulings rather than
-things I could not settle.
+**Question 5 (the concurrent-edit UX) was ruled on 2026-08-29 and is closed** — recorded as D4.
+What remains is **two** substantive questions, correctly sequenced ahead of the portions that need
+them (§2:93 before P7, key retention before P8), plus three documentation items.
 
 **1. §2:93 is wrong under D1, and this is the diff.** A design section, so proposed rather than
 applied. The tech-stack table currently reads:
@@ -1037,14 +1074,6 @@ grows forever on a server we cannot reach. And a replay *after* expiry creates a
 that acceptable, or must the window be long enough that it cannot happen? **P8 is last in the build
 order, so there is time**, but the builder cannot invent this.
 
-**5. The concurrent-edit UX (edge cases 5–7) — still open, and P5 is second in the build order.**
-A row version 409s a second manager even when they edited a *different* field, because a
-full-replace `PUT` writes every field and a "disjoint edit" cannot exist. Confirm 409 is what you
-want, and whether the response should carry the current record so the SPA can show a diff, or simply
-say *"someone else changed this — reload"*. **The simpler answer is fine for P5** and the richer one
-can follow; the builder needs to know which, because it changes the response contract of four
-endpoints. If no answer arrives, P5 should ship the simple message and say so.
-
-**6. The `CLAUDE.md` edit.** Unchanged from the draft: a factual test-project count corrected inside
+**5. The `CLAUDE.md` edit.** Unchanged from the draft: a factual test-project count corrected inside
 an advisory paragraph (**four**, not two). If you would rather no agent edits `CLAUDE.md` for any
 reason, revert it and the correction will live in this plan instead.
