@@ -778,7 +778,7 @@ Every retained legacy functional area maps to exactly one module. Checked area-b
 | 2 | **Access** ⭐ | **Groups**: per-screen read/edit + employee scope, several per user, diagnostics. See `SCREEN-TREE.md` | ◐ **in progress — foundational** |
 | 3 | **People** | employees, org (sites/departments), contracts, hourly rates, custom fields, contact & emergency info, groups, population groups, cost centres, positions | ◐ basics built |
 | 4 | **HR** | appraisals, disciplinaries, objectives, remunerations, certificates, **qualifications + expiry**, onboarding, fixed-term & probation, leavers, anniversaries | ▢ *(split from People: different sensitivity + permissions)* |
-| 5 | **TimeAttendance** | punches, clockings, pauses, corrections, manual timesheets, daily browser, geolocation, QR punch, period locking | ◐ core built |
+| 5 | **TimeAttendance** | punches, clockings, pauses, corrections, manual timesheets, daily browser, geolocation, QR punch, period locking | ◐ **punch capture only** — measured 2026-08-18: the module is **9 files** and has **no test project**. Clockings, pauses, corrections, timesheets, daily browser and period locking are all ▢. Plans **002**, **010** |
 | 6 | **Rules** ⭐ | daily/weekly templates, shifts, breaks, core hours, rounding policy, exceptions, shift matching, split/multi-shift, counters, flexi balances, pay categories, cost-centre allocation, recalculation & replay | ▢ **deepest piece** |
 | 7 | **Scheduling** | rotas, planning board, auto-planning, roster calendar, schedule requests, thresholds, timetables | ▢ |
 | 8 | **Absence** | absence types, requests + approvals, blocked dates, holidays, school holidays, entitlements, accruals (+ length-of-service), recaps | ▢ |

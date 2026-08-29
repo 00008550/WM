@@ -1,8 +1,9 @@
 # 007 — The person record: employment as a date, and three defects under it
 
-Status: in-review       <!-- draft → approved → in-progress → in-review → merged -->
-Approved by user 2026-08-06, all 5 portions. **P1 and P2 are ordered ahead of 003 P2b** — the same
-"fix what is bleeding" rule applied to 006 P2/P3.
+Status: in-progress      <!-- draft → approved → in-progress → in-review → merged -->
+Approved by user 2026-08-06, all 5 portions. **P1 merged 2026-08-17 as #61 (`ead3bfc`); P2 is next.**
+P1 and P2 were ordered ahead of 003 P2b — the same "fix what is bleeding" rule applied to 006 P2/P3
+— though in the event P2b shipped first, at the user's direction.
 Roadmap: ARCHITECTURE.md §14 phase 1c ("Core depth"), and §13's newly-split People rows
 Legacy sources surveyed: [`../TLW-PEOPLE-MODEL.md`](../TLW-PEOPLE-MODEL.md) — 76 tables / 631
 columns measured, `dbo.Employees`' 153 columns classified one by one. Full file list in its §1.
