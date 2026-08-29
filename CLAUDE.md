@@ -56,7 +56,7 @@ cd frontend/portal && npm run build
 cd frontend/portal && npm run test       # ng test
 ```
 
-**Test coverage is thin — check what actually ran.** `src/SharedKernel/WM.SharedKernel.Tests/` and `src/Modules/Identity/WM.Modules.Identity.Tests/` (xUnit) are currently the only test projects. A green `dotnet test` therefore proves very little about a module. When a slice adds behaviour to a module that has no test project, create `src/<Area>/<Area>.Tests/` and wire it into `WM.sln`; never report tests as passing for code that has none.
+**Test coverage is thin — check what actually ran.** There are **four** xUnit test projects: `src/SharedKernel/WM.SharedKernel.Tests/`, `src/Modules/Identity/WM.Modules.Identity.Tests/`, `src/Api/WM.Api.Tests/` (003 P2a) and `src/Modules/People/WM.Modules.People.Tests/` (003 P2b). **`WM.Modules.TimeAttendance` — the module that owns the punch — still has none**, and there are **zero** `*.spec.ts` in `frontend/portal`. A green `dotnet test` therefore proves very little about a module. *(Count corrected 2026-08-29 while surveying plan 011; this paragraph named only the first two long after the other two landed.)* When a slice adds behaviour to a module that has no test project, create `src/<Area>/<Area>.Tests/` and wire it into `WM.sln`; never report tests as passing for code that has none.
 
 For UI work, run the portal via preview_start (`.claude/launch.json` → `portal`, port 4200) and verify in the browser. Never ask the user to check manually.
 

@@ -333,6 +333,7 @@ the access model.
 | 008 | A day has a place — per-site time zones | 5 | **draft — awaiting approval.** Direction confirmed by the user 2026-08-18 (per-site with inheritance). P3 sequences after 007 P1, which has merged |
 | **009** | **What the running app does — the defects the 2026-08-18 audit found** | **8** | **draft — awaiting approval.** Claims independently verified; P1–P4 independent of 005 and 007. Open decision: **003 P3 already owns `phone` by name** |
 | **010** | **The Daily Browser** | **5** | **draft — awaiting approval.** **P1 is the five-column daily-template subset** — deliverable before 002 is approved, and 002 P3's only prerequisite. P3–P5 would ship a read-only browser (open question 3) |
+| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** | **draft — awaiting approval.** Lane D. Surveys **WM, not legacy** (legacy opened for one question only). **Only 2 of 8 are live defects**; the rest are absent machinery. **P2 must land before 009 P3**, **P8 after 007 P2**, **P5 after 009 P3**, **P7 after 009 P4**. P7 blocked on a design decision (open question 3) |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
@@ -381,6 +382,43 @@ migrations and `PunchService`, none of which lane A or B opens. Three notes:
   rule ("fix what is bleeding first") they outrank everything in lane B and sit alongside 003 P2b.
 - **007 P1 unblocks 002.** If plan 002 is approved before 007 P1 lands, its replay has no way to
   know who was employed on the day it replays.
+
+**Lane D — the platform's production machinery (new, 2026-08-29, `draft`):**
+[`011-production-readiness.md`](./011-production-readiness.md) — 8 portions, from an external
+senior-engineer audit the user commissioned (idempotency, transactions, jobs, caching,
+observability, testability, migrations). **Every finding was re-measured before being planned:** two
+were materially wrong, one was already an approved portion, one was understated.
+
+It is the most orthogonal lane yet — six of eight portions touch `README.md`, `ci.yml`,
+`deploy/*.yml`, `Program.cs`, `SharedKernel` and a new architecture-test project, which no other
+lane opens. **Four hard constraints, all recorded in the plan's portions:**
+
+- **011 P2 → before 009 P3.** 009 P3 writes `employees.component.spec.ts`, and there are **zero**
+  specs today, so `ci.yml:105-116` flips from `::warning` to a headless-Chrome `ng test` that has
+  **never run in this repository** — inside a PR whose subject is a phone field. Debugging karma
+  belongs in its own portion.
+- **011 P8 → after 007 P2.** Both rewrite `PunchService.RecordAsync`, and 007 P2 is an approved
+  bleeding-defect fix. **They are complementary, not alternatives:** 007 P2's seconds-wide window
+  suppresses double-click noise; P8's client key answers the offline queue flushed hours later,
+  which no window can catch and which invariant 3 makes the *normal* case.
+- **011 P5 → after 009 P3**, which builds the full-replace-`PUT` inventory test and round-trip rule
+  P5 extends. Reversible if the user prefers the data-loss fix first, at the cost of amending
+  009 P3's *Touches*.
+- **011 P7 → after 009 P4** (the Postgres harness). An outbox is a claim about transaction
+  boundaries and EF's in-memory provider has none; unlike P5, a manual run is **not** an acceptable
+  substitute here.
+
+**What it found that the records did not have.** Legacy runs full-column optimistic concurrency on
+**~99.5%** of its schema (356 `UpdateCheck.Never` of 8,173 columns; `dbo.Employees` checked on
+148/153) and handles `ChangeConflictException` **nowhere** — so TLW *detects* a concurrent edit and
+crashes, while WM does not detect it at all and silently loses the loser's write. And
+`dbo.Clockings` is **249/249 `Never`**: legacy deliberately exempts the wholesale-recalculated
+aggregate, which is a free argument for plan **002**'s replay design. Six §13 rows added; the
+CLAUDE.md test-project count corrected (**four**, not two).
+
+**Note on the Postgres harness.** The task brief asked whether the standing gap belongs in 011. It
+does **not** — **009 P4 already owns it**, written and numbered. 011 depends on it and does not
+duplicate it.
 
 **Next portion:** **003 P3 — scoped site and department lists** (lane A; P2b merged 2026-08-11 as
 [#57](https://github.com/00008550/WM/pull/57), `1462c0f`), with **006 P1** the lane B alternative
