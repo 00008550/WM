@@ -9,6 +9,7 @@ using WM.Modules.People.Data;
 using WM.Modules.People.Domain;
 using WM.Modules.People.Services;
 using WM.SharedKernel.Common;
+using WM.SharedKernel.Domain;
 using WM.SharedKernel.Modules;
 using WM.SharedKernel.Security;
 
@@ -78,6 +79,11 @@ public sealed class PeopleModule : IModule
                 e.SiteId, e.DepartmentId,
                 e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
                 e.LeavingReasonId, e.LeaverComments,
+                // The concurrency token goes out with the row it belongs to (011 P5). The list IS
+                // the read the employee modal edits from — employees.component.ts opens its drawer
+                // straight off an EmployeeRow — so leaving it out here would mean the SPA had no
+                // token to echo and every edit would be refused.
+                e.Version,
                 Status = e.StatusOn(asAt),
                 // Composed here, not inside IsEmployedOn: the window and the suspension are two facts
                 // (Employment's remarks), and this column's question is the one that needs both —
@@ -169,10 +175,23 @@ public sealed class PeopleModule : IModule
                 return Results.Problem(invalid, statusCode: StatusCodes.Status400BadRequest);
 
             // Edit is scoped like read: you cannot modify someone you cannot see.
+            //
+            // THE SCOPE CHECK RUNS BEFORE THE VERSION CHECK, and that ordering is the point: a 409
+            // on a record the caller cannot see would confirm that the record exists, which is the
+            // same disclosure the 404 above is here to prevent (011 P5, edge case 8 — the ordering
+            // 003 P2b pins for POST). A stale token against an invisible employee is a 404.
             var scope = await scopes.GetScopeAsync(ct);
             var employee = await db.Employees.WithinScope(scope).FirstOrDefaultAsync(e => e.Id == id, ct);
             if (employee is null)
                 return Results.NotFound();
+
+            // Only once the record is known to be visible. Refused rather than defaulted, because a
+            // client that forgets the token would otherwise get today's silent last-write-wins back
+            // and nothing would ever say so.
+            if (request.Version is not { } expectedVersion || expectedVersion == Guid.Empty)
+                return Results.Problem(
+                    "This edit did not carry a record version. Reload the record and try again.",
+                    statusCode: StatusCodes.Status400BadRequest);
 
             // And the post-image is scoped too: an edit may not move someone out of the caller's own
             // scope. Legacy allows exactly that (TLW-AUTHORIZATION-MODEL.md §5 — it checks the
@@ -215,9 +234,26 @@ public sealed class PeopleModule : IModule
             ApplyLeaving(employee, request);
             employee.UpdatedAt = DateTimeOffset.UtcNow;
 
+            // The concurrency check, in two halves. The ORIGINAL value is forced to the token the
+            // caller echoed rather than the one this request just loaded — otherwise the comparison
+            // would be the row against itself and could never fail. The CURRENT value is a fresh
+            // token, so whoever reads next reads something the losing writer cannot match.
+            db.Entry(employee).Property(e => e.Version).OriginalValue = expectedVersion;
+            employee.Version = Guid.CreateVersion7();
+
             try
             {
                 await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Per 011 D4: the message, and nothing else. No current-record payload and no diff,
+                // so the SPA cannot offer "keep mine / keep theirs" — the user reloads and re-enters.
+                // That friction is accepted deliberately; the defect being fixed is silence.
+                // The wording has to survive two managers who saved the SAME value (edge case 6),
+                // so it says what happened rather than claiming anything was lost.
+                return Results.Problem(
+                    ConcurrentEdit.Message, statusCode: StatusCodes.Status409Conflict);
             }
             catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
             {
@@ -394,7 +430,11 @@ public sealed record EmployeeUpsertRequest(
     DateOnly? EmployedUntil = null,
     bool? IsSuspended = null,
     Guid? LeavingReasonId = null,
-    string? LeaverComments = null);
+    string? LeaverComments = null,
+    // The version the caller read with the record, echoed back (011 P5). Ignored on create — there
+    // is no prior version to be stale against — and REQUIRED on edit: an omitted token would bypass
+    // the check silently, which is the exact defect P5 exists to end.
+    Guid? Version = null);
 
 internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver scopes) : IEmployeeDirectory
 {

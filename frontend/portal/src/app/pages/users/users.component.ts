@@ -255,6 +255,8 @@ export class UsersComponent implements OnInit {
     this.form = {
       userName: u.userName, email: u.email, displayName: u.displayName, password: '',
       employeeId: u.employeeId, roleIds, isActive: u.isActive, groupIds: [],
+      // Carried as read, never edited (011 P5): which version of this user was on screen.
+      version: u.version,
     };
     this.isNew.set(false);
     this.error.set(null);
@@ -294,9 +296,12 @@ export class UsersComponent implements OnInit {
       const req: UpdateUserRequest = {
         displayName: this.form.displayName, email: this.form.email, isActive: this.form.isActive,
         employeeId: this.form.employeeId, roleIds: this.form.roleIds,
+        version: this.form.version,
       };
       // Group membership is a separate endpoint; save it with the user so the
-      // admin experiences one "Save" rather than two half-applied changes.
+      // admin experiences one "Save" rather than two half-applied changes. A stale profile write is
+      // refused before this runs, which is what keeps a conflict from half-applying: the membership
+      // call is chained onto the profile call's success, so a 409 stops both.
       this.api.update(id, req).subscribe({
         next: () => this.groupsApi.setGroupsForUser(id, this.form.groupIds).subscribe(done),
         error: done.error,
@@ -326,7 +331,7 @@ export class UsersComponent implements OnInit {
     return {
       userName: '', email: '', displayName: '', password: '',
       employeeId: null as string | null, roleIds: [] as string[], isActive: true,
-      groupIds: [] as string[],
+      groupIds: [] as string[], version: '',
     };
   }
 }

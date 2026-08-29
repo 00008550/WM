@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
@@ -110,6 +111,23 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
         client.DefaultRequestHeaders.Add(TestCaller.PermissionsHeader, string.Join(',', permissions));
         return client;
     }
+
+    /// <summary>
+    /// The concurrency token an employee currently carries — what a client that has just reloaded
+    /// would be holding (011 P5).
+    /// </summary>
+    public Guid VersionOf(Guid employeeId) =>
+        Read(db => db.Employees.AsNoTracking().Single(e => e.Id == employeeId).Version);
+
+    /// <summary>
+    /// A full-replace <c>PUT</c> from a caller whose form is <b>up to date</b>: the token is fetched
+    /// immediately before the write. Every test that is not about concurrency goes through this, so
+    /// those tests keep asserting what they were written to assert instead of all turning into
+    /// conflicts. A test that wants a <i>stale</i> write states the version itself.
+    /// </summary>
+    public Task<HttpResponseMessage> PutEmployeeAsync(
+        HttpClient client, Guid employeeId, EmployeeUpsertRequest request) =>
+        client.PutAsJsonAsync($"/api/employees/{employeeId}", request with { Version = VersionOf(employeeId) });
 
     /// <summary>Read the database back, outside any request. Untracked: the answer is what was saved.</summary>
     public T Read<T>(Func<PeopleDbContext, T> read)

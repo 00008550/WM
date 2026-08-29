@@ -38,7 +38,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(
+        var response = await host.PutEmployeeAsync(client, Ada, Leaving(
             until: LastDay, reasonId: Resignation, comments: "Moving to another city. Exit interview done."));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -63,8 +63,8 @@ public sealed class LeaverRecordEndpointTests
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
         // Leave, then un-leave — the re-hire path.
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Resignation, "Resigned."));
-        var rehire = await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(until: null));
+        await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Resignation, "Resigned."));
+        var rehire = await host.PutEmployeeAsync(client, Ada, Leaving(until: null));
 
         Assert.Equal(HttpStatusCode.OK, rehire.StatusCode);
         var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
@@ -82,8 +82,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{Ada}", Leaving(until: null, reasonId: Resignation));
+        var response = await host.PutEmployeeAsync(client, Ada, Leaving(until: null, reasonId: Resignation));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("need a last day of employment", await response.Content.ReadAsStringAsync());
@@ -98,7 +97,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
 
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+        await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Redundancy, "Site closure."));
         Retire(host, Redundancy);
 
         var row = await Row(client, Ada);
@@ -136,8 +135,7 @@ public sealed class LeaverRecordEndpointTests
         var client = host.ClientWith(WmPermissions.EmployeesManage);
         Retire(host, Redundancy);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+        var response = await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Redundancy, "Site closure."));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("has been retired", await response.Content.ReadAsStringAsync());
@@ -153,10 +151,10 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+        await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Redundancy, "Site closure."));
         Retire(host, Redundancy);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, "Corrected job title", SiteA, null,
             EmployedFrom: Hired, EmployedUntil: LastDay, IsSuspended: null,
             LeavingReasonId: Redundancy, LeaverComments: "Site closure."));
@@ -177,15 +175,21 @@ public sealed class LeaverRecordEndpointTests
         // LEAVER with no reason, there is no audit store, and nothing could bring the answer back.
         //
         // The body below is the one `employees.component.ts:321-339` now builds, key for key and in
-        // its own order, so this test fails if that payload stops carrying the two fields. It is the
-        // only cover the client fix can have: the portal has no `.spec.ts` files at all.
+        // its own order, so this test fails if that payload stops carrying the two fields.
+        //
+        // 011 P5 amends it with `version`, for the same reason and one worse consequence: a payload
+        // that drops the token does not merely lose a field, it makes every edit from that screen a
+        // 400. (The "only cover the client fix can have" claim that used to stand here is no longer
+        // true — 011 P2 gave the portal a spec harness, and `employees.component.spec.ts` now pins
+        // the round-trip from the SPA's own side. This test is the server half of the same fact.)
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
 
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+        await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Redundancy, "Site closure."));
 
         var response = await client.PutAsync($"/api/employees/{Ada}", PortalEditBody(
-            jobTitle: "Shift supervisor", leavingReasonId: Redundancy, leaverComments: "Site closure."));
+            jobTitle: "Shift supervisor", leavingReasonId: Redundancy, leaverComments: "Site closure.",
+            version: host.VersionOf(Ada)));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == Ada));
@@ -215,9 +219,9 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(LastDay, Redundancy, "Site closure."));
+        await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, Redundancy, "Site closure."));
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, "Shift supervisor", SiteA, null,
             EmployedFrom: Hired, EmployedUntil: LastDay));
 
@@ -234,7 +238,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
             EmployedFrom: Hired, EmployedUntil: Hired.AddDays(-1)));
 
@@ -257,7 +261,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
             EmployedFrom: null, EmployedUntil: new DateOnly(2023, 6, 30)));
 
@@ -278,7 +282,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
             EmployedFrom: null, EmployedUntil: LastDay));
 
@@ -316,8 +320,7 @@ public sealed class LeaverRecordEndpointTests
         var client = host.ClientWith(WmPermissions.EmployeesManage);
         var noSuchReason = Guid.Parse("cccccccc-0000-0000-0000-00000000dead");
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{Ada}", Leaving(LastDay, noSuchReason, "Left."));
+        var response = await host.PutEmployeeAsync(client, Ada, Leaving(LastDay, noSuchReason, "Left."));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("does not exist", await response.Content.ReadAsStringAsync());
@@ -377,7 +380,7 @@ public sealed class LeaverRecordEndpointTests
         // one of those, which is the regression this portion removes.
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
-        await client.PutAsJsonAsync($"/api/employees/{Ada}", Leaving(
+        await host.PutEmployeeAsync(client, Ada, Leaving(
             until: new DateOnly(2026, 6, 30), reasonId: Resignation, comments: "Resigned."));
 
         var asAtToday = await Row(client, Ada, employedOn: new DateOnly(2026, 8, 14));
@@ -395,7 +398,7 @@ public sealed class LeaverRecordEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage, WmPermissions.EmployeesView);
 
-        var response = await client.PutAsJsonAsync($"/api/employees/{Ada}", new EmployeeUpsertRequest(
+        var response = await host.PutEmployeeAsync(client, Ada, new EmployeeUpsertRequest(
             "E1001", "Ada", "Lovelace", null, null, null, SiteA, null,
             EmployedFrom: Hired, EmployedUntil: null, IsSuspended: true));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -418,7 +421,13 @@ public sealed class LeaverRecordEndpointTests
     /// P1 — <c>departmentId</c> is <c>PHASE-AUDIT.md</c> B5, owned by 003 P3 and 007 P4.
     /// </para>
     /// </summary>
-    private static StringContent PortalEditBody(string jobTitle, Guid leavingReasonId, string leaverComments) =>
+    /// <para>
+    /// <c>version</c> is last because the SPA puts it last (011 P5). It is the token the drawer was
+    /// opened with, echoed unchanged — which is exactly the shape a stale write has too, and is why
+    /// the server can tell a current edit from a stale one at all.
+    /// </para>
+    private static StringContent PortalEditBody(
+        string jobTitle, Guid leavingReasonId, string leaverComments, Guid version) =>
         new($$"""
              {
                "code": "E1001",
@@ -433,7 +442,8 @@ public sealed class LeaverRecordEndpointTests
                "employedUntil": "{{LastDay:yyyy-MM-dd}}",
                "isSuspended": false,
                "leavingReasonId": "{{leavingReasonId}}",
-               "leaverComments": {{JsonSerializer.Serialize(leaverComments)}}
+               "leaverComments": {{JsonSerializer.Serialize(leaverComments)}},
+               "version": "{{version}}"
              }
              """, Encoding.UTF8, "application/json");
 

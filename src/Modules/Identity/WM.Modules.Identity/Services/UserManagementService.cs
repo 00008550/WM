@@ -4,13 +4,17 @@ using Npgsql;
 using WM.Modules.Identity.Data;
 using WM.Modules.Identity.Domain;
 using WM.SharedKernel.Common;
+using WM.SharedKernel.Domain;
 using WM.SharedKernel.Security;
 
 namespace WM.Modules.Identity.Services;
 
 public sealed record UserListItem(
     Guid Id, string UserName, string Email, string DisplayName,
-    bool IsActive, bool IsLockedOut, Guid? EmployeeId, string[] Roles);
+    bool IsActive, bool IsLockedOut, Guid? EmployeeId, string[] Roles,
+    // The concurrency token, out with the row (011 P5). The users screen edits straight off a list
+    // item, so a list that omitted it would leave the SPA with nothing to echo.
+    Guid Version);
 
 public sealed record RoleListItem(Guid Id, string Name, string Description, bool IsSystem);
 
@@ -19,12 +23,21 @@ public sealed record CreateUserRequest(
     Guid? EmployeeId, Guid[] RoleIds);
 
 public sealed record UpdateUserRequest(
-    string DisplayName, string Email, bool IsActive, Guid? EmployeeId, Guid[] RoleIds);
+    string DisplayName, string Email, bool IsActive, Guid? EmployeeId, Guid[] RoleIds,
+    // The version the caller read, echoed back. REQUIRED — see EmployeeUpsertRequest.Version for
+    // why an optional token is worse than none: it bypasses the check in silence.
+    Guid? Version = null);
 
-public sealed record UserMutationResult(bool Succeeded, string? Error, Guid? UserId)
+/// <param name="Conflict">
+/// True when the failure is a stale write rather than bad input, so the endpoint can answer 409
+/// instead of 400 (011 P5). A flag rather than a status code, because deciding the transport is the
+/// endpoint's job and this service has no <c>HttpContext</c>.
+/// </param>
+public sealed record UserMutationResult(bool Succeeded, string? Error, Guid? UserId, bool Conflict = false)
 {
     public static UserMutationResult Ok(Guid id) => new(true, null, id);
     public static UserMutationResult Fail(string error) => new(false, error, null);
+    public static UserMutationResult Stale() => new(false, ConcurrentEdit.Message, null, Conflict: true);
 }
 
 /// <summary>
@@ -121,6 +134,12 @@ public sealed class UserManagementService(
             await db.SaveChangesAsync(ct);
             return UserMutationResult.Ok(id);
         }
+        // Ordered before the DbUpdateException arm because DbUpdateConcurrencyException derives from
+        // it: swapped, a stale write would be reported as a duplicate email.
+        catch (DbUpdateConcurrencyException)
+        {
+            return UserMutationResult.Stale();
+        }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" } pg)
         {
             var field = pg.ConstraintName?.Contains("Email", StringComparison.OrdinalIgnoreCase) == true
@@ -135,6 +154,12 @@ public sealed class UserManagementService(
         var user = await db.Users.Include(u => u.Roles).FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user is null)
             return UserMutationResult.Fail("User not found.");
+
+        // Refused rather than defaulted: a client that forgets the token would otherwise get the
+        // old silent last-write-wins back and nothing would ever say so (011 P5).
+        if (request.Version is not { } expectedVersion || expectedVersion == Guid.Empty)
+            return UserMutationResult.Fail(
+                "This edit did not carry a record version. Reload the user and try again.");
 
         var email = request.Email.Trim();
         if (email.Length == 0)
@@ -160,6 +185,12 @@ public sealed class UserManagementService(
         user.Roles.Clear();
         user.Roles.AddRange(roles.Select(r => new UserRole { UserId = user.Id, RoleId = r.Id }));
         user.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // The original value is forced to the token the CALLER echoed, not the one this request just
+        // loaded — comparing the row against itself could never fail. The new value is fresh, so the
+        // losing writer holds something that matches no row. See Entity.Version.
+        db.Entry(user).Property(u => u.Version).OriginalValue = expectedVersion;
+        user.Version = Guid.CreateVersion7();
 
         var result = await SaveGuardingUniquenessAsync(user.Id, ct);
         // Only after the write lands. A rejected save leaves the database as it was, so nothing
@@ -198,5 +229,6 @@ public sealed class UserManagementService(
 
     private static UserListItem ToListItem(User u) => new(
         u.Id, u.UserName, u.Email, u.DisplayName, u.IsActive, u.IsLockedOut, u.EmployeeId,
-        u.Roles.Select(r => r.Role.Name).OrderBy(n => n).ToArray());
+        u.Roles.Select(r => r.Role.Name).OrderBy(n => n).ToArray(),
+        u.Version);
 }

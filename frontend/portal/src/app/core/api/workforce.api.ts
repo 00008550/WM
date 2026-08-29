@@ -32,6 +32,13 @@ export interface EmployeeRow {
   isEmployed: boolean;
   /** The date `status` and `isEmployed` were computed for (the `employedOn` query, default today). */
   asAt: string;
+  /**
+   * The optimistic-concurrency token (011 P5). Read here, echoed on `EmployeeUpsert.version`,
+   * rewritten by whichever save lands. Dropping it does not lose a field — it makes every edit from
+   * this screen a 400, because the API refuses a `PUT` that carries no version rather than waving
+   * it through into the silent last-write-wins this replaced.
+   */
+  version: string;
 }
 
 export interface Site {
@@ -60,6 +67,12 @@ export interface EmployeeUpsert {
   /** From `GET /api/leaving-reasons`. Only accepted alongside an `employedUntil`. */
   leavingReasonId?: string | null;
   leaverComments?: string | null;
+  /**
+   * The `version` read with the record, echoed unchanged. **Required on edit**, ignored on create.
+   * If another manager saved in between, this no longer matches and the API answers 409 with a
+   * message to show — rather than silently overwriting their work, which is what happened before.
+   */
+  version?: string | null;
 }
 
 /** A maintained, per-customer vocabulary. Ships empty; retired entries stay readable. */
