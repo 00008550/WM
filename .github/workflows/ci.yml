@@ -103,14 +103,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        # frontend/portal currently contains zero *.spec.ts files, so `ng test` would
-        # prove nothing -- the reviewer flagged this on 003 P1 and P2a. Rather than run
-        # a meaningless step or drop testing silently, detect specs and run them the
-        # moment the first one lands. Remove this guard once specs are routine.
-        run: |
-          if find src -name '*.spec.ts' -print -quit | grep -q .; then
-            echo "Spec files found -- running ng test headless."
-            npm run test -- --watch=false --browsers=ChromeHeadless
-          else
-            echo "::warning title=No frontend tests::frontend/portal has no *.spec.ts files; ng test skipped. See docs/plans/ -- standing up the first spec harness is queued work."
-          fi
+        # Unconditional since 011 P2: a repo that loses its last spec must fail here,
+        # not warn. Verified -- with no *.spec.ts the build fails TS18003 ("no inputs
+        # ... in tsconfig.spec.json") and ng test exits 1. That is the intended gate.
+        run: npm run test -- --watch=false --browsers=ChromeHeadless

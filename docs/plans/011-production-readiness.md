@@ -1,6 +1,6 @@
 # 011 — Production readiness: the machinery this repository claims and does not have
 
-Status: **approved** — user, 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
+Status: **in-review** — P2 built 2026-08-29 on `feat/011-p2`; approved by user 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
 Roadmap: ARCHITECTURE.md §14 *"Running workstream (not a phase): on-prem rollout tooling"*, plus the
 rows of §2's tech-stack table that are **promised and unbuilt** (`Observability | OpenTelemetry`,
 `Cache / realtime backplane | Redis`, `RabbitMQ … outbox`).
@@ -708,7 +708,7 @@ each of the eight rows in the F1 table against its cited source.
 PR on *why* it survived: nothing reads the README, so nothing contradicted it. That is the argument
 for P3 and the architecture test, in miniature.
 
-### [ ] P2 — The first frontend spec, and CI stops warning
+### [x] P2 — The first frontend spec, and CI stops warning
 **Touches:** `frontend/portal/src/app/core/auth/auth.interceptor.spec.ts` (new),
 `frontend/portal/src/app/core/auth/auth.guard.spec.ts` (new), `.github/workflows/ci.yml:105-116`.
 **Done when:** `npm run test -- --watch=false --browsers=ChromeHeadless` passes locally **and on a
