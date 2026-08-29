@@ -11,19 +11,32 @@ namespace WM.Api.Tests.Security;
 /// <para>
 /// <b>What this covers:</b> that each migration adds the column it is supposed to, in the right
 /// schema and table, as a non-null <c>uuid</c>, and that it still carries the backfill. <b>What it
-/// does not cover:</b> that the SQL runs. There is no Postgres harness in this repository — 009 P4
-/// is the standing gap — and Docker's Linux engine would not start on the machine this was built on,
-/// so <b>the SQL half has not been executed against a real Postgres</b>. That is stated rather than
-/// implied: 007 P1's precedent is to run it by hand and label the two halves differently, and 001 P2
-/// promised a migration test that no harness existed to run. An operations test that let itself be
-/// read as a SQL test would be the same failure with extra steps.
+/// does not cover:</b> that the SQL runs. This test would pass against a migration whose
+/// <c>UPDATE</c> was syntactically valid C# and invalid Postgres, so it must never be read as
+/// evidence that the migration applies.
+/// </para>
+/// <para>
+/// <b>The SQL half was run separately, by hand</b> (2026-08-29, Postgres 17-alpine via
+/// <c>wm-dev-postgres-1</c>), following 007 P1's precedent: there is still no automated Postgres
+/// harness here — 009 P4 owns that — so the two halves are executed by different means and are
+/// labelled differently on purpose. What the manual run established, against a database migrated to
+/// the *pre-P5* schema and seeded with 8 rows across the three affected tables: <c>Up</c> applied,
+/// all 8 pre-existing rows came out with distinct non-zero uuids, all three columns landed
+/// <c>uuid NOT NULL</c>; <c>Down</c> dropped all three cleanly with no row loss; <c>Up</c> again
+/// re-applied and re-backfilled. It was then <b>falsified</b> — backfill removed, re-run against
+/// seeded rows — and the rows landed all-zero and were refused with a <c>400</c> on every
+/// subsequent save, which is the defect described below, observed rather than reasoned about.
 /// </para>
 /// <para>
 /// The one line most worth pinning is the backfill. <c>AddColumn</c> stamps every existing row with
 /// the all-zero uuid, and both write paths refuse an echoed empty token — so a migration that lost
 /// its <c>UPDATE ... gen_random_uuid()</c> would leave every record that predates the upgrade
 /// permanently uneditable, and nothing else in the suite would notice. Regenerating either migration
-/// with <c>dotnet ef</c> drops that line, which is exactly when this test needs to fail.
+/// with <c>dotnet ef</c> drops that line, which is exactly when this test needs to fail — and it
+/// does: removing the People backfill fails
+/// <see cref="Existing_rows_are_backfilled_with_distinct_tokens_rather_than_left_all_zero"/> by
+/// name, while Postgres independently produced three all-zero rows that then took a 400 twice
+/// running. Two instruments, one defect, neither standing in for the other.
 /// </para>
 /// </summary>
 public class ConcurrencyMigrationTests

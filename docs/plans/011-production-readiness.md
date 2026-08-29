@@ -917,9 +917,16 @@ detection is genuine domain truth and not gold-plating.
 4. **The migrations backfill.** `AddColumn` stamps existing rows with the all-zero uuid, which (3)
    then refuses — so every pre-upgrade record would be permanently uneditable. Both migrations carry
    a `gen_random_uuid()` `UPDATE`, and `ConcurrencyMigrationTests` fails if a regeneration drops it.
-5. **The SQL half was *not* run.** Docker's Linux engine would not start on the build machine, so
-   the migrations are covered as **operations** in xUnit and **not** against a real Postgres. Stated
-   here and in the test's own summary rather than implied away — 009 P4 still owns the harness.
+5. **Both halves of the migration are covered, by different means, labelled separately.**
+   *Operations* — `ConcurrencyMigrationTests`, in xUnit, on every run. *SQL* — executed **by hand**
+   against **Postgres 17** (`wm-dev-postgres-1`) on 2026-08-29, per 007 P1's precedent; there is
+   still no automated Postgres harness and **009 P4 continues to own that**, so neither half is
+   evidence for the other. The manual run migrated a database to the *pre-P5* schema, seeded **8
+   rows** across `Employees`/`Users`/`SecurityGroups`, then: `Up` → all 8 backfilled to **distinct,
+   non-zero** uuids, all three columns `uuid NOT NULL`; `Down` → all three dropped, no rows lost;
+   `Up` again → re-applied and re-backfilled. **Falsified**: with the backfill removed the rows
+   landed **all-zero** and were then refused **400 on every save, twice running** — the
+   "permanently uneditable" defect in (4), observed rather than argued. Restored byte-identical.
 
 ### [ ] P6 — The platform can be observed, and a dropped event is counted
 **Touches:** `src/Api/WM.Api/WM.Api.csproj` + `src/Worker/WM.Worker/WM.Worker.csproj` (OTel
