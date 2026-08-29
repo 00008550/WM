@@ -70,7 +70,11 @@ public class UserManagementScopeNotificationTests
     private static UpdateUserRequest Edit(
         User user, string? displayName = null, bool? isActive = null, Guid? employeeId = null) =>
         new(displayName ?? user.DisplayName, user.Email, isActive ?? user.IsActive,
-            employeeId ?? user.EmployeeId, []);
+            employeeId ?? user.EmployeeId, [],
+            // The token the caller is holding. Fetched from the entity under test, so these tests
+            // keep asserting what they were written to assert rather than all becoming conflicts
+            // (011 P5). Staleness has its own tests, in ConcurrentEditTests.
+            Version: user.Version);
 
     [Fact]
     public async Task Deactivating_a_user_tells_the_scope_notifier()
@@ -130,7 +134,7 @@ public class UserManagementScopeNotificationTests
 
         await harness.Users.UpdateAsync(
             user.Id,
-            new UpdateUserRequest(user.DisplayName, user.Email, user.IsActive, null, []),
+            new UpdateUserRequest(user.DisplayName, user.Email, user.IsActive, null, [], Version: user.Version),
             CancellationToken.None);
 
         Assert.Equal(new[] { user.Id }, Assert.Single(harness.Notifier.Notifications));
@@ -169,7 +173,7 @@ public class UserManagementScopeNotificationTests
 
         var result = await harness.Users.UpdateAsync(
             user.Id,
-            new UpdateUserRequest(user.DisplayName, "taken@example.com", false, null, []),
+            new UpdateUserRequest(user.DisplayName, "taken@example.com", false, null, [], Version: user.Version),
             CancellationToken.None);
 
         Assert.False(result.Succeeded);
@@ -183,7 +187,7 @@ public class UserManagementScopeNotificationTests
 
         var result = await harness.Users.UpdateAsync(
             Guid.NewGuid(),
-            new UpdateUserRequest("Ghost", "ghost@example.com", true, null, []),
+            new UpdateUserRequest("Ghost", "ghost@example.com", true, null, [], Version: Guid.CreateVersion7()),
             CancellationToken.None);
 
         Assert.False(result.Succeeded);

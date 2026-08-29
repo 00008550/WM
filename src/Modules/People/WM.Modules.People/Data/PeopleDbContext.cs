@@ -45,6 +45,10 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
         b.Entity<Employee>(e =>
         {
             e.HasIndex(x => x.Code).IsUnique();
+            // Optimistic concurrency (011 P5). The token goes into the UPDATE's WHERE clause, so a
+            // write carrying the value another manager already replaced matches no row and EF raises
+            // DbUpdateConcurrencyException — which PeopleModule turns into a 409.
+            e.Property(x => x.Version).IsConcurrencyToken();
             e.Property(x => x.Code).HasMaxLength(32);
             e.Property(x => x.FirstName).HasMaxLength(128);
             e.Property(x => x.LastName).HasMaxLength(128);

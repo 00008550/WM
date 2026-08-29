@@ -299,6 +299,10 @@ export class EmployeesComponent implements OnInit {
       // title left a leaver with no reason and no comments and nothing to recover them from.
       leavingReasonId: e.leavingReasonId ?? '',
       leaverComments: e.leaverComments ?? '',
+      // The concurrency token, carried exactly as read (011 P5). Never edited and never shown — it
+      // is the answer to "which version of this record was on screen when you started typing?", and
+      // the API refuses an edit that arrives without one.
+      version: e.version,
     };
     this.isNew.set(false);
     this.error.set(null);
@@ -336,6 +340,9 @@ export class EmployeesComponent implements OnInit {
       // turn the re-hire path into a 400.
       leavingReasonId: employedUntil ? this.form.leavingReasonId || null : null,
       leaverComments: employedUntil ? this.form.leaverComments.trim() || null : null,
+      // Echoed back untouched. On a create there is nothing to be stale against, so it goes as null
+      // and the API ignores it.
+      version: this.isNew() ? null : this.form.version || null,
     };
 
     const done = {
@@ -355,7 +362,7 @@ export class EmployeesComponent implements OnInit {
     return {
       code: '', firstName: '', lastName: '', email: '', phone: '', jobTitle: '',
       siteId: '', employedFrom: '', employedUntil: '', isSuspended: false,
-      leavingReasonId: '', leaverComments: '',
+      leavingReasonId: '', leaverComments: '', version: '',
     };
   }
 

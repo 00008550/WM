@@ -1,6 +1,6 @@
 # 011 — Production readiness: the machinery this repository claims and does not have
 
-Status: **in-progress** — P2 passed review 2026-08-29 (`feat/011-p2`); approved by user 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
+Status: **in-review** — P5 built 2026-08-29 (`feat/011-p5`); P2 passed review 2026-08-29 (`feat/011-p2`); approved by user 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
 Roadmap: ARCHITECTURE.md §14 *"Running workstream (not a phase): on-prem rollout tooling"*, plus the
 rows of §2's tech-stack table that are **promised and unbuilt** (`Observability | OpenTelemetry`,
 `Cache / realtime backplane | Redis`, `RabbitMQ … outbox`).
@@ -856,7 +856,7 @@ dependencies while `:94` makes Redis the only hard one. Under D2 the `depends_on
 **comment** is what needs narrowing, to say Kafka and RabbitMQ rather than "brokers". The opposite of
 the original P4's fix, from the same measurement.
 
-### [ ] P5 — A concurrent edit is refused, not silently lost
+### [x] P5 — A concurrent edit is refused, not silently lost
 **Touches:** `src/SharedKernel/WM.SharedKernel/Domain/Entity.cs` (a `Version` token on
 `AuditableEntity`), `PeopleDbContext.cs` + `IdentityDbContext.cs`, one migration and snapshot per
 module, `PeopleModule.cs` (`PUT /{id:guid}`) and `UserManagementService.UpdateAsync`, the read DTOs
@@ -898,6 +898,35 @@ hand, and label the two halves differently in the PR rather than implying one co
 **Note:** legacy detects this and crashes (`UpdateCheck.Always` on 148/153 `dbo.Employees` columns;
 no `ChangeConflictException` handling in `Logic/`). Cite it — it is the strongest argument that
 detection is genuine domain truth and not gold-plating.
+
+**As built (2026-08-29, `feat/011-p5`).** Five things a reader should not have to reconstruct:
+
+1. **`AuditableEntity` reaches three entities, not two — and `Punch` is not one of them.** *Touches*
+   naming migrations for People and Identity only is **correct**: `Punch : Entity`, not
+   `AuditableEntity`, so `TimeAttendance` is untouched and the module with no test project stays
+   that way. The third entity is `SecurityGroup`, in Identity's own migration.
+2. **`SecurityGroup` gets the column but not the token.** `PUT /api/security-groups/{id:guid}` is
+   outside *Touches* and reads no echoed token, so configuring `IsConcurrencyToken()` there could
+   only fire on an intra-request race that `SecurityGroupService` would surface as a **500**. It is
+   recorded as **Outstanding — a real gap, not a principled exemption** in the new
+   `ConcurrencyTokenInventoryTests`, which also holds the fourth `PUT`
+   (`/users/{id}/security-groups`, exempt on principle: a set of ids has no row to be stale against).
+3. **A missing token is a 400, not a default.** Both write paths refuse a `PUT` that carries no
+   version. An optional token restores last-write-wins for any client that forgets it, silently —
+   which is the defect. This is slightly stronger than *Done when* asks for, and deliberate.
+4. **The migrations backfill.** `AddColumn` stamps existing rows with the all-zero uuid, which (3)
+   then refuses — so every pre-upgrade record would be permanently uneditable. Both migrations carry
+   a `gen_random_uuid()` `UPDATE`, and `ConcurrencyMigrationTests` fails if a regeneration drops it.
+5. **Both halves of the migration are covered, by different means, labelled separately.**
+   *Operations* — `ConcurrencyMigrationTests`, in xUnit, on every run. *SQL* — executed **by hand**
+   against **Postgres 17** (`wm-dev-postgres-1`) on 2026-08-29, per 007 P1's precedent; there is
+   still no automated Postgres harness and **009 P4 continues to own that**, so neither half is
+   evidence for the other. The manual run migrated a database to the *pre-P5* schema, seeded **8
+   rows** across `Employees`/`Users`/`SecurityGroups`, then: `Up` → all 8 backfilled to **distinct,
+   non-zero** uuids, all three columns `uuid NOT NULL`; `Down` → all three dropped, no rows lost;
+   `Up` again → re-applied and re-backfilled. **Falsified**: with the backfill removed the rows
+   landed **all-zero** and were then refused **400 on every save, twice running** — the
+   "permanently uneditable" defect in (4), observed rather than argued. Restored byte-identical.
 
 ### [ ] P6 — The platform can be observed, and a dropped event is counted
 **Touches:** `src/Api/WM.Api/WM.Api.csproj` + `src/Worker/WM.Worker/WM.Worker.csproj` (OTel

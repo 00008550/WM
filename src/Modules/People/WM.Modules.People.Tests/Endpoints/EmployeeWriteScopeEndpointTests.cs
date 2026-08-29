@@ -110,8 +110,7 @@ public sealed class EmployeeWriteScopeEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(Sites(SiteA), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{AtSiteA}", Rename(SiteB, DeptB));
+        var response = await host.PutEmployeeAsync(client, AtSiteA, Rename(SiteB, DeptB));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Contains("outside your data scope", await response.Content.ReadAsStringAsync());
@@ -127,8 +126,7 @@ public sealed class EmployeeWriteScopeEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(Sites(SiteA), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{AtSiteA}", Rename(SiteA, DeptA));
+        var response = await host.PutEmployeeAsync(client, AtSiteA, Rename(SiteA, DeptA));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var saved = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == AtSiteA));
@@ -144,8 +142,7 @@ public sealed class EmployeeWriteScopeEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(Sites(SiteA), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{AtSiteB}", Rename(SiteB, DeptB));
+        var response = await host.PutEmployeeAsync(client, AtSiteB, Rename(SiteB, DeptB));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         var unchanged = host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == AtSiteB));
@@ -162,7 +159,7 @@ public sealed class EmployeeWriteScopeEndpointTests
         var created = await client.PostAsJsonAsync("/api/employees", NewEmployee(SiteB, DeptB));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
-        var moved = await client.PutAsJsonAsync($"/api/employees/{AtSiteA}", Rename(SiteB, DeptB));
+        var moved = await host.PutEmployeeAsync(client, AtSiteA, Rename(SiteB, DeptB));
         Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
         Assert.Equal(SiteB, host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == AtSiteA)).SiteId);
     }
@@ -176,8 +173,7 @@ public sealed class EmployeeWriteScopeEndpointTests
         await using var host = await PeopleEndpointHost.StartAsync(Departments(DeptA), Seed);
         var client = host.ClientWith(WmPermissions.EmployeesManage);
 
-        var response = await client.PutAsJsonAsync(
-            $"/api/employees/{AtSiteA}", Rename(SiteA, departmentId: null));
+        var response = await host.PutEmployeeAsync(client, AtSiteA, Rename(SiteA, departmentId: null));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(DeptA, host.Read(db => db.Employees.AsNoTracking().Single(e => e.Id == AtSiteA)).DepartmentId);

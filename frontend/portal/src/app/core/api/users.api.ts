@@ -13,6 +13,8 @@ export interface UserListItem {
   isLockedOut: boolean;
   employeeId: string | null;
   roles: string[];
+  /** Optimistic-concurrency token (011 P5). Read here, echoed on `UpdateUserRequest.version`. */
+  version: string;
 }
 
 export interface RoleListItem {
@@ -37,6 +39,12 @@ export interface UpdateUserRequest {
   isActive: boolean;
   employeeId: string | null;
   roleIds: string[];
+  /**
+   * The `version` this user was read with, echoed unchanged. **Required** — the API refuses an edit
+   * that carries none, rather than falling back to the silent last-write-wins this replaced. A stale
+   * one is a 409 whose `detail` is the message to show.
+   */
+  version: string;
 }
 
 @Injectable({ providedIn: 'root' })

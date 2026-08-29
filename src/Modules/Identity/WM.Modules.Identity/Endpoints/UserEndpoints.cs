@@ -32,9 +32,14 @@ internal static class UserEndpoints
         users.MapPut("/{id:guid}", async (Guid id, UpdateUserRequest request, UserManagementService svc, CancellationToken ct) =>
         {
             var result = await svc.UpdateAsync(id, request, ct);
-            return result.Succeeded
-                ? Results.NoContent()
-                : Results.Problem(result.Error, statusCode: StatusCodes.Status400BadRequest);
+            // A stale write is a 409, not a 400: the body was well-formed, the record moved under it
+            // (011 P5 / D4). The message is all the response carries — no current record, no diff.
+            return result switch
+            {
+                { Succeeded: true } => Results.NoContent(),
+                { Conflict: true } => Results.Problem(result.Error, statusCode: StatusCodes.Status409Conflict),
+                _ => Results.Problem(result.Error, statusCode: StatusCodes.Status400BadRequest),
+            };
         });
 
         users.MapPost("/{id:guid}/reset-password", async (Guid id, ResetPasswordRequest request, UserManagementService svc, CancellationToken ct) =>
