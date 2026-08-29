@@ -1,6 +1,6 @@
 # 011 — Production readiness: the machinery this repository claims and does not have
 
-Status: **in-review** — P2 built 2026-08-29 on `feat/011-p2`; approved by user 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
+Status: **in-progress** — P2 passed review 2026-08-29 (`feat/011-p2`); approved by user 2026-08-29, **all 8 portions**   <!-- draft → approved → in-progress → in-review → merged -->
 Roadmap: ARCHITECTURE.md §14 *"Running workstream (not a phase): on-prem rollout tooling"*, plus the
 rows of §2's tech-stack table that are **promised and unbuilt** (`Observability | OpenTelemetry`,
 `Cache / realtime backplane | Redis`, `RabbitMQ … outbox`).
