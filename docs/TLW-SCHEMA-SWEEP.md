@@ -136,6 +136,15 @@ A singleton nobody has surveyed. Contents that change every computed result:
 
 ## 4. `dbo.SoftwareMainOptions` (227 cols) — per-install configuration
 
+> **Surveyed 2026-08-30 — see [`TLW-GLOBAL-OPTIONS.md`](./TLW-GLOBAL-OPTIONS.md).** All 227 columns
+> are now classified (0 unclassified, 0 duplicated). **47 are calculation/swipe rules; 18 are dead.**
+> Two corrections to what this section claimed:
+> `NumberOfDaysToKeepLogs` and `RequireFullLogging` are listed below as live "retention" — **both are
+> dead**, written by the settings screen and read by nothing. And `SkipReprocessingAfterEachSwipe`
+> is live, but **in a stored procedure, not C#** (`Database\Versioning\73.V5.19.0.0.sql:115`) —
+> the swipe pipeline is T-SQL, which a `Source\Logic`-only search does not see. The bullets below
+> are kept as the original hypothesis.
+
 The second-largest unsurveyed surface. Not "settings" in a trivial sense — it carries behaviour:
 
 - **Period locking**: `BlockCalculationBeforeDate`.
