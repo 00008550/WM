@@ -27,7 +27,7 @@ schema, 6.1 MB / 240,262 lines), `Logic\HoursCalculation\ProxyClocking.cs`,
 |---|---|---|
 | `dbo.Devices` | 268 | dropped from WM scope |
 | **`dbo.Clockings`** | **249** | **the widest table WM actually needs** |
-| `dbo.SoftwareMainOptions` | 227 | global settings — WM has no equivalent |
+| `dbo.SoftwareMainOptions` | 227 | per-install configuration; **47 columns are calculation and swipe rules**, 18 are dead — measured in [`TLW-GLOBAL-OPTIONS.md`](./TLW-GLOBAL-OPTIONS.md) (2026-08-30) |
 | `dbo.FireMarshalMusterPoints` | 177 | Safety, phase 6b |
 | `dbo.UnifiedTimesheetReportView` | 167 | reporting view |
 | **`dbo.Employees`** | **153** | WM's `Employee` has **12** |
@@ -213,7 +213,7 @@ other days for the same employee**. A per-row expression evaluator is not suffic
 | Stored `calc_*` results | timesheet computed on read |
 | `DailyModels` — 124 cols | **nothing** |
 | `Employees` — 153 cols | `Employee` — 12 |
-| `SoftwareMainOptions` — 227 cols | **nothing** |
+| `SoftwareMainOptions` — 227 cols | **nothing** — and 47 of those columns govern how hours and punches are calculated ([`TLW-GLOBAL-OPTIONS.md`](./TLW-GLOBAL-OPTIONS.md)) |
 
 WM's punch pipeline is a sound *input* to this model — an append-only event stream is a better
 foundation than a mutable row. What is missing is the **aggregate the whole product reads**.
