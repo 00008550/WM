@@ -284,6 +284,12 @@ A revised phase plan is in `ARCHITECTURE.md` §14.
 
 ## 8. Sources
 
-- `E:\Tlw\Source` — 317 projects, `Logic/Entities` (247 entities), `WebSite/Views` (~230 screens)
+- `E:\Tlw\Source` — 317 projects, `Logic/Entities` (**579 tables, 8,173 columns**), `WebSite/Views` (~230 screens)
+
+  *Corrected 2026-08-30 while surveying the calculation engine (plan 013).* This line read
+  "247 entities" — the same wrong figure `TLW-SCHEMA-SWEEP.md` was created to replace, still
+  sitting in this document's Sources section long after. Measured mechanically:
+  `grep -c 'TableAttribute(Name=' HorioDB.designer.cs` → 579;
+  `grep -c 'ColumnAttribute(' HorioDB.designer.cs` → 8,173.
 - `E:\Tlw\Database` — DevExpressReports (67), MenuInfo, Notifications, Localization, Setup
 - `E:\Tlw\Documentation` — High Level Architecture, Daily/Periodic Templates, Email Notifications Triggers & Behavior, Access Control, Visitor Management, Absences Configuration, Blocked Exception Rules, 15 integration docs, Synergy App/Touch docs
