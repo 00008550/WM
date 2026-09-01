@@ -320,6 +320,7 @@ the public edge) are worth building **whether or not a demo ever exists**, and a
 the access model.
 
 ## Queue
+<!-- OVERWRITE-ONLY: plan rows track current status; correct them in place, do not append. -->
 
 | Plan | Title | Portions | Status |
 |---|---|---|---|
@@ -568,6 +569,7 @@ then 006/007. Both of those numbers are now real written files. They keep names 
 writes them.)*
 
 ## Shipped
+<!-- APPEND-ONLY: one row per merged PR, never edited once written. -->
 
 | Plan | Portion | PR | Status |
 |---|---|---|---|
@@ -594,16 +596,24 @@ writes them.)*
 | 007 | P1 — employment is a date, not an enum | [#61](https://github.com/00008550/WM/pull/61) | ✅ merged to master (`ead3bfc`) — review passed round 3 (F1 data-loss fix + three `STATE.md` claims), squash-merged |
 | — | provenance audit of 007 P1 against legacy | [#59](https://github.com/00008550/WM/pull/59) | ✅ merged to master (`6eb52a1`) |
 | — | legacy time survey + plan 008 | [#60](https://github.com/00008550/WM/pull/60) | ✅ merged to master (`211e628`) |
-| 011 | P2 — the first frontend spec, and CI stops warning | [#67](https://github.com/00008550/WM/pull/67) | 🔍 review passed 2026-08-29, open against `master` — 13 specs, both mutations red **by name**, CI green on the runner (`Angular build` 28 s → 51 s) |
+| 011 | P2 — the first frontend spec, and CI stops warning | [#67](https://github.com/00008550/WM/pull/67) | ✅ merged to master — 13 specs, both mutations red **by name**, CI green (`Angular build` 28 s → 51 s) |
 
 ## In flight
+<!-- OVERWRITE-ONLY. This section is live state: it must list ONLY PRs that are open right now.
+     When a PR merges, delete its line here and let the Shipped table (append-only) carry it.
+     Verified by scripts/check-plan-state.sh. Do NOT append merged PRs to the lead below. -->
 
-**[#57](https://github.com/00008550/WM/pull/57) — 003 P2b, open against `master`.** The only PR
-actually in flight. Round 1 passed 2026-08-11 with two low findings; a second, **test-only** commit
-closed both on the same branch and round 2 passed 2026-08-11 with none. Three commits, `master` is
-its base, nothing is stacked on it. Full account under *Active plan* above.
+**The survey programme (plans 012–021), plus re-audits of the already-built areas, is in flight.**
+The open PRs are whatever `gh pr list --state open` currently shows — as of the last edit, the
+Expenses and Visitors surveys ([#77](https://github.com/00008550/WM/pull/77),
+[#78](https://github.com/00008550/WM/pull/78)), with an authorization (Roles/Users) re-audit and an
+Employees re-audit following. Building is otherwise paused for the survey programme; 011 is the only
+approved build plan with portions left. **If this paragraph names a PR that has merged, it is stale —
+run the check.**
 
 ### Merged — review notes kept because they still bind later portions
+<!-- APPEND-ONLY, and deliberately exempt from the in-flight check: these PRs ARE merged; their
+     review notes are retained here because 006 P5 and later portions still depend on them. -->
 
 *(Both of these were listed here as "open against `master`" long after they merged; corrected
 2026-08-11. They are in the Shipped table with their merge commits. The notes stay because 006 P5
