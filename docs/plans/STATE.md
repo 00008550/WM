@@ -607,6 +607,7 @@ writes them.)*
 | — | provenance audit of 007 P1 against legacy | [#59](https://github.com/00008550/WM/pull/59) | ✅ merged to master (`6eb52a1`) |
 | — | legacy time survey + plan 008 | [#60](https://github.com/00008550/WM/pull/60) | ✅ merged to master (`211e628`) |
 | 011 | P2 — the first frontend spec, and CI stops warning | [#67](https://github.com/00008550/WM/pull/67) | ✅ merged to master — 13 specs, both mutations red **by name**, CI green (`Angular build` 28 s → 51 s) |
+| 007 | P2 — the punch boundary fails closed | [#86](https://github.com/00008550/WM/pull/86) | 🟢 review passed 2026-09-03 — boundary + dedupe, 9 tests (module's first), both mutations red; 239 green. Closes D1, lands D4 dedupe (002 owns the exception model) |
 
 ## In flight
 <!-- OVERWRITE-ONLY. This section is live state: it must list ONLY PRs that are open right now.

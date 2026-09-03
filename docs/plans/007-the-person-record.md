@@ -712,7 +712,7 @@ deactivating a reason leaves existing references readable and stops it being off
 > event at all. Candidate portion. See §4.1b point 6. **Now also recorded as its own `ARCHITECTURE.md`
 > §13 row** ("Employment-date edit ⇒ accrual invalidation"), so it survives outside this plan.
 
-### [ ] P2 — The punch boundary fails closed
+### [x] P2 — The punch boundary fails closed  ·  review passed 2026-09-03, open as [#86](https://github.com/00008550/WM/pull/86)
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`,
 `TimeAttendanceModule.cs` if the error shape changes; `WM.Modules.People.Tests` or a new
 `WM.Modules.TimeAttendance.Tests`; **`ARCHITECTURE.md:385`** — the "Swipe capture" §13 row. Its
