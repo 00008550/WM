@@ -1,0 +1,32 @@
+name: Plan bookkeeping
+
+# The main CI skips docs/** entirely, so plan-status rot (a plan marked in-review
+# with nothing in review, a merged PR still called "in flight") never got caught.
+# This runs scripts/check-plan-state.sh on changes under docs/plans/, using the
+# repo's own PR list as ground truth. It is the automated half of the check the
+# script was written for.
+on:
+  pull_request:
+    branches: [master]
+    paths: ['docs/plans/**', 'scripts/check-plan-state.sh']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: plan-state-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: plan status matches GitHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the bookkeeping check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check-plan-state.sh
