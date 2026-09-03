@@ -144,7 +144,8 @@ without people to record, accounts to sign in with, and rights to control them.
 
 ◆ Visitors                                                       [module]
    Visitor activities · Pre-registration & invitations
-   Check-in/out · Deliveries · Visitor settings
+   Check-in/out · Deliveries* · Visitor settings
+         * "Deliveries" has no backing table in legacy (`TLW-VISITORS-MODEL.md`) — aspirational, descope for the initial build
 
 ◆ Insight                                                        [module]
    Assistant ⭐ · Core reports · Saved reports
