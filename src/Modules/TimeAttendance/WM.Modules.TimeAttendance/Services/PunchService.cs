@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using WM.Modules.People.Contracts;
 using WM.Modules.TimeAttendance.Contracts;
 using WM.Modules.TimeAttendance.Data;
@@ -25,17 +26,54 @@ public sealed record TimesheetInterval(DateTimeOffset In, DateTimeOffset? Out, d
 public sealed class PunchService(
     TimeAttendanceDbContext db,
     IEmployeeDirectory employees,
-    IEventStreamProducer eventStream)
+    IEventStreamProducer eventStream,
+    IOptions<PunchDeduplicationOptions> dedupeOptions)
 {
+    // A caller must not be able to tell "this code exists but is not employed" from "this code does
+    // not exist" — either answer would let them probe the roster. Both return this one message, so
+    // the boundary is not an enumeration oracle (007 P2).
+    private static PunchResult NotPunchable(string code) =>
+        new(null, $"No employee is available to record a punch for '{code}'.");
+
     public async Task<PunchResult> RecordAsync(RecordPunchRequest request, Guid? recordedBy, CancellationToken ct)
     {
         var employee = await employees.FindByCodeAsync(request.EmployeeCode, ct);
         if (employee is null)
-            return new PunchResult(null, $"Unknown employee code '{request.EmployeeCode}'.");
+            return NotPunchable(request.EmployeeCode);
 
         var timestamp = request.Timestamp ?? DateTimeOffset.UtcNow;
         if (timestamp > DateTimeOffset.UtcNow.AddMinutes(5))
             return new PunchResult(null, "Punch timestamp cannot be in the future.");
+
+        // Fail closed at the punch's OWN date, not today: only someone who may work on the day the
+        // punch is dated may record it. This is the same predicate the live feed and presence apply
+        // (!IsSuspended && employed on the date), so WM can no longer accept a punch it would then
+        // refuse to display. A back-dated punch into an employed period is allowed; the same punch
+        // after the leave date — or for a suspended employee — is refused, with the same message as
+        // an unknown code. (007 P2, edge cases 7-10.)
+        var punchDate = DateOnly.FromDateTime(timestamp.UtcDateTime);
+        if (employee.IsSuspended || !employee.IsEmployedOn(punchDate))
+            return NotPunchable(request.EmployeeCode);
+
+        // Idempotent same-direction dedupe: a repeat within the configured window is a double-click /
+        // double-swipe, not a second event — return the existing punch, create no row, publish
+        // nothing. The window is a WM decision (legacy leaned on the hardware terminal); default 60s,
+        // configurable. A genuine unpaired run minutes apart is NOT caught here — that is a day-level
+        // exception plan 002 owns, and P2 deliberately leaves it so 002 inherits clean, de-noised data.
+        var window = dedupeOptions.Value.Window;
+        if (window > TimeSpan.Zero)
+        {
+            var earliest = timestamp - window;
+            var duplicate = await db.Punches.AsNoTracking()
+                .Where(p => p.EmployeeId == employee.Id
+                            && p.Direction == request.Direction
+                            && p.Timestamp <= timestamp
+                            && p.Timestamp >= earliest)
+                .OrderByDescending(p => p.Timestamp)
+                .FirstOrDefaultAsync(ct);
+            if (duplicate is not null)
+                return new PunchResult(duplicate, null);
+        }
 
         var punch = new Punch
         {
@@ -103,9 +141,9 @@ public sealed class PunchService(
         // window question only — suspension is a separate fact and a caller replaying who was on the
         // payroll must not have it applied behind its back (IEmployeeDirectory.ListEmployedOnAsync).
         //
-        // It is also still narrower than what RecordAsync accepts, so WM can continue to take a punch
-        // it will not display — plan 007 P2 closes that by deriving both from the punch's own
-        // timestamp. This portion changed the contract under it and deliberately left the defect.
+        // 007 P2 closed the accept-then-hide gap: RecordAsync now refuses a punch dated outside the
+        // employee's window (and refuses a suspended employee), so the accept decision and this
+        // visibility set apply the same predicate — one at the punch's date, one at today's.
         var visible = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
             .Where(e => !e.IsSuspended)
             .ToDictionary(e => e.Id, e => e.FullName);

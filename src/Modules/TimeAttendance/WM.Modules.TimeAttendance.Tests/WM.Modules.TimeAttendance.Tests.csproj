@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- In-memory rather than Npgsql: these tests assert the punch boundary and the dedupe guard,
+         not SQL, and there is no Postgres harness in this repository (docs/plans/STATE.md). Same
+         choice, and the same version, as the other module test projects. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The service under test lives here; the People contract supplies EmployeeSummary, which the
+         boundary decision reads. -->
+    <ProjectReference Include="..\WM.Modules.TimeAttendance\WM.Modules.TimeAttendance.csproj" />
+    <ProjectReference Include="..\..\People\WM.Modules.People\WM.Modules.People.csproj" />
+  </ItemGroup>
+
+</Project>
