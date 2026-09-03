@@ -334,7 +334,17 @@ the access model.
 | 008 | A day has a place — per-site time zones | 5 | **draft — awaiting approval.** Direction confirmed by the user 2026-08-18 (per-site with inheritance). P3 sequences after 007 P1, which has merged |
 | **009** | **What the running app does — the defects the 2026-08-18 audit found** | **8** | **draft — awaiting approval.** Claims independently verified; P1–P4 independent of 005 and 007. Open decision: **003 P3 already owns `phone` by name** |
 | **010** | **The Daily Browser** | **5** | **draft — awaiting approval.** **P1 is the five-column daily-template subset** — deliverable before 002 is approved, and 002 P3's only prerequisite. P3–P5 would ship a read-only browser (open question 3) |
-| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** (**P2 review passed — [#67](https://github.com/00008550/WM/pull/67)**; **P5 next**) | **in-progress — approved by the user 2026-08-29, all 8 portions.** Lane D. Surveys **WM, not legacy**. **Exactly 1 of 8 is a live defect** (P5) after D2 voided P4's. Build order **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**. P7 unblocked by D1 and needs ADR 0001 first; P8 still after 007 P2 |
+| **011** | **Production readiness: the machinery this repository claims and does not have** | **8** (**P2 merged [#67](https://github.com/00008550/WM/pull/67); P5 merged [#68](https://github.com/00008550/WM/pull/68)**; six remain: P1 P3 P4 P6 P7 P8) | **in-progress — approved by the user 2026-08-29, all 8 portions.** Lane D. Surveys **WM, not legacy**. Build order **P2 → P5 → P1 → P3 → P6 → P4 → P7 → P8**. P7 needs ADR 0001 first; P8 after 007 P2 |
+| **012** | **The rules behind the settings** (`SoftwareMainOptions`) | 5 | **draft — awaiting approval.** 47 of 227 global settings are rules-as-config; found a 2nd settings singleton `dbo.Calculations`. Open Q: effective-dating |
+| **013** | **The day-calculation core** (the hours engine) | 5 | **draft — awaiting approval.** First read of the 866 KB engine. Phase 2 is a **~3× underestimate**; **MVC = 8 stages**, P1-sized. Feeds 002 |
+| **014** | **Payroll plugins / the generic export builder** | *(plan not landed — see note)* | **survey merged [#71]; plan file was not committed.** The builder hypothesis **holds** (44 short files, median 216 lines). Plan needs re-generating |
+| **015** | **Absence & entitlement** | *(plan not landed — see note)* | **survey merged [#72]; the plan file it references (`015-absence-and-entitlement.md`) was not committed.** Needs re-generating. Absence sits on the Clocking; two balance engines |
+| **016** | **Activities & cost centres** | 7 | **draft — awaiting approval.** Cost-centre allocation is a **second counter run** on the Clocking → constrains 002. Phase 7 |
+| **017** | **Scheduling foundation** | 4 | **draft — awaiting approval.** Foundation only; auto-planning/open-shift-eligibility/WTD are WM-new, deferred. Produces the planned shift 013 consumes |
+| **018** | **The audit trail becomes real** | 4 | **draft — awaiting approval.** `ClockingsLog` is a full-row snapshot; legacy audit is a 4-mechanism patchwork. Depends on 011 P7 (outbox) + 009 P4 (harness) |
+| **019** | **Documents & e-signature** | 6 | **draft — awaiting approval.** Every byte is SQL `VarBinary(MAX)` → object storage is the Improve. E-sign is real; onboarding-checklist is WM-new |
+| **020** | **Expenses & mileage** | 6 | **draft — awaiting approval.** Banded mileage rates are data-driven. Approval shape **differs from absence** — shared-engine decision (open Q1) |
+| **021** | **Visitors** | 6 | **draft — awaiting approval.** Survives no-devices. **Feeds the fire muster roll** → a fragment is a phase-6b dependency, not phase-8-isolated |
 
 **Ordering, decided by the user 2026-08-04:** 003 P1 and P2 run before 001 P3. They are defects in
 running code rather than missing capability, and they are independent of 001 — 003 touches the API
@@ -603,13 +613,12 @@ writes them.)*
      When a PR merges, delete its line here and let the Shipped table (append-only) carry it.
      Verified by scripts/check-plan-state.sh. Do NOT append merged PRs to the lead below. -->
 
-**The survey programme (plans 012–021), plus re-audits of the already-built areas, is in flight.**
-The open PRs are whatever `gh pr list --state open` currently shows — as of the last edit, the
-Expenses and Visitors surveys ([#77](https://github.com/00008550/WM/pull/77),
-[#78](https://github.com/00008550/WM/pull/78)), with an authorization (Roles/Users) re-audit and an
-Employees re-audit following. Building is otherwise paused for the survey programme; 011 is the only
-approved build plan with portions left. **If this paragraph names a PR that has merged, it is stale —
-run the check.**
+**Nothing is in flight.** The full legacy survey programme (plans 012–021) and the re-audits of
+the built areas (authorization, People) are **merged**, and the consolidated documentation pass
+applying their findings to `ARCHITECTURE.md`, `COVERAGE-AUDIT.md` and `TLW-SCHEMA-SWEEP.md` landed
+2026-09-01. Building is still paused for the survey programme; **011 is the only approved build
+plan with portions left** (P1, P3, P4, P6, P7, P8). Run `scripts/check-plan-state.sh` before
+trusting this line — if it names an open PR that has merged, it is stale.
 
 ### Merged — review notes kept because they still bind later portions
 <!-- APPEND-ONLY, and deliberately exempt from the in-flight check: these PRs ARE merged; their
