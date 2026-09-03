@@ -63,9 +63,14 @@ read surface.
 | 12 | `Clockings` | `SwipeSource`, `SwipeSourceId`, `SwipeReaderType` |
 | 12 | `dbo.ClockingSwipeWorkLocations` | `SwipeWorkLocation1..12` |
 | 10–12 | `ManualTimesheets`, `ManualTimeSheetsView` | `BadgeTime1..12` |
-| 6 | `Clockings`, `DailyBrowserView`, unified views | per-shift measures, `CostCentreId1..6`, `Out1..6` |
+| 6 | `Clockings`, `DailyBrowserView`, unified views | per-shift measures, `CostCentreId1..6` paired with `DailyModelId1..6`, + `CorrectionCostCentreId` |
 
 Three hard ceilings, all customer-visible: **20 pay categories, 12 swipes per day, 6 shifts.**
+
+> ⚠️ **Corrected 2026-09-01.** The 6-shift row above previously read `Out1..6`. **No `Out1..6`
+> column exists on `Clockings`** (measured by the Activities survey, `TLW-ACTIVITIES-MODEL.md`).
+> The real per-shift slots are `CostCentreId1..6` paired with `DailyModelId1..6`. Since this file
+> is the one CLAUDE.md says to plan from, a phantom column here is a defect, not a typo.
 
 ---
 

@@ -47,29 +47,37 @@ optimistic number.
 
 Every table is in exactly one bucket; the counts sum to 578.
 
+> ⚠️ **Corrected 2026-09-01 (consolidated pass).** The column counts below fold **report-view
+> columns into base-table totals**, so every surveyed bucket was over-sized — Activities, Scheduling,
+> Documents, Expenses and Visitors all measured smaller in *base* tables (arrows show base footprint).
+> Expenses was also *under*-counted on tables. The bucketing script was never committed (see §2a note),
+> so treat the original Tables/Columns as indicative and the linked survey docs as ground truth.
+
 | Bucket | Tables | Columns | WM module | Documented? |
 |---|---:|---:|---|---|
 | **T&A + Clocking core** | 76 | 1,748 | TimeAttendance + Rules | ✅ `TLW-CLOCKING-MODEL.md`, plan 002 |
-| **People / HR** | 95 | 1,074 | People, HR | ✅ **surveyed 2026-08-06** — [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md). **11 of `dbo.Employees`' 153 columns modelled**; 33 have no owner anywhere |
+| **People / HR** | 95 → **76 base** | 1,074 → **631 base** | People, HR | ✅ **surveyed 2026-08-06, re-audited 2026-09-01** — [`TLW-PEOPLE-MODEL.md`](./TLW-PEOPLE-MODEL.md). 153-col partition now **provably complete**: **16 of `dbo.Employees`' 153 modelled** (was 11 — 007 P1 adopted 5), **28 have no owner** (was 33). 95/1,074 is not reproducible; real base footprint 76/631 |
 | EPOS (dropped) | 67 | 783 | — | ⏹ decided |
 | Devices / AC (dropped) | 54 | 719 | — | ⏹ decided |
 | **Reporting** | 13 | 697 | Insight (assistant) | ◐ §16 decision, no table-level survey |
-| **Absence & accruals** | 44 | 526 | Absence | ◐ named in §14, **not surveyed** — one narrow dependency check only, see §2a |
-| **Admin / config / audit** | 16 | 376 | Admin | ◐ `SoftwareMainOptions` found, rest **not surveyed** |
-| **Activities / job costing** | 20 | 345 | Activities (phase 7) | ◐ named, not surveyed |
-| **Rules / calc / money** | 35 | 341 | Rules | ✅ tariffs + counters + `Calculations` found |
+| **Absence & accruals** | **43 base** | 526 | Absence | ✅ **surveyed 2026-08-31** — [`TLW-ABSENCE-MODEL.md`](./TLW-ABSENCE-MODEL.md). `OnLeave` deletion re-confirmed correct; **two live balance engines**; absence sits on the Clocking (`MorningAbsenceID`/`AfternoonAbsenceID`) |
+| **Admin / config / audit** | 16 | 376 | Admin | ✅ **surveyed** — [`TLW-GLOBAL-OPTIONS.md`](./TLW-GLOBAL-OPTIONS.md) (`SoftwareMainOptions`, 227) + [`TLW-ADMIN-AUDIT-MODEL.md`](./TLW-ADMIN-AUDIT-MODEL.md). 376 is real (not view-inflated) but a **two-table bucket**: `SoftwareMainOptions` (227) + `ClockingsLog` (97) = 86% |
+| **Activities / job costing** | 20 → **30 base** | 345 → **261 base + 11 views** | Activities (phase 7) | ✅ **surveyed 2026-08-31** — [`TLW-ACTIVITIES-MODEL.md`](./TLW-ACTIVITIES-MODEL.md), plan 016. 345 was report-view weight; cost-centre allocation is a **second counter run** on the Clocking |
+| **Rules / calc / money** | 35 | 341 | Rules | ✅ **engine surveyed 2026-08-31** — [`TLW-CALCULATION-ENGINE.md`](./TLW-CALCULATION-ENGINE.md), plan 013. Phase 2 is a **~3× underestimate**; MVC is 8 stages. `dbo.Calculations`: 17 of 45 cols reach the engine, **19 dead** |
 | Unbucketed (see §3) | 48 | 329 | mixed | ◐ **five new findings below** |
-| **Scheduling** | 16 | 251 | Scheduling | ◐ named in §14, **not surveyed** |
+| **Scheduling** | 16 → **~13 base** | 251 → **~83 base** | Scheduling | ✅ **surveyed** — [`TLW-SCHEDULING-MODEL.md`](./TLW-SCHEDULING-MODEL.md), plan 017. 251 is inflated by ~161 view cols + the Positions/Quals cluster People/HR owns. **Auto-planning/WTD/open-shift-eligibility do not exist to port** |
 | **Safety** | 2 | 204 | Safety (6b) | ◐ `FireMarshalMusterPoints` is 177 cols — far bigger than "muster points" implies |
 | **Notifications** | 29 | 180 | Notifications | ◐ §9 designed; **`Notifications.SqlQuery` changes the design** |
-| Expenses | 10 | 135 | Expenses | ◐ named, not surveyed |
-| Visitors | 9 | 127 | Visitors (phase 8) | ◐ named, not surveyed |
-| Identity / access | 19 | 122 | Identity | ✅ plan 001 |
-| Documents | 14 | 114 | Documents | ◐ §10 designed, not surveyed |
+| Expenses | 10 → **13 base** | 135 → **84 base + 88-col view** | Expenses | ✅ **surveyed 2026-09-01** — [`TLW-EXPENSES-MODEL.md`](./TLW-EXPENSES-MODEL.md), plan 020. Wrong on **both** axes. Mileage rates are HMRC-banded and **data-driven** |
+| Visitors | 9 → **8 base** | 127 → **102 base + 57 view** | Visitors | ✅ **surveyed 2026-09-01** — [`TLW-VISITORS-MODEL.md`](./TLW-VISITORS-MODEL.md), plan 021. Survives no-devices; **feeds the fire muster roll** (safety dep, not phase-8-isolated) |
+| Identity / access | 19 | 122 | Identity | ✅ plan 001, **re-audited 2026-09-01** — [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md). 9/10 claims held; no hidden T-SQL authz; one miss (`Employees.IsAdministrator`) |
+| Documents | 14 → **~20 base** | 114 → **~97 base** | Documents | ✅ **surveyed** — [`TLW-DOCUMENTS-MODEL.md`](./TLW-DOCUMENTS-MODEL.md), plan 019. Every byte is SQL `VarBinary(MAX)`; "HR is a document system" confirmed; onboarding-checklist is WM-new |
 | Import / export / integration | 11 | 102 | Connectors | ◐ `TLW-INVENTORY.md` §2.2 lists services |
 
-**Read this as a survey backlog.** The buckets marked "not surveyed" have been *named* in the
-roadmap but never measured the way T&A and Rules now have been — which is exactly the condition
+**The survey backlog is now cleared (2026-09-01).** Every bucket above has been measured against
+legacy — the surveys are plans 012–021 plus the People/authorization re-audits, all merged. What
+remains is *approval and building*, not surveying. The paragraph below is kept as the original
+framing that drove the programme — which was exactly the condition
 that hid the Clocking aggregate.
 
 ### 2a. Absence — what a 2026-08-06 dependency check did and did **not** look at
