@@ -10,6 +10,53 @@ Every claim below carries a `file:line`. Nothing here is inferred from another W
 
 ---
 
+## ⚠️ Re-audit 2026-09-01 — verdict
+
+Re-verified against `E:\Tlw` only, closing the three gaps that made the original survey (2026-08-05,
+PR #19) less trustworthy than later WM surveys: it never asserted completeness by **set difference**,
+it predates the **T-SQL lesson** (core logic lives in procs/triggers, invisible to a `Logic`-only
+reading), and it had already been contradicted once (007's six-`[User]`-permissions finding).
+
+**Of the original survey's load-bearing claims:**
+
+- **Held (re-measured, cited): 9.** One user ↔ one role (`SingleOrDefault`, `AddUserToRole` replaces);
+  deny-overrides-allow resolution; screen-rights fail-closed / record-scope fail-open (14-item
+  inventory); `AccessType = Read/Edit` with exactly one divergence (`CanModifySelf`); `IsSelfOnly`
+  hard-narrows; `IsDepartmentOnly` **dead** (no read in `Logic`, `WebSite`, **or SQL** — now checked);
+  the `EmployeeIdsManagedByRole` TVF does **exact** department match (no hierarchy expansion); the
+  **one** hierarchy expansion is department-subtree for absence approvals via `DepartmentHeirarchyView`;
+  the seven `[User]` permission booleans (§1A).
+- **Wrong / incomplete: 1 (new this re-audit).** §1A's "corrected total" of permission-bearing columns
+  was **still incomplete** — it missed **`Employees.IsAdministrator`**, an eighth permission flag
+  outside `Role`/`AccessControlEntry`/`[User]`. See the re-audit block in §1A. This is the same class
+  of miss the document was created to fix, one layer down: §1A swept `[User]` but not `Employees`.
+- **Newly verified that the original could not assert: 3.** (a) The **T-SQL layer** holds no hidden
+  app-authorization logic — every `AccessControl*` proc/function/trigger in `E:\Tlw\Database` is
+  **physical** access control (Salto door groups `ac_securitygroup_*`, ANPR/LAPI, IR readers, presence
+  dashboards), out of scope by invariant 3. (b) The cited TVF (`80.V5.26.0.0.sql:880`) is the **current**
+  definition — an earlier `70.V5.16.0.0.sql:2493` version with a different signature is superseded, and
+  nothing in files 81–95 (highest is 95) redefines it. (c) The `User↔Employee` link is **one-to-many**
+  (`User_Employee` association, `Storage="_Employees"` EntitySet) — legacy permits one login to drive
+  several employee records; WM's one-to-one invariant is *stricter* than legacy, not a mirror.
+
+**Is plan 005 safe to build on as written?** **Yes, with one caveat.** The load-bearing 005 premises —
+one membership, one object, `CanEditOwnRecord` (= `Role.CanModifySelf`), `SelfOnly` as a mode,
+fail-closed inversion — all re-verified true. The caveat is `Employees.IsAdministrator`: it is a real
+persisted permission, but it governs the **external SynergyHome/Kiosk self-service portal**, not the
+main app's group model. It does **not** invalidate "the group is the single unit of access" for the
+web product, but it is a *second admin concept* WM must place deliberately when the self-service /
+Kiosk surface is built (see §1A re-audit and Open question 6). It is not a 005 blocker.
+
+**Explicitly not measured this re-audit** (numbered, per standing trap): (1) the *content* of the
+physical-access `ac_securitygroup_*` triggers — confirmed out-of-scope by name and table, not read
+line-by-line; (2) the `HealthWebSite`/`HorioMigration` sibling products' own `UpdateRole` — the
+original noted they *read* `IsDepartmentOnly`, not re-checked here as they are not WM's target; (3) the
+DevExpress report-template `IsAllowed` licensing rows and `FireMarshalMusterPoints.IsAllowedOn*`
+scheduling flags — name-matched as permission-shaped, inspected as **not** authorization, not surveyed
+further.
+
+---
+
 ## 1. The measurement
 
 ### Tables that participate in authorization
@@ -76,6 +123,33 @@ log with *no secret store*), `dbo.UserPasswordHistory(Id, UserId, Password)`, an
 The lesson is this document's own: a boundary asserted once ("that is the entire surface") is a
 claim like any other. This one was drawn around the tables that *look* like authorization and
 missed the ones that are not named for it.
+
+> **⚠️ Re-audit 2026-09-01 — §1A was still incomplete: an eighth permission column.**
+> Mechanically re-swept **every** table in `HorioDB.designer.cs` (578 tables) for `bool` columns
+> matching `Is(Allowed|UserCan)…|Can(Manage|Modify|Pay|Edit|View|Approve)…|IsAdmin|HasAccess`.
+> The sweep confirms the seven `[User]` booleans above (no eighth *on `[User]`*), and confirms
+> `Role.CanModifySelf` and `AccessRightsExclusions.IsAllowedForSelf` (both already documented). But
+> it also surfaces **`Employees.IsAdministrator`** (`HorioDB.designer.cs:30859-30874`,
+> `DbType="Bit NOT NULL"`) — a permission-bearing boolean **outside `Role`, `AccessControlEntry`
+> and `[User]`** that §1A did not count. It is read/written in the main app only on the Personnel
+> → *Additional Settings* tab (`WebSite/.../PersonnelController.cs:2406,2972,4376`;
+> `Views/Personnel/Tabs/_AdditionalSettings.cshtml:252-256`, tooltip resource
+> **`Hint_SynergyHomeAdmin`**) and in `Logic/ExternalAccess/KioskExternalAccessService.cs:138,431,1445`
+> where it maps to a kiosk DTO `IsAdmin`. **It is the SynergyHome / Kiosk self-service-portal admin
+> flag, not a main-app authorization column** — the main app's admin check is role-based
+> (`BuiltinRoles.IsAdministrator(Role)`), a different code path. So it does not change the "group is
+> the single unit of access" premise for the *web* product, but it is a **second, employee-level
+> admin concept** for the self-service surface that 005 does not model and should not silently
+> absorb. Recorded as Open question 6.
+>
+> Remaining permission-shaped `IsAllowed*` columns from the same sweep are **not** authorization:
+> `sy_ac_data.IsAllowed` / `AccessControlPresencePanelDetailsView.IsAllowed` (physical access,
+> dropped), `DevExpressReportTemplateLicensePermissions.IsAllowed` (report licensing),
+> `FireMarshalMusterPoints.IsAllowedOnDayOff|OnHoliday` (fire-marshal scheduling). **Set-difference
+> completeness: 0 permission-bearing boolean columns unclassified.**
+>
+> Also confirmed this re-audit: **`dbo.JobRoles` (2 cols) is a job-title lookup, not a security
+> role** — despite the name, it plays no part in authorization. Do not confuse it with `dbo.Role`.
 
 ### Two names in WM's records are not authorization tables at all
 
@@ -354,6 +428,15 @@ Every per-employee decision and every permitted-set query goes through one table
 (`AuthorizationService.cs:245-264, 291-302`;
 `E:\Tlw\Database\Versioning\80.V5.26.0.0.sql:880-934`):
 
+> **⚠️ Re-audit 2026-09-01 — TVF citation confirmed current.** `EmployeeIdsManagedByRole` has an
+> earlier definition at `70.V5.16.0.0.sql:2493` (`(@roleId int)`, single-parameter, different body);
+> the cited `80.V5.26.0.0.sql:880` version supersedes it and **nothing in files 81–95 (the highest
+> present) redefines it** — so the excerpt below is the live one. All *other* `AccessControl*` /
+> `SecurityGroup` procs, functions and triggers in `E:\Tlw\Database` are **physical** access control
+> (`ac_securitygroup_*` Salto triggers, `GetAccessControllDashboard`, `GetIrAccessControlEmployees`,
+> `GetLastAccessControlSwipes`, LAPI/ANPR, Salto-Space) — the app's employee-scope logic lives **only**
+> in this TVF plus the C# copies in §5. There is no hidden T-SQL authorization layer.
+
 ```sql
 IF @RoleManagementType = 1                      -- by departments
   SELECT e.Id FROM Employees e
@@ -476,6 +559,12 @@ Searched the entire `E:\Tlw\Source` tree and `E:\Tlw\Database`:
 
 **Conclusion: `IsDepartmentOnly` is a persisted, editable, localized checkbox that changes
 nothing in TLW.** WM must not model it. (This closes the "unverified" in `PHASE-AUDIT.md` B3.)
+
+> **⚠️ Re-audit 2026-09-01 — holds, and the SQL leg is now positively checked.** The original
+> "no read anywhere … or in SQL" was written before the T-SQL discipline existed. Re-confirmed:
+> the authoritative `EmployeeIdsManagedByRole` TVF (`80.V5.26.0.0.sql:880-934`, verified current
+> above) branches only on `@RoleManagementType`; it never references `IsDepartmentOnly`. The Drop
+> decision stands — this is a safe "do not build this."
 
 ### `AccessRightsExclusions` — per-employee subtraction from a screen right
 
@@ -866,6 +955,14 @@ policies, plus the fallback policy from 003 P2.
    Each is assigned to the 005 portion that opens that file (P1 for `SecurityGroup.cs` and
    `SecurityGroupEndpoints.cs`, P4 for `ScopeModel.cs` and `EmployeeScopeExtensions.cs`);
    `DataScope.cs` is deleted by P4 outright.
+6. **`Employees.IsAdministrator` — the SynergyHome/Kiosk admin flag.** *New, opened 2026-09-01.*
+   A persisted per-employee permission (`HorioDB.designer.cs:30859-30874`) edited on Personnel →
+   Additional Settings (`Hint_SynergyHomeAdmin`) and consumed by the external self-service/Kiosk
+   portal (`KioskExternalAccessService.cs:138,431,1445`). It is **not** part of the main-app group
+   model and does not threaten 005's "one group is the single unit of access" for the web product.
+   But when WM builds the employee self-service / mobile surface, there is a second, employee-level
+   admin concept to place: a group right, a per-user flag, or dropped? Not urgent (no self-service
+   admin surface exists yet), but it must not be *discovered* mid-build. Not a 005 blocker.
 
 ---
 
