@@ -17,6 +17,127 @@ Companions: [`TLW-AUTHORIZATION-MODEL.md`](./TLW-AUTHORIZATION-MODEL.md) (who ma
 
 ---
 
+## 0. Re-audit verdict — 2026-09-01
+
+> This is the survey with the worst track record on the project: it once claimed to have classified
+> all 153 columns and had **missed two columns and an entire lookup table** (`dbo.LeaveReasons`), and
+> the **user** caught it, not the surveyor. It has since accreted 15 correction blocks. This section
+> is a from-scratch re-verification against `E:\Tlw` only — WM's docs, including the rest of *this*
+> file, were treated as claims, never sources. Every check below was run mechanically or with a
+> `file:line`.
+
+**Scope re-verified:** the full 153-column classification; the 33 "no-owner" set; the T-SQL layer
+around employment and accrual; the lookup/FK set; the 11 "modelled" and 4 "diverge" mappings. The
+employment *slice* (`IsActive`/leaver tab) was re-audited already this session under the 007 P1
+provenance audit (#59) and is **not** re-done here — see §4.1c.
+
+**Method that closes the canonical failure.** The 153 column names were extracted from
+`HorioDB.designer.cs` (`TableAttribute(Name="dbo.Employees")` at `:28594`, next table at `:35881`),
+giving **153 `ColumnAttribute`s, 153 distinct names**. The survey's fifteen classification buckets
+were reconstructed name-for-name and set-differenced against that extract:
+
+- **classified total = 153, duplicates across buckets = 0, columns in schema but unclassified = 0,
+  columns classified but not in schema = 0.**
+
+So — for the first time — **the 153-column classification is provably a complete partition, not an
+eyeballed one.** The arithmetic `11+4+12+19+13+26+35+33 = 153` in §3 holds, and every column lands
+in exactly one bucket. (The 35 "module-owned" columns the survey gives only by count resolve to a
+unique leftover set of exactly 35, so the partition is forced, not merely consistent.)
+
+### Of the survey's load-bearing claims
+
+| Claim | Verdict |
+|---|---|
+| "All 153 columns classified, sums to 153" | ✅ **HOLDS — now provable by set difference**, previously asserted by eye |
+| The 4 FK lookups + `dbo.LeaveReasons` are the reference tables | ✅ **HOLDS and is now complete** — re-derived from **all 21 `IsForeignKey=true` associations** on `Employees` (§0.3); no lookup is missing this time |
+| "**33** columns have no WM owner" (§3.1) | ⚠️ **WRONG NOW — it is 28.** Plan 007 P1 shipped and adopted **5** of the 33 into `Employee.cs`. The doc's own §4.1b describes that adoption but §3/§3.1 were never decremented — the file contradicts itself. See §0.1 |
+| T-SQL around employment = `IsActiveEmployment` + `ActiveEmployeesView` + `Employees_Update_Trigger` | ⚠️ **INCOMPLETE** — two **Insert** triggers were never mentioned, and accrual invalidation fires on **insert as well as update**. See §0.2 |
+| 11 "modelled same meaning" + 4 "diverge" | ✅ **HOLD** — spot-re-verified against current `Employee.cs`; but the "11 of 153" headline is now **understated**: post-007 WM models ~16 columns (§0.1) |
+| `ExternalId` is a null integration key "with nothing to match on but `Code`" (§3.1) | 🔶 **Overstated** — a live trigger **defaults `ExternalId` to `Code` on insert** (`89.V6.1.0.0.sql:1411-1420`). It is never null in practice. See §0.2 |
+
+**Bottom line:** the classification is now mechanically complete and the lookup set is closed — the
+two failures that made this survey infamous are shut. But the headline **"33 no-owner" figure is
+stale by 5** because the doc was not reconciled after 007 P1 shipped, and the **T-SQL inventory was
+never complete** (it stopped at the Update trigger and the view). Both are corrected below.
+
+### 0.1 The "no-owner" set is 28, not 33 — 5 columns now have owners
+
+`Employee.cs` (measured `2026-09-01`, `src/Modules/People/WM.Modules.People/Domain/Employee.cs`) now
+carries the whole leaver record that plan 007 P1 shipped. Five of §3.1's 33 are **owned**:
+
+| §3.1 column | Now owned as | Where |
+|---|---|---|
+| `LeaveReasonId` | `Employee.LeavingReasonId` + `LeavingReason` lookup | `Employee.cs:222`, `:62-68` |
+| `LeaveNoticePeriodId` | `Employee.LeaveNoticePeriodId` + `LeaveNoticePeriod` lookup | `Employee.cs:209`, `:34-40` |
+| `ResignationDate` | `Employee.ResignationDate` | `Employee.cs:201` |
+| `FinalEmploymentDate` | `Employee.FinalEmploymentDate` | `Employee.cs:193` |
+| `AdditionalLeaverComments` | `Employee.LeaverComments` | `Employee.cs:233` |
+
+(Four of these five are *stored, not yet read* — a real WM decision, but "owner exists" is the test
+§3.1 sets, and they pass it.) The **genuinely unowned set is 28**, re-verified by grepping all of
+`src/` for each of the 28 names: **zero hits** except an unrelated `Punch.Mobile` enum member
+(`TimeAttendance/Domain/Punch.cs:15`). The 28 unchanged from §3.1 are the six name fields, four core
+HR identity, five contact, six bank, `EmploymentTypeId` / `ContinuousServiceDate` / `FixedTermEndDate`
+/ `ProbationDueDate`, `WTDOptOut`, and `ExternalId` / `ImageId`. **§3 and §3.1's "33" must read
+"28", and the ✅-modelled bucket must read 16, not 11.**
+
+### 0.2 The T-SQL layer around employment — the complete set, latest definitions
+
+The person record is edited through **triggers that enqueue derived-value recalculation**, and the
+survey found only one of them. Exhaustive grep of `E:\Tlw\Database\Versioning` for
+`(CREATE|ALTER) TRIGGER … Employees_(Update|Insert)_Trigger` and the two functions, taking the
+**highest-numbered** definition of each (the log is append-only `CREATE OR ALTER`, runs to 95):
+
+| Object | Latest def | What it does to the person record |
+|---|---|---|
+| `dbo.IsActiveEmployment(@dischargeDate,@referenceDate)` | `76.V5.22.0.0.sql:25-38` | date-only employment predicate; **no later redefinition** — current |
+| `dbo.ActiveEmployeesView` | `79.V5.25.0.0.sql:728-734` | the precedence-bug fix (already in §4.1's correction block) — current |
+| `Employees_Update_Trigger` | **`87.V5.33.0.0.sql:542`** | audit map + **deletes `EmployeeAccrualCalculations` and requeues from `EnterDate`** when an employment field changes (`:768-806`, already in §4.1b point 6) |
+| `Employees_Insert_Trigger` | **`87.V5.33.0.0.sql:491`** | **never mentioned by the survey.** Writes an `AuditTrailLogs` row, inserts `EmployeePendingSyncTasks`, **and enqueues `AccrualsCalculationQueue` from `EnterDate`** — gated `IsActive = 1 AND IsActiveEmployment(DischargeDate, GETDATE()) = 1` (`:509-528`) |
+| `Employees_Insert_Trigger_Set_ExternalId` | **`89.V6.1.0.0.sql:1411-1420`** | **never mentioned.** `AFTER INSERT`, sets `ExternalId = Code` when `ExternalId` is null/blank |
+
+Two corrections follow:
+
+1. **Accrual invalidation is not update-only.** §4.1b point 6 concluded "*something* must invalidate
+   on an `EmployedFrom`/`EmployedUntil` edit." True — but a **create** also seeds the accrual queue
+   from `EnterDate` (`87.V5.33.0.0.sql:520-528`). WM's replay design must invalidate on **insert and
+   update** of the employment window, not just edits. The pair — insert-seed + update-delete-and-requeue
+   — is the complete `calc_*`-invalidation contract on the person.
+2. **`ExternalId` is trigger-defaulted, not null.** §3.1 argues a connector "has nothing to match on
+   but `Code`" without it. In legacy it is *initialised to `Code`* on every insert and only
+   overridable afterwards, so a two-way sync's default match key **is** `Code`, surfaced under a
+   stable rename-able column. Still unowned in WM (kept in the 28), but the framing in §3.1 overstates
+   the gap — flagged, not rewritten, per the correction-block convention.
+
+### 0.3 The lookup/FK set is now closed — all 21 foreign keys enumerated
+
+The original missed `dbo.LeaveReasons` because it guessed the lookup set. Re-derived mechanically
+from every `AssociationAttribute(… IsForeignKey=true …)` inside the `Employees` class region — **21
+foreign keys**, so the reference/lookup surface of the person record is exactly:
+
+`User`, `Department`, `Location`, `EmployeeImage`, `JobRole`, `Nationality`, `EmploymentType`,
+`LeaveReason`, `LeaveNoticePeriod`, `AbsenceGroup`, `HolidayGroup`, `FlexiBalance`,
+`WorkActivityGroup`, `CostCentre`, `CostCentreGroup`, `VisitorType`, `Country` (visitor address),
+`EposDiner` (1:1 on `Id`), and three **self-references** — `HostEmployeeId`, `ExpenseManagerId`,
+`MentorId`. `dbo.LeaveReasons` and `dbo.LeaveNoticePeriods` are both present and both now owned in
+WM. **No lookup is missing this time; the set is asserted from the FK list, not from a scan.** The
+three pure HR-identity lookups still with **no WM owner** are `JobRole` (WM flattens to a string,
+§4.2), `Nationality`, and `EmploymentType` — all inside the 28.
+
+### 0.4 What this re-audit did NOT measure
+
+1. **The `Employees_Insert_Trigger` / `Update_Trigger` audit column-map** beyond confirming the
+   triggers exist and enqueue accruals — the hand-maintained `ColumnId` map (the class of bug the
+   #76 audit survey found) was not diffed against the 153 columns.
+2. **The other ~40 person-shaped tables** (groups A–H, §1) were not re-measured; only `dbo.Employees`
+   and its direct FK lookups were.
+3. **`EposDiner`** (1:1 on `Id`) and the visitor sub-record were confirmed as FKs but not opened.
+4. **Runtime behaviour of the 4 stored-not-read leaver fields** in WM — verified present in
+   `Employee.cs`, not exercised.
+5. **`RoleId`** (§4.4) remains unverified as to purpose; unchanged by this pass.
+
+---
+
 ## 1. The measurement
 
 ### `dbo.Employees` is the sixth-largest table in the product
@@ -129,11 +250,21 @@ document, not in a script that was thrown away.
 | ♻️ Stored calculated state — replaced by replay | 13 | `CumulationDate, WeeksCumulation, MonthsCumulation, CurrentCumulation, RealTeoretic{Weeks,Months,Current}CummulationDifference, DateEcartZero, DateInitEcart, OffsetEcart, EcartCurrentAbsolute, HoursWTD, Mod_Time` |
 | ▢ Owned by the Rules / contract phase | 26 | `ContractId, WeeklyThreshold1..4, RCThreshold, MaxWeekly, WeeklyAbsolute, WeeklyRelative, Periodic, WarningThresholdMin/Max, CounterHS, CounterYearHS, DelayTolerance, CalculationPerPiece, IsCompensated, HourlyRate, HourlyRate2, HourlyRate3, ContractedHoursAmount/Period, FlexiBalanceId, CostCentreId, CostCentreGroupId, AnalyticalCode` |
 | ▢ Owned by another named module | 35 | Absence (6), Expenses (4), Visitors (14), Activities (1), Safety (1), Notifications (1), T&A (4), Identity (4) |
-| ❌ **Silently missing — no WM owner anywhere** | **33** | **§3.1** |
+| ❌ **Silently missing — no WM owner anywhere** | **33** → **28** | **§3.1** — ⚠️ **Re-audit 2026-09-01: now 28.** Plan 007 P1 adopted 5 (the leaver record) into `Employee.cs`; ✅-modelled is correspondingly **16**, not 11. See §0.1. The partition arithmetic below was mechanically re-verified complete (§0). |
 
-11 + 4 + 12 + 19 + 13 + 26 + 35 + 33 = **153**. ✓
+11 + 4 + 12 + 19 + 13 + 26 + 35 + 33 = **153**. ✓ *(As classified in 2026-08; the set difference in §0
+confirms this partition is exact and gap-free. The 33→28 shift moves 5 columns from ❌ to ✅; the
+total is unchanged.)*
 
 ### 3.1 The 33 with no owner
+
+> ⚠️ **Re-audit 2026-09-01 — this is now 28.** When written, all 33 were unowned. Plan 007 P1 has
+> since adopted the **leaver record** — `LeaveReasonId`, `LeaveNoticePeriodId`, `ResignationDate`,
+> `FinalEmploymentDate`, `AdditionalLeaverComments` (the last two rows of the "Employment lifecycle
+> dates" group below) — into `Employee.cs`. Those 5 rows are **no longer findings**; the table below
+> is read as **28 columns still unowned**, re-verified by grepping `src/` for each (§0.1). The other
+> four lifecycle dates in that group — `EmploymentTypeId`, `ContinuousServiceDate`, `FixedTermEndDate`,
+> `ProbationDueDate` — **remain unowned.**
 
 Not in `Employee.cs`, not in any migration, not named in any plan, not a row in §13, not in
 `SCREEN-TREE.md`'s Personnel branch. These are the finding.
