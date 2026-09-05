@@ -22,6 +22,18 @@ public sealed class TimeAttendanceModule : IModule
         services.AddDbContext<TimeAttendanceDbContext>(o =>
             o.UseNpgsql(configuration.GetConnectionString("Default"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", "time_attendance")));
+
+        // The same-direction dedupe window. Bound and fault-checked at composition, exactly as
+        // Identity does AccountLockoutOptions — a misconfiguration should stop the host booting, not
+        // surface as silently-duplicated punches in production.
+        services.AddOptions<PunchDeduplicationOptions>()
+            .Bind(configuration.GetSection(PunchDeduplicationOptions.SectionName));
+
+        var dedupe = configuration.GetSection(PunchDeduplicationOptions.SectionName).Get<PunchDeduplicationOptions>()
+                     ?? new PunchDeduplicationOptions();
+        if (PunchDeduplicationOptions.DescribeFault(dedupe) is { } dedupeFault)
+            throw new InvalidOperationException(dedupeFault);
+
         services.AddScoped<PunchService>();
         services.AddScoped<PunchSeeder>();
     }
