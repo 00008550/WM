@@ -13,6 +13,39 @@
 
 ---
 
+## 0a. Design decisions confirmed by the user (2026-09-03)
+
+Recorded here because they are design rulings, not plan bookkeeping. They resolve questions the
+survey programme surfaced, and they are the user's own words, confirmed directly (an earlier draft
+of these was stranded on an unmerged branch and is superseded by this).
+
+1. **The Daily Browser is editable — gated exactly as legacy gates it.** Editing is available only
+   to users who hold **read *and* edit rights** on the screen, and only over the **employees within
+   their data scope** (the set they may modify). So editability is not a new permission surface: it
+   composes the existing screen-rights model (plan **004**) with the data-scope model (plans
+   **001/005**). **Consequence for plan 010:** its edit portions (P3–P5) pull in both the
+   calculation engine *and* 004 + the scope model, so 010 must be rescoped and re-sequenced behind
+   them — the read-only render (P1–P2) is unaffected and still comes first.
+
+2. **Calculated state is stored on the Clocking, not derived — as legacy does.** The calculation
+   results land on `dbo.Clockings` (`CPTN01..20`, balances, per-shift measures) exactly as the
+   legacy engine writes them; WM stores them the same way. This **resolves plan 002's blocking
+   design decision** (store vs derive). It is deliberately the opposite call from 007 P1's derived
+   `EmployeeStatus` — that value is cheap and unedited; a daily aggregate read by every screen and
+   report, and *editable* by a human, is neither. The rule: **derive what is cheap and unedited;
+   store what is expensive or editable.**
+
+3. **Provenance follows legacy's per-value model.** Because a stored calculated value can be
+   overridden by a human, WM keeps legacy's provenance: `BadgeTimeNGeneratedBy` (swiped /
+   auto / manual / …) per slot, and the raw `DeviceBadgeTimeN` kept beside the adjusted
+   `BadgeTimeNAdjusted` so an edit is auditable and reversible. Plan **002** designs the aggregate
+   around this rather than a bare recompute.
+
+4. **The audit trail is in scope now.** Confirmed needed. Decision 1 makes it load-bearing — once a
+   human can override a stored calculated value, the record of who changed what stops being hygiene.
+   Legacy's precedent is `dbo.ClockingsLog` (a full-row snapshot); WM builds **one uniform sink**
+   (plan **018**) rather than legacy's three-mechanism patchwork.
+
 ## 0. What changed in v2
 
 - **Renamed** TlwNext → **WM**; project lives at `E:\Work\GitProjects\WM` (private repo `github.com/00008550/WM`).

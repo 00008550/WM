@@ -21,6 +21,16 @@ allocation", 10–16 wks) cannot start without the aggregate all of it reads and
 
 ## The decision this plan is blocked on
 
+> ### ✅ Resolved 2026-09-03 (user).
+> **Calculated state is stored on the Clocking, not derived** — `CPTN01..20`, balances and per-shift
+> measures land on the row as legacy writes them (`ARCHITECTURE.md §0a` decision 2). **Provenance
+> follows legacy's per-value model** (`BadgeTimeNGeneratedBy`; raw `DeviceBadgeTimeN` beside the
+> adjusted time), so a human override on the editable Daily Browser is auditable and reversible
+> (decision 3). This plan is **no longer blocked on the store-vs-derive question.** It still has its
+> build prerequisites: **010 P1** (the five daily-template columns) and 007 P1 (done). Design the
+> aggregate around stored-plus-provenance, not a bare recompute.
+
+
 Legacy denormalises everything into fixed slots: **12 badge times, 20 pay categories, 6 shifts**.
 Each is a hard ceiling — a 21st pay category needs a schema migration *and* a code change
 (`BaseCountersHolder.AddToCounter` is a hard-coded `switch` on counter id → column).

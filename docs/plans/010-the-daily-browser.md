@@ -1,6 +1,14 @@
 # 010 — The Daily Browser, and the five columns it takes to get there
 
 Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+
+> ### ⛔ Needs rescoping before approval — user design decision confirmed 2026-09-03
+> **The Daily Browser is editable, gated exactly as legacy** (`ARCHITECTURE.md §0a` decision 1):
+> only users with **read + edit rights** on the screen, over **employees in their data scope**. So
+> the edit portions (**P3–P5**) depend not only on the ~700 KB calculation engine but on plan **004**
+> (screen rights) and the scope model (**001/005**) — rescope and re-sequence them behind those.
+> **P1–P2 (the read-only render + the five daily-template columns) are unaffected and remain the
+> first step, deliverable before 002.**
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — the smallest useful slice of it, pulled forward
 Reference: [`TLW-WORK-RULES.md`](../TLW-WORK-RULES.md) — full measured anatomy, written by this survey
 
