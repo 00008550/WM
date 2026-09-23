@@ -28,8 +28,9 @@ namespace WM.Modules.People.Tests.Endpoints;
 /// <item><b>The database is the in-memory provider</b>, not the Npgsql one
 /// <see cref="PeopleModule.RegisterServices"/> registers — there is no Postgres harness in this
 /// repository (<c>docs/plans/STATE.md</c>). So these tests say nothing about SQL; in particular the
-/// case-insensitive employee-code probe and the unique index that disagrees with it (plan 007) are
-/// out of reach here as well as out of scope.</item>
+/// in-memory provider does not enforce unique indexes, so the case-insensitive code constraint
+/// (007 P3) is pinned by <c>EmployeeCodeMigrationTests</c>, and <c>EmployeeCodeEndpointTests</c>
+/// stands a labelled stand-in for it up through <c>StartAsync(configureDb:)</c>.</item>
 /// <item><b>Authentication is a test scheme</b> that mints the permissions a request asks for, over
 /// the <i>real</i> permission policies built the way <c>IdentityModule</c> builds them. Which
 /// permission each endpoint requires is decided against the composed host, by
@@ -54,7 +55,8 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
     public static async Task<PeopleEndpointHost> StartAsync(
         EffectiveDataScope scope,
         Action<PeopleDbContext>? seed = null,
-        Guid? callerEmployeeId = null)
+        Guid? callerEmployeeId = null,
+        Action<DbContextOptionsBuilder>? configureDb = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -70,7 +72,11 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
         // generated in the lambda gives every request its own empty database — which looks exactly
         // like a seed that never ran.
         var databaseName = $"people-{Guid.CreateVersion7()}";
-        builder.Services.AddDbContext<PeopleDbContext>(o => o.UseInMemoryDatabase(databaseName));
+        builder.Services.AddDbContext<PeopleDbContext>(o =>
+        {
+            o.UseInMemoryDatabase(databaseName);
+            configureDb?.Invoke(o);
+        });
 
         builder.Services.AddScoped<IDataScopeResolver>(_ => new FixedScope(scope));
         // Only /api/me/employee resolves this, and it resolves it before touching the database.

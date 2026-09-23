@@ -128,8 +128,11 @@ public sealed class PeopleModule : IModule
                 return Results.Problem(backwards, statusCode: StatusCodes.Status400BadRequest);
 
             var code = request.Code.Trim();
-            // Case-insensitive: 'E1030' and 'e1030' are the same badge number.
-            if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower(), ct))
+            // Case-insensitive: 'E1030' and 'e1030' are the same badge number — and, since 007 P3, so
+            // says the database (UX_Employees_Code_Lower on lower("Code")). This probe is only the
+            // friendly early answer; it races, and the 23505 handler below is what a concurrent
+            // duplicate actually hits.
+            if (await db.Employees.AnyAsync(EmployeeCode.Matches(code), ct))
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
                 return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
@@ -158,7 +161,9 @@ public sealed class PeopleModule : IModule
             }
             catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
             {
-                // The unique index is the real guarantee; the check above races.
+                // The unique index is the real guarantee; the check above races. Both now state the
+                // same case-insensitive rule, so a 23505 here is exactly the duplicate the probe
+                // would have refused had it run a moment later (plan 007 edge case 12).
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             }
             catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
@@ -212,7 +217,7 @@ public sealed class PeopleModule : IModule
                 return Results.Problem(backwards, statusCode: StatusCodes.Status400BadRequest);
 
             var code = request.Code.Trim();
-            if (await db.Employees.AnyAsync(e => e.Code.ToLower() == code.ToLower() && e.Id != id, ct))
+            if (await db.Employees.Where(e => e.Id != id).AnyAsync(EmployeeCode.Matches(code), ct))
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
                 return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
@@ -438,9 +443,11 @@ public sealed record EmployeeUpsertRequest(
 
 internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver scopes) : IEmployeeDirectory
 {
+    // The same rule as the unique index (007 P3): a punch carrying 'e1030' is employee E1030, not an
+    // "Unknown employee code".
     public async Task<EmployeeSummary?> FindByCodeAsync(string code, CancellationToken ct = default) =>
         await Scoped(await scopes.GetScopeAsync(ct))
-            .Where(e => e.Code == code)
+            .Where(EmployeeCode.Matches(code))
             .Select(Summary)
             .FirstOrDefaultAsync(ct);
 
