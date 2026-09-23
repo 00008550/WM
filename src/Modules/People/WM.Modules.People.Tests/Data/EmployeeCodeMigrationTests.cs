@@ -34,8 +34,8 @@ public sealed class EmployeeCodeMigrationTests
         Assert.Equal("e1030", EmployeeCode.Normalise(" E1030 "));
         Assert.Equal("0042", EmployeeCode.Normalise("0042")); // zeros are not folded (edge case 14)
 
-        var match = EmployeeCode.Matches("E1030").Compile();
-        Assert.True(match(new Employee { Code = "e1030", FirstName = "a", LastName = "b" }));
+        var match = EmployeeCode.Matches("e1030").Compile();
+        Assert.True(match(new Employee { Code = "E1030", FirstName = "a", LastName = "b" }));
         Assert.False(match(new Employee { Code = "E10300", FirstName = "a", LastName = "b" }));
     }
 
