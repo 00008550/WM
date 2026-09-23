@@ -609,13 +609,14 @@ writes them.)*
 | 011 | P2 — the first frontend spec, and CI stops warning | [#67](https://github.com/00008550/WM/pull/67) | ✅ merged to master — 13 specs, both mutations red **by name**, CI green (`Angular build` 28 s → 51 s) |
 | 007 | P2 — the punch boundary fails closed | [#86](https://github.com/00008550/WM/pull/86) | ✅ merged to master (`6a45d55`) — review passed 2026-09-03 — boundary + dedupe, 9 tests (module's first), both mutations red; 239 green. Closes D1, lands D4 dedupe (002 owns the exception model) |
 | 007 | P3 — one employee-code rule, held by the database | [#87](https://github.com/00008550/WM/pull/87) | ✅ merged to master (`cbb35c2`) — review passed 2026-09-23 — unique index on `lower("Code")`, collision guard fails loudly (verified on real Postgres), one `EmployeeCode` rule for pre-checks + `FindByCodeAsync`; 253 green, both mutations red |
+| 007 | P4 — `DepartmentId` is a real reference | [#88](https://github.com/00008550/WM/pull/88) | 🟢 review passed 2026-09-23 — FK + index (RESTRICT), create/update refuse missing or other-site department, 23503 names the constraint; migration nulls orphans and reports counts via `RAISE WARNING`; 271 green, both mutations red |
 
 ## In flight
 <!-- OVERWRITE-ONLY. This section is live state: it must list ONLY PRs that are open right now.
      When a PR merges, delete its line here and let the Shipped table (append-only) carry it.
      Verified by scripts/check-plan-state.sh. Do NOT append merged PRs to the lead below. -->
 
-Nothing is in flight. The full legacy survey programme (plans 012–021) and the re-audits of
+**[#88](https://github.com/00008550/WM/pull/88) — 007 P4, `DepartmentId` is a real reference — open against `master`, review passed 2026-09-23.** Otherwise nothing is in flight. The full legacy survey programme (plans 012–021) and the re-audits of
 the built areas (authorization, People) are **merged**, and the consolidated documentation pass
 applying their findings to `ARCHITECTURE.md`, `COVERAGE-AUDIT.md` and `TLW-SCHEMA-SWEEP.md` landed
 2026-09-01. Building is still paused for the survey programme; **011 is the only approved build
