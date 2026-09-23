@@ -57,7 +57,7 @@ public sealed class PunchService(
 
         // Idempotent same-direction dedupe: a repeat within the configured window is a double-click /
         // double-swipe, not a second event — return the existing punch, create no row, publish
-        // nothing. The window is a WM decision (legacy leaned on the hardware terminal); default 60s,
+        // nothing. The window is a WM decision (legacy leaned on the hardware terminal); default 30s,
         // configurable. A genuine unpaired run minutes apart is NOT caught here — that is a day-level
         // exception plan 002 owns, and P2 deliberately leaves it so 002 inherits clean, de-noised data.
         var window = dedupeOptions.Value.Window;

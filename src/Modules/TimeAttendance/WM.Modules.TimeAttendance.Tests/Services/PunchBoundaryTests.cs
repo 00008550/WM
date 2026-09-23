@@ -147,6 +147,13 @@ public sealed class PunchBoundaryTests
         Assert.Equal(2, await db.Punches.CountAsync());
     }
 
+    [Fact]
+    public void The_default_window_is_thirty_seconds()
+    {
+        // Confirmed by the user 2026-09-23. A change to the default is a product decision, not a refactor.
+        Assert.Equal(TimeSpan.FromSeconds(30), new PunchDeduplicationOptions().Window);
+    }
+
     // ---- stubs ----
 
     private sealed class StubDirectory(EmployeeSummary? employee) : IEmployeeDirectory
