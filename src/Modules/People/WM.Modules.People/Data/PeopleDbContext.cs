@@ -64,6 +64,18 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
             e.Property(x => x.LeaverComments).HasMaxLength(500); // legacy AdditionalLeaverComments width
             e.HasIndex(x => x.SiteId);
 
+            // A real reference (007 P4). DepartmentId is a SCOPE DIMENSION — WithinScope admits an
+            // employee to a department-scoped user by it — so a dangling or mis-sited value is not
+            // untidiness, it decides who can see the person. Restrict for the same reason as the
+            // leaving reason below: deleting a department that people still belong to must be refused,
+            // not quietly turned into "no department". The rule that the department sits at the
+            // employee's site is not expressible as a single-column FK; PeopleModule holds it.
+            e.HasIndex(x => x.DepartmentId);
+            e.HasOne<Department>()
+                .WithMany()
+                .HasForeignKey(x => x.DepartmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Restrict, not cascade or set-null: a reason in use must be retired via IsActive rather
             // than deleted, and the database is what makes that true instead of merely intended.
             e.HasOne<LeavingReason>()

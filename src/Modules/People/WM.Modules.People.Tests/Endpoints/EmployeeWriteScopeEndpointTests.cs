@@ -197,6 +197,10 @@ public sealed class EmployeeWriteScopeEndpointTests
     {
         db.Sites.Add(new Site { Id = SiteA, Name = "North" });
         db.Sites.Add(new Site { Id = SiteB, Name = "South" });
+        // Real rows since 007 P4: the endpoints now refuse a department that does not exist or sits
+        // at another site, so each department lives at the site its employee does.
+        db.Departments.Add(new Department { Id = DeptA, Name = "Assembly", SiteId = SiteA });
+        db.Departments.Add(new Department { Id = DeptB, Name = "Assembly", SiteId = SiteB });
         db.Employees.Add(new Employee
         {
             Id = AtSiteA,

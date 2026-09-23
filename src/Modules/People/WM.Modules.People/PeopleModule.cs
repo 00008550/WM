@@ -38,6 +38,21 @@ public sealed class PeopleModule : IModule
     /// </summary>
     private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
 
+    /// <summary>
+    /// Which reference a Postgres <c>23503</c> on <c>Employees</c> is about, read from the violated
+    /// constraint's name (007 P4). Before P4 every 23503 was answered "leaving reason" — right while
+    /// that was the only settable foreign key, and wrong half the time once DepartmentId got one. An
+    /// unrecognised constraint gets a message that names nothing rather than one that names the wrong
+    /// thing.
+    /// </summary>
+    internal static string MissingReferenceMessage(string? constraintName) => constraintName switch
+    {
+        Data.Migrations.EmployeeDepartmentReference.ForeignKeyName => "The selected department does not exist.",
+        "FK_Employees_LeavingReasons_LeavingReasonId" => "The selected leaving reason does not exist.",
+        "FK_Employees_LeaveNoticePeriods_LeaveNoticePeriodId" => "The selected notice period does not exist.",
+        _ => "A record this employee refers to does not exist.",
+    };
+
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var employees = endpoints.MapGroup("/api/employees").WithTags("Employees");
@@ -136,6 +151,8 @@ public sealed class PeopleModule : IModule
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
                 return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
+            if (await DepartmentRefused(db, request, ct) is { } misplaced)
+                return misplaced;
             if (await LeavingReasonRefused(db, request, currentReasonId: null, ct) is { } refused)
                 return refused;
 
@@ -166,9 +183,9 @@ public sealed class PeopleModule : IModule
                 // would have refused had it run a moment later (plan 007 edge case 12).
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             }
-            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" } fk)
             {
-                return MissingReference();
+                return MissingReference(fk.ConstraintName);
             }
             return Results.Created($"/api/employees/{employee.Id}", employee);
         }).RequireAuthorization(WmPermissions.EmployeesManage);
@@ -221,6 +238,11 @@ public sealed class PeopleModule : IModule
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             if (!await db.Sites.AnyAsync(s => s.Id == request.SiteId, ct))
                 return Results.Problem("The selected site does not exist.", statusCode: StatusCodes.Status400BadRequest);
+            // Against the REQUEST's site and department together, so moving someone to another site
+            // while their old site's department rides along is refused (007 edge case 18) — there is
+            // no "department already on the record" exemption here, unlike the leaving reason below.
+            if (await DepartmentRefused(db, request, ct) is { } misplaced)
+                return misplaced;
             // The reason already on the record is always acceptable, even once retired — otherwise
             // retiring a reason would make every leaver who carries it uneditable.
             if (await LeavingReasonRefused(db, request, employee.LeavingReasonId, ct) is { } refused)
@@ -264,9 +286,9 @@ public sealed class PeopleModule : IModule
             {
                 return Results.Problem($"Employee code '{code}' already exists.", statusCode: StatusCodes.Status409Conflict);
             }
-            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" } fk)
             {
-                return MissingReference();
+                return MissingReference(fk.ConstraintName);
             }
             return Results.Ok(employee);
         }).RequireAuthorization(WmPermissions.EmployeesManage);
@@ -342,18 +364,37 @@ public sealed class PeopleModule : IModule
             "The site or department you selected is outside your data scope.",
             statusCode: StatusCodes.Status403Forbidden);
 
-        // Postgres 23503 — foreign key violation — reached when the reason passed the check above and
-        // was deleted before SaveChanges, the same race the 23505 handler beside it covers. Without
-        // it the caller gets a 500 for a request that is merely wrong, and the 400 that
-        // LeavingReasonRefused returns would be the only thing standing between them: delete that
-        // branch and the failure mode changes from "bad request" to "server error".
-        //
-        // The leaving reason and the notice period are the only foreign keys on Employees today, and
-        // nothing can set the second yet. 007 P4 adds one for DepartmentId — at that point this must
-        // read PostgresException.ConstraintName and say which reference is missing, because
-        // "leaving reason" would then be a wrong answer half the time.
-        static IResult MissingReference() => Results.Problem(
-            "The selected leaving reason does not exist.", statusCode: StatusCodes.Status400BadRequest);
+        // A department must exist AND sit at the employee's site (007 edge cases 15, 16, 18). The
+        // second half is the one that matters: a department-scoped user sees an employee by
+        // DepartmentId, a site-scoped user by SiteId, so a site-B department on a site-A employee
+        // makes one person visible to two scopes that were meant to be disjoint. Null is allowed —
+        // "no department" — and WithinScope keeps such an employee invisible to department scopes.
+        static async Task<IResult?> DepartmentRefused(
+            PeopleDbContext db, EmployeeUpsertRequest request, CancellationToken ct)
+        {
+            if (request.DepartmentId is not { } departmentId)
+                return null;
+
+            var siteId = await db.Departments.AsNoTracking()
+                .Where(d => d.Id == departmentId)
+                .Select(d => (Guid?)d.SiteId)
+                .FirstOrDefaultAsync(ct);
+            return siteId switch
+            {
+                null => Results.Problem(
+                    "The selected department does not exist.", statusCode: StatusCodes.Status400BadRequest),
+                { } at when at != request.SiteId => Results.Problem(
+                    "The selected department belongs to a different site than the employee.",
+                    statusCode: StatusCodes.Status400BadRequest),
+                _ => null,
+            };
+        }
+
+        // Postgres 23503 — foreign key violation — reached when a reference passed its check above
+        // and was deleted before SaveChanges, the same race the 23505 handler beside it covers.
+        // Without it the caller gets a 500 for a request that is merely wrong.
+        static IResult MissingReference(string? constraintName) => Results.Problem(
+            MissingReferenceMessage(constraintName), statusCode: StatusCodes.Status400BadRequest);
 
         // The maintained leaving-reason vocabulary. Ships EMPTY — resignation, redundancy, TUPE and
         // dismissal are one customer's list and not another's, so WM seeds none of them.

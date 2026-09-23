@@ -836,7 +836,7 @@ sequential pair — a test that only does the sequential case would pass today.
 **Risk:** low — but the migration can fail on real data by design, which is correct and must be
 documented in the portion's PR.
 
-### [ ] P4 — `DepartmentId` is a real reference
+### [x] P4 — `DepartmentId` is a real reference
 **Touches:** `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs:77-113,
 115-154`, **`PeopleModule.cs:314`** — `MissingReference()`, which answers *"The selected leaving
 reason does not exist."* to **any** `23503`. Correct for every input reachable today (two foreign
