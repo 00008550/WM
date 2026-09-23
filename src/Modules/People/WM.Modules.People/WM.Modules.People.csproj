@@ -4,6 +4,10 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
   <ItemGroup>
+    <!-- 007 P3: the tests call EmployeeDirectory.FindByCodeAsync directly (edge case 13). -->
+    <InternalsVisibleTo Include="WM.Modules.People.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\..\SharedKernel\WM.SharedKernel\WM.SharedKernel.csproj" />
   </ItemGroup>
 </Project>

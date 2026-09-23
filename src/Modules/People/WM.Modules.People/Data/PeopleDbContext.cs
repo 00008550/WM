@@ -44,7 +44,13 @@ public sealed class PeopleDbContext(DbContextOptions<PeopleDbContext> options) :
 
         b.Entity<Employee>(e =>
         {
-            e.HasIndex(x => x.Code).IsUnique();
+            // NO HasIndex on Code here, deliberately. The uniqueness rule is case-insensitive
+            // ('E1030' and 'e1030' are one badge number) and the constraint that holds it is the
+            // expression index UX_Employees_Code_Lower on lower("Code"), created in raw SQL by the
+            // EmployeeCodeCaseInsensitive migration (007 P3) — EF's fluent API cannot express an
+            // expression index. A plain unique index on Code would be the case-SENSITIVE rule the
+            // application code disagreed with. Every lookup by code goes through EmployeeCode.Normalise
+            // so the query and the index compare the same thing.
             // Optimistic concurrency (011 P5). The token goes into the UPDATE's WHERE clause, so a
             // write carrying the value another manager already replaced matches no row and EF raises
             // DbUpdateConcurrencyException — which PeopleModule turns into a 409.

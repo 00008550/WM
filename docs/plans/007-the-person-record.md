@@ -824,7 +824,7 @@ a two-line interim — but it cannot answer edge case 8, so it is a stopgap, not
 > genuinely confusing to read — a punch in the live feed looks like it should appear on your own
 > timesheet. Noted against **006 P1**, which rewrites the seeders.
 
-### [ ] P3 — One employee-code rule, held by the database
+### [x] P3 — One employee-code rule, held by the database
 **Touches:** `Data/PeopleDbContext.cs`, a new migration + snapshot, `PeopleModule.cs:83-85, 107-111,
 128, 199` (including the comment at `:109`, which is currently false), `WM.Modules.People.Tests`.
 **Done when:** uniqueness is case-insensitive **at the constraint** (unique index on `lower(code)`
