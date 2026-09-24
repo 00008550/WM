@@ -112,6 +112,9 @@ internal sealed class ApiTestHost : IAsyncDisposable
             // builds a real librdkafka producer for any non-blank value, and no test may open a
             // socket. Blank is the documented "disabled" value, not an accident.
             ["Kafka:BootstrapServers"] = string.Empty,
+            // Plan 008 P1: the host refuses to compose without one. Not the demo's zone on
+            // purpose, so nothing here passes by coinciding with appsettings.Development.json.
+            ["Time:InstallationZone"] = "Asia/Tashkent",
         };
         foreach (var (key, value) in configurationOverrides ?? new Dictionary<string, string?>())
         {
@@ -122,6 +125,9 @@ internal sealed class ApiTestHost : IAsyncDisposable
         }
         builder.Configuration.AddInMemoryCollection(settings);
         builder.WebHost.UseTestServer();
+
+        // Mirrors Program.cs, through the same method, so the zone guard is exercised as shipped.
+        builder.Services.AddWmClock(builder.Configuration);
 
         foreach (var module in Modules())
             module.RegisterServices(builder.Services, builder.Configuration);

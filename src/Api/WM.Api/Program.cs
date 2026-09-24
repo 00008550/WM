@@ -20,6 +20,10 @@ builder.Host.UseSerilog((context, config) => config
     .Enrich.FromLogContext()
     .WriteTo.Console());
 
+// The one clock, and the installation's zone — refused at composition if missing or unknown
+// (plan 008 P1). Before the modules, so any of them may depend on either.
+builder.Services.AddWmClock(builder.Configuration);
+
 IModule[] modules =
 [
     new IdentityModule(),
