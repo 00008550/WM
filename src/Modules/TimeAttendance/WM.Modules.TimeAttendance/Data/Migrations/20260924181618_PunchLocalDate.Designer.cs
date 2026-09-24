@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using WM.Modules.TimeAttendance.Data;
@@ -11,9 +12,11 @@ using WM.Modules.TimeAttendance.Data;
 namespace WM.Modules.TimeAttendance.Data.Migrations
 {
     [DbContext(typeof(TimeAttendanceDbContext))]
-    partial class TimeAttendanceDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924181618_PunchLocalDate")]
+    partial class PunchLocalDate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

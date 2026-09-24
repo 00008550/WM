@@ -262,8 +262,10 @@ they render correct. No new screen.
 - **Per-user display zones.** Open question 3.
 - **Absence, accrual and scheduling date semantics.** Not measured (`TLW-TIME-MODEL.md` §9); belongs
   with the Absence survey.
-- **Backfilling or re-projecting historical punches.** WM has demo data only. If a real install ever
-  exists, that is a migration plan of its own.
+- **Re-projecting or recalculating already-frozen punch dates.** P4 does freeze every existing
+  punch once, at startup (`PunchLocalDateBackfill`), in the zone of the punch's stored `SiteId`.
+  What stays out of scope is moving a date once it is frozen — that is plan 002's audited
+  recalculate, not a side effect of a zone edit or a tzdata update.
 - **`src/Worker` batch scheduling per zone.** Named as an Invert in the classification because it is
   a real legacy defect, but WM has no nightly batch yet. It becomes real with 002's clocking
   generation job; recorded there rather than built here.
@@ -359,7 +361,7 @@ default `EmployedFrom` to the site's local today — a necessary consequence of 
 
 ---
 
-### [ ] P4 — A punch belongs to a local day
+### [x] P4 — A punch belongs to a local day
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`
 (`:149-150` range, `:158` grouping), `TimeAttendanceModule.cs:60,77` (range defaults),
 `src/Modules/TimeAttendance/WM.Modules.TimeAttendance.Tests/` (*exists since 010 P1 / #92 — extend it; it was
@@ -388,6 +390,10 @@ apart both reading local 01:30 stay two punches on one local day, ordered correc
 spring-forward** — a 23-hour local day yields the right window and loses nothing; a zone that
 resolves to UTC behaves exactly as today (no regression for a single-zone install).
 **Risk:** medium — it changes what every existing timesheet response says.
+**Follow-up (recorded at P4 review):** once every install has booted past P4, a later migration makes
+`Punch.LocalDate`/`LocalZone` NOT NULL and removes `PunchLocalDateBackfill` from `Program.cs`.
+Until then a null row — for example one written by an old instance during a rolling deploy — is
+invisible to timesheets until the next start backfills it.
 
 ---
 

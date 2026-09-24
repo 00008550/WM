@@ -21,7 +21,8 @@ public sealed partial class RawClockReadInventoryTests
     /// <summary>
     /// Repo-relative path (forward slashes) → how many raw reads it holds. Measured 2026-09-24:
     /// 27 reads in 13 files (plan 008 counted 24 in 12 on 2026-08-14; DemoUserSeeder, added by
-    /// 011 P9's dev path, and three further reads arrived after it was written).
+    /// 011 P9's dev path, and three further reads arrived after it was written). After 008 P4:
+    /// 16 reads in 9 files.
     /// </summary>
     private static readonly Dictionary<string, int> Allowed = new(StringComparer.Ordinal)
     {
@@ -43,14 +44,9 @@ public sealed partial class RawClockReadInventoryTests
         ["src/Modules/People/WM.Modules.People/Data/PeopleSeeder.cs"] = 1,
         // stamp — UpdatedAt. (Today(), the day read, went in 008 P3.)
         ["src/Modules/People/WM.Modules.People/PeopleModule.cs"] = 1,
-        // day — demo punches laid on UTC days (008 P4).
-        ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Data/PunchSeeder.cs"] = 2,
-        // stamp — punch default instant and future guard (008 P5); day — employed-on dates (008 P4 — needs a per-employee local-today contract).
-        ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs"] = 5,
-        // day — timesheet default "to" (008 P4).
-        ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/TimeAttendanceModule.cs"] = 2,
-        // day — the employed-on date for demo users (008 P4).
-        ["src/Api/WM.Api/Infrastructure/DemoUserSeeder.cs"] = 1,
+        // 008 P4 emptied PunchSeeder, PunchService, TimeAttendanceModule and DemoUserSeeder: their
+        // day reads now go through IClock + the site zone (IEmployeeDirectory.ListEmployedAtLocalToday*),
+        // and PunchService's two stamp reads moved to IClock with them.
     };
 
     [Fact]

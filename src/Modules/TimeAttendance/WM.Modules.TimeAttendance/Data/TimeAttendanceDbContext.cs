@@ -20,6 +20,9 @@ public sealed class TimeAttendanceDbContext(DbContextOptions<TimeAttendanceDbCon
             e.Property(x => x.DeviceId).HasMaxLength(128);
             e.HasIndex(x => new { x.EmployeeId, x.Timestamp });
             e.HasIndex(x => x.Timestamp);
+            // 008 P4: the timesheet reads by frozen local day.
+            e.Property(x => x.LocalZone).HasMaxLength(64);
+            e.HasIndex(x => new { x.EmployeeId, x.LocalDate });
         });
 
         // Plan 010 P1 — the allocation subset of legacy dbo.DailyModels and its two child tables.

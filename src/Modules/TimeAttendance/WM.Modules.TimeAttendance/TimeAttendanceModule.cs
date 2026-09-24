@@ -37,6 +37,10 @@ public sealed class TimeAttendanceModule : IModule
 
         services.AddScoped<PunchService>();
         services.AddScoped<PunchSeeder>();
+        // 008 P4: the owning-day seam (plan 002 replaces its body) and the one-off fill of punches
+        // recorded before the local day was frozen on the row.
+        services.AddSingleton<IOwningDayResolver, LocalCalendarDayResolver>();
+        services.AddScoped<PunchLocalDateBackfill>();
         services.AddScoped<IDayTemplateDirectory, DayTemplateDirectory>();
     }
 
@@ -68,10 +72,11 @@ public sealed class TimeAttendanceModule : IModule
         {
             // FindByIdAsync is scope-aware: an employee outside the caller's scope
             // is indistinguishable from one that does not exist.
-            if (await employees.FindByIdAsync(employeeId, ct) is null)
+            if (await employees.FindByIdAsync(employeeId, ct) is not { } employee)
                 return Results.NotFound();
 
-            var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            // The range is of LOCAL days (008 P4), so its default end is the employee's local today.
+            var end = to ?? await service.LocalTodayAsync(employee, ct);
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
         }).RequireAuthorization(WmPermissions.AttendanceView);
@@ -85,10 +90,20 @@ public sealed class TimeAttendanceModule : IModule
                 ? Results.Ok(await service.GetRecentForEmployeeAsync(employeeId, take, ct))
                 : NotLinked());
 
-        me.MapGet("/timesheet", async (ICurrentUser user, DateOnly? from, DateOnly? to, PunchService service, CancellationToken ct) =>
+        me.MapGet("/timesheet", async (
+            ICurrentUser user, DateOnly? from, DateOnly? to,
+            PunchService service, IEmployeeDirectory employees, CancellationToken ct) =>
         {
             if (user.EmployeeId is not { } employeeId) return NotLinked();
-            var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            DateOnly end;
+            if (to is { } explicitEnd)
+                end = explicitEnd;
+            // Their own record, unscoped: a /me read must not depend on the caller's scope over
+            // other people — a site-scoped manager filed outside that site is still themselves.
+            else if (await employees.FindSelfAsync(employeeId, ct) is { } employee)
+                end = await service.LocalTodayAsync(employee, ct); // their local today (008 P4)
+            else
+                return Results.Problem("Your employee record could not be found.", statusCode: StatusCodes.Status404NotFound);
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
         });

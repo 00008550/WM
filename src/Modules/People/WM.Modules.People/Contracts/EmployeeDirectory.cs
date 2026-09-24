@@ -14,6 +14,14 @@ public interface IEmployeeDirectory
     Task<EmployeeSummary?> FindByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// The caller's <b>own</b> record, ignoring data scope. Scope governs what a caller may see of
+    /// <i>other</i> people; a site-scoped manager filed at a site outside their scope is still
+    /// themselves (008 P4 review). Pass only the employee id from the caller's token — never an id
+    /// taken from the request.
+    /// </summary>
+    Task<EmployeeSummary?> FindSelfAsync(Guid ownEmployeeId, CancellationToken ct = default);
+
+    /// <summary>
     /// Employees the caller may see who were employed on <paramref name="on"/>. Replaces
     /// <c>ListActiveAsync</c>: employment is a window, so the question needs a date. Callers that
     /// mean "now" pass <see cref="DateOnly.FromDateTime"/> of today explicitly rather than letting
@@ -35,6 +43,23 @@ public interface IEmployeeDirectory
     /// misuse in a request path is obvious in review.
     /// </summary>
     Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnUnscopedAsync(DateOnly on, CancellationToken ct = default);
+
+    /// <summary>
+    /// Employees the caller may see who are employed on <b>their own</b> local today — the calendar
+    /// date on the wall clock of the zone their home site resolves to (<see cref="ISiteTimeZones"/>),
+    /// not one date for everybody (plan 008 P4). At 12:00 UTC it is already tomorrow in Auckland and
+    /// still today in Honolulu; a single <see cref="ListEmployedOnAsync"/> date is wrong for one of
+    /// them. Resolved in one batch: one employee read, one site-tree read.
+    /// <para>The window only — suspended employees are included, exactly as
+    /// <see cref="ListEmployedOnAsync"/>.</para>
+    /// </summary>
+    Task<IReadOnlyList<EmployeeSummary>> ListEmployedAtLocalTodayAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// <see cref="ListEmployedAtLocalTodayAsync"/> ignoring data scope. System/background work only
+    /// (seeding), where there is no signed-in user.
+    /// </summary>
+    Task<IReadOnlyList<EmployeeSummary>> ListEmployedAtLocalTodayUnscopedAsync(CancellationToken ct = default);
 }
 
 /// <summary>
