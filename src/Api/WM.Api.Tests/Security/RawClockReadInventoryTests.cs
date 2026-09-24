@@ -45,11 +45,11 @@ public sealed partial class RawClockReadInventoryTests
         ["src/Modules/People/WM.Modules.People/PeopleModule.cs"] = 1,
         // day — demo punches laid on UTC days (008 P4).
         ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Data/PunchSeeder.cs"] = 2,
-        // stamp — punch default instant and future guard (008 P5); day — employed-on dates (008 P3/P4).
+        // stamp — punch default instant and future guard (008 P5); day — employed-on dates (008 P4 — needs a per-employee local-today contract).
         ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs"] = 5,
         // day — timesheet default "to" (008 P4).
         ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/TimeAttendanceModule.cs"] = 2,
-        // day — the employed-on date for demo users (008 P3).
+        // day — the employed-on date for demo users (008 P4).
         ["src/Api/WM.Api/Infrastructure/DemoUserSeeder.cs"] = 1,
     };
 

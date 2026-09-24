@@ -350,6 +350,12 @@ and vice versa at 12:00 UTC in June). The mirror case at `Pacific/Honolulu`. A l
 sites returns different derived statuses **in the same response**, which is the whole point.
 Inclusivity is preserved (last day counts) — the legacy rule at `76.V5.22.0.0.sql:33-36`.
 **Risk:** low — one module, one method.
+**What P3 did not fix (recorded at review, 2026-09-24):** P3 moves only the People endpoints off UTC.
+Three other "employed today" reads still take UTC's date and are **not** P3's:
+`PunchService` live feed (`ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow))`, ~`:147`)
+and presence (~`:180`) belong to **P4**; `DemoUserSeeder` (~`:31`, demo-only) is left as a
+recorded seeder-only UTC read, owned by P4 together with `PunchSeeder`. P3 also changed POST's
+default `EmployedFrom` to the site's local today — a necessary consequence of removing `Today()`.
 
 ---
 
@@ -369,6 +375,11 @@ Inclusivity is preserved (last day counts) — the legacy rule at `76.V5.22.0.0.
   reads the stored date, not a re-derivation. This needs a TimeAttendance migration. How existing demo
   punches get their date is P4's to state (see Out of scope); a later zone edit never moves them.
 - The default "today" for a timesheet is the employee's local today.
+- *(Added at 008 P3 review.)* The live feed and presence reads in `PunchService` stop asking
+  `ListEmployedOnAsync(<UTC date>)`. People exposes a per-employee "employed at their local today"
+  contract (e.g. `ListEmployedAtLocalTodayAsync`), resolved in one query batch — not one date for
+  every employee. `DemoUserSeeder`'s UTC read moves to the same contract or is re-labelled a
+  deliberate seeder read. The raw-clock allow-list entries for these files name P4, not P3.
 **Tests:** a punch recorded, then its site's zone edited, still reports its original local date;
 23:30 UTC at `Asia/Tashkent` (+05) → next local day; 00:30 UTC at
 `America/Los_Angeles` (−08) → previous local day; a `Europe/Ljubljana` punch at 22:30 UTC in July →
