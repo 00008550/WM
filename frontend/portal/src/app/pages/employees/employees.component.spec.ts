@@ -32,6 +32,7 @@ describe('EmployeesComponent — the concurrency token round-trip', () => {
     firstName: 'Ada',
     lastName,
     email: null,
+    phone: null,
     jobTitle: null,
     siteId: '11111111-1111-1111-1111-111111111111',
     departmentId: null,
@@ -70,6 +71,7 @@ describe('EmployeesComponent — the concurrency token round-trip', () => {
       .expectOne(req => req.url === `${base}/api/employees`)
       .flush({ items: [ada, grace], total: 2, page: 1, pageSize: 25 });
     httpMock.expectOne(`${base}/api/sites`).flush([]);
+    httpMock.expectOne(req => req.url === `${base}/api/departments`).flush([]);
   });
 
   afterEach(() => httpMock.verify());
@@ -136,5 +138,109 @@ describe('EmployeesComponent — the concurrency token round-trip', () => {
     expect(component.editing()).toBeTrue();
     expect(component.busy()).toBeFalse();
     expect(component.form.jobTitle).toBe('Shift supervisor');
+  });
+});
+
+/**
+ * 003 P3: department and phone survive an edit. The editor used to send `departmentId: null` and an
+ * empty phone on every save — data loss for phone, and since 003 P2b a 403 on every save for a
+ * department-scoped manager. The backend half of the round-trip, run as such a manager, is
+ * `OrganisationScopeEndpointTests.A_department_scoped_edit_made_from_the_list_row_keeps_department_and_phone`.
+ */
+describe('EmployeesComponent — department and phone round-trip', () => {
+  const base = environment.apiUrl;
+  const SITE_A = '11111111-1111-1111-1111-111111111111';
+  const SITE_B = '22222222-2222-2222-2222-222222222222';
+  const DEPT_A = '33333333-3333-3333-3333-333333333333';
+  const DEPT_B = '44444444-4444-4444-4444-444444444444';
+
+  let component: EmployeesComponent;
+  let httpMock: HttpTestingController;
+
+  const ada: EmployeeRow = {
+    id: 'aaaaaaaa-0000-0000-0000-000000000001',
+    code: 'E1001', firstName: 'Ada', lastName: 'Lovelace',
+    email: null, phone: '+44 20 7946 0001', jobTitle: null,
+    siteId: SITE_A, departmentId: DEPT_A,
+    employedFrom: '2024-01-15', employedUntil: null, isSuspended: false,
+    leavingReasonId: null, leaverComments: null,
+    status: 0, isEmployed: true, asAt: '2026-09-23',
+    version: '018f7c1e-0000-7000-8000-00000000000a',
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [EmployeesComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: { hasPermission: () => true } },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(EmployeesComponent);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.detectChanges();
+    httpMock.expectOne(req => req.url === `${base}/api/employees`)
+      .flush({ items: [ada], total: 1, page: 1, pageSize: 25 });
+    httpMock.expectOne(`${base}/api/sites`).flush([
+      { id: SITE_A, name: 'North', parentId: null, timeZone: 'UTC' },
+      { id: SITE_B, name: 'South', parentId: null, timeZone: 'UTC' },
+    ]);
+    httpMock.expectOne(req => req.url === `${base}/api/departments`).flush([
+      { id: DEPT_A, name: 'Assembly', siteId: SITE_A },
+      { id: DEPT_B, name: 'Packing', siteId: SITE_B },
+    ]);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  const flushReload = () =>
+    httpMock.expectOne(req => req.url === `${base}/api/employees`)
+      .flush({ items: [ada], total: 1, page: 1, pageSize: 25 });
+
+  it('carries the department and phone it was opened with through an unrelated edit', () => {
+    component.openEdit(ada);
+    component.form.jobTitle = 'Shift supervisor';
+    component.save();
+
+    const request = httpMock.expectOne(`${base}/api/employees/${ada.id}`);
+    expect(request.request.body.departmentId).toBe(DEPT_A);
+    expect(request.request.body.phone).toBe('+44 20 7946 0001');
+    request.flush(ada);
+    flushReload();
+  });
+
+  it('sends the department picked on a create', () => {
+    component.openCreate();
+    component.onSiteChange(SITE_B);
+    expect(component.departmentsAtSite().map(d => d.id)).toEqual([DEPT_B]);
+    component.form.departmentId = DEPT_B;
+    component.form.phone = ' 07700 900123 ';
+    component.save();
+
+    const request = httpMock.expectOne(`${base}/api/employees`);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body.departmentId).toBe(DEPT_B);
+    expect(request.request.body.phone).toBe('07700 900123');
+    request.flush(ada);
+    flushReload();
+  });
+
+  it('offers only the selected site\'s departments and drops one left behind by a site move', () => {
+    component.openEdit(ada);
+    expect(component.departmentsAtSite().map(d => d.id)).toEqual([DEPT_A]);
+
+    component.onSiteChange(SITE_B);
+    expect(component.form.departmentId).toBe('');
+    component.save();
+
+    const request = httpMock.expectOne(`${base}/api/employees/${ada.id}`);
+    expect(request.request.body.siteId).toBe(SITE_B);
+    expect(request.request.body.departmentId).toBeNull();
+    request.flush(ada);
+    flushReload();
   });
 });

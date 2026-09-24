@@ -90,7 +90,10 @@ public sealed class PeopleModule : IModule
 
             var items = rows.Select(e => new
             {
-                e.Id, e.Code, e.FirstName, e.LastName, e.Email, e.JobTitle,
+                // Phone rides the row for the same reason Version does below: the editor opens from
+                // this row and PUT is a full replace, so a field missing here is a field every edit
+                // blanks (003 P3).
+                e.Id, e.Code, e.FirstName, e.LastName, e.Email, e.Phone, e.JobTitle,
                 e.SiteId, e.DepartmentId,
                 e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
                 e.LeavingReasonId, e.LeaverComments,
@@ -419,9 +422,27 @@ public sealed class PeopleModule : IModule
 
         var sites = endpoints.MapGroup("/api/sites").WithTags("Sites");
 
-        sites.MapGet("/", async (PeopleDbContext db, CancellationToken ct) =>
-            Results.Ok(await db.Sites.AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct)))
-            .RequireAuthorization(WmPermissions.EmployeesView);
+        // Scoped like the employee list (003 P3): only the sites the caller's scope reaches. The
+        // rule, arm by arm, is OrganisationScopeExtensions'.
+        sites.MapGet("/", async (PeopleDbContext db, IDataScopeResolver scopes, CancellationToken ct) =>
+        {
+            var scope = await scopes.GetScopeAsync(ct);
+            return Results.Ok(await db.SitesWithinScope(scope).AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct));
+        }).RequireAuthorization(WmPermissions.EmployeesView);
+
+        // The department picker's source, under the same rule. ?siteId narrows to one site, which is
+        // how the employee editor offers only departments at the site selected — 007 P4 refuses any
+        // other, so offering them would only offer a 400.
+        endpoints.MapGet("/api/departments", async (PeopleDbContext db, IDataScopeResolver scopes, Guid? siteId, CancellationToken ct) =>
+        {
+            var scope = await scopes.GetScopeAsync(ct);
+            var query = db.DepartmentsWithinScope(scope).AsNoTracking();
+            if (siteId.HasValue)
+                query = query.Where(d => d.SiteId == siteId);
+            return Results.Ok(await query.OrderBy(d => d.Name)
+                .Select(d => new { d.Id, d.Name, d.SiteId })
+                .ToListAsync(ct));
+        }).RequireAuthorization(WmPermissions.EmployeesView).WithTags("Departments");
 
         // Self-service: the signed-in user's OWN employee record. Id comes from the
         // token claim, never the request — an employee can only ever see themselves.

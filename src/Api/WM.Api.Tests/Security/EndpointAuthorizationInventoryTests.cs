@@ -100,6 +100,8 @@ public sealed class EndpointAuthorizationInventoryTests
         ("POST /api/employees", "employees.manage"),
         ("PUT /api/employees/{id:guid}", "employees.manage"),
         ("GET /api/sites", "employees.view"),
+        // 003 P3: the department picker's source. Same permission as sites, and scoped the same way.
+        ("GET /api/departments", "employees.view"),
         // The leaving-reason vocabulary reads with employees.view, not employees.manage: it is a
         // lookup a viewer needs in order to render why someone left, and it discloses nothing about
         // any person. Maintaining the list — which does not exist yet — is a separate decision and

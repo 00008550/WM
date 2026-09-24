@@ -3,7 +3,7 @@ import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@ang
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { WorkforceApi, EmployeeRow, Paged, Site, EmployeeUpsert } from '../../core/api/workforce.api';
+import { WorkforceApi, EmployeeRow, Paged, Site, Department, EmployeeUpsert } from '../../core/api/workforce.api';
 import { AuthService } from '../../core/auth/auth.service';
 import { IconComponent } from '../../core/ui/icon.component';
 
@@ -183,11 +183,23 @@ import { IconComponent } from '../../core/ui/icon.component';
 
         <label class="block">
           <span class="text-xs uppercase tracking-widest text-muted">Site</span>
-          <select [(ngModel)]="form.siteId"
+          <select [ngModel]="form.siteId" (ngModelChange)="onSiteChange($event)"
                   class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm focus:border-pulse/60">
             <option [ngValue]="''">— select a site —</option>
             @for (s of sites(); track s.id) {
               <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="text-xs uppercase tracking-widest text-muted">Department</span>
+          <select [(ngModel)]="form.departmentId" [disabled]="!form.siteId"
+                  class="mt-1.5 w-full bg-raised border border-line rounded-md px-3 py-2 text-sm focus:border-pulse/60
+                         disabled:opacity-50">
+            <option [ngValue]="''">— no department —</option>
+            @for (d of departmentsAtSite(); track d.id) {
+              <option [ngValue]="d.id">{{ d.name }}</option>
             }
           </select>
         </label>
@@ -244,6 +256,8 @@ export class EmployeesComponent implements OnInit {
   readonly page = signal(1);
   readonly search = signal('');
   readonly sites = signal<Site[]>([]);
+  /** Every department the caller's scope reaches; the picker shows the selected site's share. */
+  readonly departments = signal<Department[]>([]);
 
   readonly editing = signal(false);
   readonly isNew = signal(false);
@@ -269,7 +283,24 @@ export class EmployeesComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
-    if (this.canManage()) this.api.sites().subscribe(s => this.sites.set(s));
+    if (this.canManage()) {
+      this.api.sites().subscribe(s => this.sites.set(s));
+      this.api.departments().subscribe(d => this.departments.set(d));
+    }
+  }
+
+  /** Only the selected site's departments: the API refuses any other (007 P4). */
+  departmentsAtSite(): Department[] {
+    return this.departments().filter(d => d.siteId === this.form.siteId);
+  }
+
+  /**
+   * A department does not follow its employee to another site, so moving site drops a department
+   * that no longer belongs rather than sending a pairing the API would 400.
+   */
+  onSiteChange(siteId: string): void {
+    this.form.siteId = siteId;
+    if (!this.departmentsAtSite().some(d => d.id === this.form.departmentId)) this.form.departmentId = '';
   }
 
   onSearch(term: string): void {
@@ -288,8 +319,12 @@ export class EmployeesComponent implements OnInit {
     this.editingId = e.id;
     this.form = {
       code: e.code, firstName: e.firstName, lastName: e.lastName,
-      email: e.email ?? '', phone: '', jobTitle: e.jobTitle ?? '',
+      // Phone and department are carried from the row, not reset (003 P3). PUT is a full replace:
+      // blanking phone lost it on every edit, and blanking the department made a department-scoped
+      // manager's every save a 403 (003 P2b) — and anyone else's a silent re-filing.
+      email: e.email ?? '', phone: e.phone ?? '', jobTitle: e.jobTitle ?? '',
       siteId: e.siteId,
+      departmentId: e.departmentId ?? '',
       employedFrom: (e.employedFrom ?? '').slice(0, 10),
       employedUntil: (e.employedUntil ?? '').slice(0, 10),
       isSuspended: e.isSuspended,
@@ -330,7 +365,7 @@ export class EmployeesComponent implements OnInit {
       phone: this.form.phone.trim() || null,
       jobTitle: this.form.jobTitle.trim() || null,
       siteId: this.form.siteId,
-      departmentId: null,
+      departmentId: this.form.departmentId || null,
       employedFrom: this.form.employedFrom || null,
       employedUntil,
       isSuspended: this.form.isSuspended,
@@ -361,7 +396,7 @@ export class EmployeesComponent implements OnInit {
   private blank() {
     return {
       code: '', firstName: '', lastName: '', email: '', phone: '', jobTitle: '',
-      siteId: '', employedFrom: '', employedUntil: '', isSuspended: false,
+      siteId: '', departmentId: '', employedFrom: '', employedUntil: '', isSuspended: false,
       leavingReasonId: '', leaverComments: '', version: '',
     };
   }
