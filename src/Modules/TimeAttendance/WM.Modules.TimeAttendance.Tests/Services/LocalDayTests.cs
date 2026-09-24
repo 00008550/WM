@@ -40,7 +40,7 @@ public sealed class LocalDayTests
             .UseInMemoryDatabase($"local-day-{Guid.NewGuid()}").Options);
         var zones = new FixedZones(zone);
         var service = new PunchService(db, new StubDirectory(employee ?? Employee()), new NoopEventStream(),
-            Options.Create(new PunchDeduplicationOptions()), Options.Create(new PunchTimingOptions()), zones, new LocalCalendarDayResolver(),
+            Options.Create(new PunchDeduplicationOptions()), Options.Create(new PunchTimingOptions()), zones, new LocalCalendarDayResolver(), new PunchBackedClockingDays(db),
             new SystemClock(new FixedTime(now ?? Now)));
         return new Rig(service, db, zones);
     }
@@ -208,7 +208,7 @@ public sealed class LocalDayTests
             });
         await rig.Db.SaveChangesAsync();
 
-        var backfill = new PunchLocalDateBackfill(rig.Db, rig.Zones, new LocalCalendarDayResolver(),
+        var backfill = new PunchLocalDateBackfill(rig.Db, rig.Zones,
             NullLogger<PunchLocalDateBackfill>.Instance);
 
         Assert.Equal(3, await backfill.RunAsync());

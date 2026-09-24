@@ -36,7 +36,7 @@ public sealed class OfflinePunchTests
         if (lateAfter is { } threshold) timing.LateAfter = threshold;
         var service = new PunchService(db, new StubDirectory(employee), new NoopEventStream(),
             Options.Create(new PunchDeduplicationOptions()), Options.Create(timing),
-            new FixedZones(zone), new LocalCalendarDayResolver(), new SystemClock(new FixedTime(Now)));
+            new FixedZones(zone), new LocalCalendarDayResolver(), new PunchBackedClockingDays(db), new SystemClock(new FixedTime(Now)));
         return (service, db);
     }
 

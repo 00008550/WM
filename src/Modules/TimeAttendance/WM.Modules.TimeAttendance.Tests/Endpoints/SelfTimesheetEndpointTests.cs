@@ -72,6 +72,7 @@ public sealed class SelfTimesheetEndpointTests
         builder.Services.AddSingleton<ISiteTimeZones>(new FixedZones(ZoneId.Parse("Pacific/Auckland")));
         builder.Services.AddSingleton<IClock>(new WM.SharedKernel.Time.SystemClock(new FixedTime(now)));
         builder.Services.AddSingleton<IOwningDayResolver, LocalCalendarDayResolver>();
+        builder.Services.AddScoped<IClockingDays, PunchBackedClockingDays>();
         builder.Services.AddSingleton<IEventStreamProducer, NoopEventStream>();
         builder.Services.AddSingleton(Options.Create(new PunchDeduplicationOptions()));
         builder.Services.AddSingleton(Options.Create(new PunchTimingOptions()));

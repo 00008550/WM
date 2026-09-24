@@ -11,6 +11,7 @@ Status: draft            <!-- draft → approved → in-progress → in-review �
 > first step, deliverable before 002.**
 >
 > **P1 approved for build 2026-09-24 (user: "go next"); P2–P5 still await rescope/approval.**
+> **P2 approved for build 2026-09-25 (user: "continue"); P3–P5 still await rescope/approval.**
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — the smallest useful slice of it, pulled forward
 Reference: [`TLW-WORK-RULES.md`](../TLW-WORK-RULES.md) — full measured anatomy, written by this survey
 
@@ -316,6 +317,33 @@ each so 002 inherits the list.
 **Risk:** **high** — a swipe on the wrong day is a payroll error. Also the portion with the most
 inverted behaviour (A3, A8, A10).
 **Depends on:** P1; 008 P4 for the local-date seam.
+**Built 2026-09-25 (awaiting review) — decisions recorded:**
+- **Ported from** the latest definition of `dbo.ProcessQueryGetClockingForSwipe`, the `ALTER` at
+  `37.V3.6.1.0.sql:748-868` (no later script redefines it; `73.V5.19.0.0.sql:232` only calls it).
+  Branch order kept: 1 night-shift end → yesterday; 2 armed offset → tomorrow; 3 window from
+  yesterday's first punch, only if today has none → yesterday; (4 = master override, folded into P1's
+  `EffectiveDayTemplate`); 5 shift matching → yesterday; fallback the punch's own date. The seam is
+  still `IOwningDayResolver` — now async and taking the employee — implemented by `DayAllocationService`.
+- **Wall clock:** every `time` comparison is on the wall clock of the home-site zone (008 Q2).
+- **Inversions:** A3 (P1, master window against the punch's own date; one master per punch, as
+  legacy); **A8** earliest punch, not first non-null slot — branches 3 and 5; **A10** a missing day
+  is created (`IClockingDays.EnsureAsync`), never a discarded punch; **branch 3 measures elapsed time**
+  (first-punch instant + window vs the punch instant) — legacy's wall-clock `datetime` arithmetic
+  (`:830`) made the window an hour longer/shorter across DST; **the instant survives** — legacy
+  re-composed the swipe as its time-of-day on the allocated date (`73.V5.19.0.0.sql:259-260`), WM moves
+  only `LocalDate`.
+- **Kept from legacy:** a neighbour with no Clocking, no template, or a dangling template id offers
+  nothing (legacy's inner joins); a shift-matching target is tested on its **own** `NightShiftEndTime`,
+  no master override (`:851-860`) — new `IDayTemplateDirectory.NightShiftEndTimesAsync`.
+- **Freeze:** already-frozen punches are **not** re-dated. `PunchLocalDateBackfill` keeps the plain
+  calendar date for the rows it fills (it no longer goes through the seam); moving a frozen punch is
+  recalculate.
+- **Spec drift:** the Clocking store is a port, `IClockingDays`; until 002 its production body
+  (`PunchBackedClockingDays`) has days without templates, so **no production answer changes** before
+  002 assigns templates. "Raise an exception" for a created day is reduced to `EnsureAsync` returning
+  `true` — WM has no exception model before Phase 2; 002 raises it. The eleven vault examples run
+  against a double (`V01`–`V11`) and are listed as `[Fact(Skip)]` placeholders in
+  `VaultAllocationExamplesFor002` for 002 P3.
 
 ### [ ] P3 — Daily Browser read model + endpoint
 **Touches:** `…/Queries/DailyBrowserRow.cs`, `…/Services/DailyBrowserQuery.cs`,

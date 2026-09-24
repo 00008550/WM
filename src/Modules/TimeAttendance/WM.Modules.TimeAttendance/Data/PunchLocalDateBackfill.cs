@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WM.Modules.People.Contracts;
-using WM.Modules.TimeAttendance.Services;
 
 namespace WM.Modules.TimeAttendance.Data;
 
@@ -23,11 +22,18 @@ namespace WM.Modules.TimeAttendance.Data;
 /// resolver always answers, falling back to the installation default, so nothing is skipped. Once
 /// filled, a row is never touched again (Q4 = freeze). Idempotent; a no-op when nothing is null.
 /// </para>
+///
+/// <para>
+/// <b>Plain calendar date, deliberately — not the allocation seam</b> (plan 010 P2). This fills rows
+/// recorded before any day was frozen, and it answered with the local calendar date when 008 P4
+/// shipped. Allocating now would date those rows by templates and neighbouring punches as they stand
+/// today, not as they stood when the punch arrived. Punches already frozen by it are <b>not</b>
+/// re-dated by P2: moving a frozen punch is an explicit, audited recalculate, never a side effect.
+/// </para>
 /// </summary>
 public sealed class PunchLocalDateBackfill(
     TimeAttendanceDbContext db,
     ISiteTimeZones zones,
-    IOwningDayResolver owningDay,
     ILogger<PunchLocalDateBackfill> logger)
 {
     private const int BatchSize = 1000;
@@ -50,7 +56,7 @@ public sealed class PunchLocalDateBackfill(
             foreach (var punch in batch)
             {
                 var zone = zoneBySite[punch.SiteId].Zone;
-                punch.LocalDate = owningDay.Resolve(punch.Timestamp, zone);
+                punch.LocalDate = zone.DateAt(punch.Timestamp);
                 punch.LocalZone = zone.Id;
             }
 
