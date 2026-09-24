@@ -97,6 +97,9 @@ services:
       Jwt__Issuer: wm-api
       Jwt__Audience: wm-clients
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env (32+ chars)}
+      # IANA zone the installation measures its days in (plan 008 P1); the API refuses to start
+      # without a valid one. No default: every install decides.
+      Time__InstallationZone: ${INSTALLATION_ZONE:?set INSTALLATION_ZONE in .env (IANA id, e.g. Europe/Ljubljana)}
       # Initial administrator password for a fresh install. No default on purpose.
       Bootstrap__AdminPassword: ${WM_ADMIN_PASSWORD:?set WM_ADMIN_PASSWORD in .env (12+ chars)}
       Kafka__BootstrapServers: kafka:19092

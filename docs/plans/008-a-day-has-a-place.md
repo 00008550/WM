@@ -1,6 +1,7 @@
 # 008 — A day has a place: time zones from the punch to the payslip
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-progress        <!-- draft → approved → in-progress → in-review → merged -->
+Approved: by the user 2026-09-24, all 5 portions — chosen so that 010 P2 is unblocked through 008 P4.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; a prerequisite for **002** (the Clocking aggregate)
 and a correction to **007 P1** (`PeopleModule.Today()`)
 Legacy sources surveyed: full measurement in [`../TLW-TIME-MODEL.md`](../TLW-TIME-MODEL.md) —
@@ -271,7 +272,7 @@ they render correct. No new screen.
 
 ## Portions
 
-### [ ] P1 — One clock, and a zone that must be real
+### [x] P1 — One clock, and a zone that must be real
 **Touches:** `src/SharedKernel/WM.SharedKernel/Time/` (new — `IClock`, `ZoneId`),
 `src/SharedKernel/WM.SharedKernel.Tests/Time/`, `src/Api/WM.Api/Program.cs` (registration +
 composition guard on the installation default),
@@ -289,7 +290,7 @@ composition guard on the installation default),
   `EndpointAuthorizationInventoryTests` — so a new raw clock read fails **by name** until someone
   adds it deliberately. (This is legacy's `AvoidDirectTimeUsageAnalyzer` without the analyzer
   infrastructure the repo does not have.)
-- The allow-list starts populated with today's **24** non-test call sites across 12 files
+- The allow-list starts populated with today's **24** non-test call sites across 12 files *(measured 2026-08-14; at build time, 2026-09-24, it was **27 in 13** — `DemoUserSeeder.cs` arrived with 011 P9. The allow-list in `RawClockReadInventoryTests` is authoritative, not this line)*
   (`Entity.cs`, `LicenseCodec.cs`, `User.cs`, `AuthService.cs`, `SecurityGroupService.cs`,
   `TokenService.cs`, `UserManagementService.cs`, `PeopleSeeder.cs`, `PeopleModule.cs`,
   `PunchSeeder.cs`, `PunchService.cs`, `TimeAttendanceModule.cs`); P2–P5 empty the ones that matter.
@@ -352,8 +353,8 @@ Inclusivity is preserved (last day counts) — the legacy rule at `76.V5.22.0.0.
 ### [ ] P4 — A punch belongs to a local day
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`
 (`:149-150` range, `:158` grouping), `TimeAttendanceModule.cs:60,77` (range defaults),
-`src/Modules/TimeAttendance/WM.Modules.TimeAttendance.Tests/` (**new project — wire into `WM.sln`**;
-per CLAUDE.md, TimeAttendance has no test project and a green `dotnet test` proves nothing about it).
+`src/Modules/TimeAttendance/WM.Modules.TimeAttendance.Tests/` (*exists since 010 P1 / #92 — extend it; it was
+"new project" when this plan was written*). Line numbers in this portion and P5 date from 2026-08-14; re-locate by symbol.
 **Done when:**
 - The timesheet window is built from the employee's zone, not `TimeSpan.Zero`.
 - Punches group by **local** date.
