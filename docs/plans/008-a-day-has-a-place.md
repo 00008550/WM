@@ -1,6 +1,6 @@
 # 008 — A day has a place: time zones from the punch to the payslip
 
-Status: in-progress        <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-review          <!-- draft → approved → in-progress → in-review → merged -->
 Approved: by the user 2026-09-24, all 5 portions — chosen so that 010 P2 is unblocked through 008 P4.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; a prerequisite for **002** (the Clocking aggregate)
 and a correction to **007 P1** (`PeopleModule.Today()`)
@@ -397,7 +397,7 @@ invisible to timesheets until the next start backfills it.
 
 ---
 
-### [ ] P5 — An offline punch carries its own offset
+### [x] P5 — An offline punch carries its own offset — PR [#97](https://github.com/00008550/WM/pull/97)
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs:36-37`,
 the punch request contract, `Domain/Punch.cs` (+ `ReceivedAt`), a TimeAttendance migration,
 `WM.Modules.TimeAttendance.Tests/`.
