@@ -57,6 +57,18 @@ public sealed class EndpointAuthorizationInventoryTests
     ];
 
     /// <summary>
+    /// Anonymous only on a development host that opted in (plan 011 P9): the password-less agent
+    /// sign-in. Named here rather than folded into <see cref="DeliberatelyAnonymous"/> because it
+    /// is never on the production surface — the tests above compose Production, where the route
+    /// does not exist — and <see cref="The_dev_only_exemption_is_the_only_addition_on_a_development_host"/>
+    /// proves it is the one thing a development host adds.
+    /// </summary>
+    private static readonly string[] DevOnlyAnonymous =
+    [
+        "/api/dev/sign-in",
+    ];
+
+    /// <summary>
     /// Every non-anonymous transport and the permission it requires. Complete: a new endpoint fails
     /// <see cref="Every_authorized_transport_requires_the_permission_we_chose_for_it"/> until it is
     /// named here, for the same reason <see cref="DeliberatelyAnonymous"/> is complete.
@@ -157,6 +169,23 @@ public sealed class EndpointAuthorizationInventoryTests
             .ToArray();
 
         Assert.Equal(DeliberatelyAnonymous.Order(StringComparer.Ordinal).ToArray(), anonymous);
+    }
+
+    [Fact]
+    public async Task The_dev_only_exemption_is_the_only_addition_on_a_development_host()
+    {
+        await using var host = ApiTestHost.Compose(
+            environmentName: Microsoft.Extensions.Hosting.Environments.Development,
+            configurationOverrides: new Dictionary<string, string?> { ["DevSignIn:Enabled"] = "true" });
+
+        var anonymous = host.Endpoints
+            .Where(IsAnonymous)
+            .Select(Route)
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(DeliberatelyAnonymous.Concat(DevOnlyAnonymous).Order(StringComparer.Ordinal).ToArray(), anonymous);
     }
 
     [Fact]

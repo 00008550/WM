@@ -205,6 +205,9 @@ internal sealed class ApiTestHost : IAsyncDisposable
     public IReadOnlyList<Endpoint> Endpoints =>
         [.. ((IEndpointRouteBuilder)_app).DataSources.SelectMany(source => source.Endpoints)];
 
+    /// <summary>The composed container — for a test that needs to arrange data beyond the seed.</summary>
+    public IServiceProvider Services => _app.Services;
+
     /// <summary>An anonymous caller: no <c>Authorization</c> header at all.</summary>
     public HttpClient Client => _app.GetTestClient();
 

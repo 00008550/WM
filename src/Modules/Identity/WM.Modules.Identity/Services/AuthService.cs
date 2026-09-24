@@ -106,6 +106,32 @@ public sealed class AuthService(
         return new AuthResult(true, null, pair, user);
     }
 
+    /// <summary>
+    /// Development-only sign-in with no password (plan 011 P9). Tokens come from the same
+    /// <see cref="IssueTokens"/> as <see cref="LoginAsync"/>, so the refresh token is hashed and
+    /// stored and refresh, rotation and logout behave identically. Unknown and inactive users get
+    /// the same answer, so this is not an enumeration oracle. Only reachable when
+    /// <see cref="DevSignInOptions.ShouldMap"/> mapped the route.
+    /// </summary>
+    public async Task<AuthResult> DevSignInAsync(string userName, CancellationToken ct)
+    {
+        var user = await db.Users
+            .Include(u => u.Roles).ThenInclude(r => r.Role).ThenInclude(r => r.Permissions)
+            .FirstOrDefaultAsync(u => u.UserName == userName || u.Email == userName, ct);
+
+        if (user is null || !user.IsActive)
+        {
+            logger.LogWarning("Development sign-in refused for {User}", userName);
+            return new AuthResult(false, "Invalid credentials.", null, null);
+        }
+
+        logger.LogWarning("Development sign-in used for {User} — no password was checked", user.UserName);
+
+        var pair = IssueTokens(user);
+        await db.SaveChangesAsync(ct);
+        return new AuthResult(true, null, pair, user);
+    }
+
     public async Task<AuthResult> RefreshAsync(string refreshToken, CancellationToken ct)
     {
         var hash = TokenService.HashToken(refreshToken);

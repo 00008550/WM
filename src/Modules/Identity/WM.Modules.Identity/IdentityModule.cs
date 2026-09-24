@@ -75,6 +75,15 @@ public sealed class IdentityModule : IModule
         if (AccountLockoutOptions.DescribeFault(lockout) is { } lockoutFault)
             throw new InvalidOperationException(lockoutFault);
 
+        // Plan 011 P9: the password-less development sign-in. Set outside Development, the host
+        // does not start — the environment gate at mapping would keep the route closed anyway, but
+        // a setting that means "open a door" must not sit quietly in a production config.
+        var devSignIn = configuration.GetSection(DevSignInOptions.SectionName).Get<DevSignInOptions>()
+                        ?? new DevSignInOptions();
+
+        if (DevSignInOptions.DescribeFault(devSignIn, isDevelopment) is { } devSignInFault)
+            throw new InvalidOperationException(devSignInFault);
+
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(o =>
             {
@@ -124,6 +133,14 @@ public sealed class IdentityModule : IModule
         AuthEndpoints.Map(endpoints);
         UserEndpoints.Map(endpoints);
         SecurityGroupEndpoints.Map(endpoints);
+
+        // Both gates, read from the composed host rather than from anything the request carries.
+        var services = endpoints.ServiceProvider;
+        var devSignIn = services.GetRequiredService<IConfiguration>()
+                            .GetSection(DevSignInOptions.SectionName).Get<DevSignInOptions>()
+                        ?? new DevSignInOptions();
+        if (DevSignInOptions.ShouldMap(devSignIn, services.GetRequiredService<IHostEnvironment>().IsDevelopment()))
+            AuthEndpoints.MapDevSignIn(endpoints);
     }
 }
 
