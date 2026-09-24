@@ -361,7 +361,7 @@ default `EmployedFrom` to the site's local today — a necessary consequence of 
 
 ---
 
-### [ ] P4 — A punch belongs to a local day
+### [x] P4 — A punch belongs to a local day
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs`
 (`:149-150` range, `:158` grouping), `TimeAttendanceModule.cs:60,77` (range defaults),
 `src/Modules/TimeAttendance/WM.Modules.TimeAttendance.Tests/` (*exists since 010 P1 / #92 — extend it; it was
