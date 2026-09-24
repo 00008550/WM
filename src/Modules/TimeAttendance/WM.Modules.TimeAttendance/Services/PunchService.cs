@@ -29,6 +29,7 @@ public sealed class PunchService(
     IEmployeeDirectory employees,
     IEventStreamProducer eventStream,
     IOptions<PunchDeduplicationOptions> dedupeOptions,
+    IOptions<PunchTimingOptions> timingOptions,
     ISiteTimeZones zones,
     IOwningDayResolver owningDay,
     IClock clock)
@@ -45,8 +46,25 @@ public sealed class PunchService(
         if (employee is null)
             return NotPunchable(request.EmployeeCode);
 
+        // Which clock is trusted (008 P5, PunchTimingOptions): the punch's OWN instant when the client
+        // supplied one — with its offset, or it is refused — and the server's only when it did not.
+        // The receive time is kept beside it, never substituted for it.
         var now = clock.UtcNow;
-        var timestamp = request.Timestamp ?? now;
+        DateTimeOffset timestamp;
+        int? clientOffsetMinutes = null;
+        if (request.Timestamp is { } supplied)
+        {
+            if (!ClientTimestamp.TryParse(supplied, out timestamp, out var fault))
+                return new PunchResult(null, fault);
+            clientOffsetMinutes = (int)timestamp.Offset.TotalMinutes;
+        }
+        else
+        {
+            timestamp = now;
+        }
+
+        // Asymmetric on purpose: the future is refused (a clock that far ahead is wrong, not queued),
+        // the past is accepted and flagged below — an offline queue is exactly a punch from the past.
         if (timestamp > now.AddMinutes(5))
             return new PunchResult(null, "Punch timestamp cannot be in the future.");
 
@@ -99,6 +117,9 @@ public sealed class PunchService(
             RecordedByUserId = recordedBy,
             LocalDate = punchDate,
             LocalZone = zone.Id,
+            ReceivedAt = now,
+            ClientUtcOffsetMinutes = clientOffsetMinutes,
+            Flags = FlagsFor(timestamp, now, clientOffsetMinutes, zone),
         };
 
         db.Punches.Add(punch);
@@ -109,6 +130,38 @@ public sealed class PunchService(
             punch.Timestamp, punch.Direction.ToString(), punch.Source.ToString()), ct);
 
         return new PunchResult(punch, null);
+    }
+
+    /// <summary>
+    /// What is suspicious about an accepted punch (008 P5). <c>Late</c>: older than the configured
+    /// threshold on arrival. <c>OffsetMismatch</c>: the client's offset differs from the home-site
+    /// zone's offset at that instant by more than the zone's DST shift in force at that instant — so a device that has
+    /// not yet switched to or from summer time is tolerated, and one set to another zone is not. A zone
+    /// without DST tolerates nothing.
+    /// </summary>
+    private PunchFlags FlagsFor(DateTimeOffset timestamp, DateTimeOffset receivedAt, int? clientOffsetMinutes, ZoneId zone)
+    {
+        var flags = PunchFlags.None;
+        if (receivedAt - timestamp > timingOptions.Value.LateAfter)
+            flags |= PunchFlags.Late;
+
+        if (clientOffsetMinutes is { } offset)
+        {
+            var expected = zone.Info.GetUtcOffset(timestamp);
+            // The DST shift of the rule in force AT this instant — not the largest the zone ever had:
+            // tzdata carries history (Tashkent's pre-1991 DST, wartime double summer time in Berlin
+            // and London, both 2h), and a historical maximum would widen today's tolerance (008 P5 review).
+            var localDate = TimeZoneInfo.ConvertTime(timestamp, zone.Info).DateTime.Date;
+            var tolerance = zone.Info.GetAdjustmentRules()
+                .Where(r => r.DateStart <= localDate && localDate <= r.DateEnd)
+                .Select(r => r.DaylightDelta.Duration())
+                .DefaultIfEmpty(TimeSpan.Zero)
+                .Max();
+            if ((TimeSpan.FromMinutes(offset) - expected).Duration() > tolerance)
+                flags |= PunchFlags.OffsetMismatch;
+        }
+
+        return flags;
     }
 
     /// <summary>Self-service punch: caller supplies only their employee id (from their token).</summary>
@@ -135,13 +188,14 @@ public sealed class PunchService(
             .Take(Math.Clamp(take, 1, 200))
             .Select(p => new RecentPunchEntry(
                 p.Id, p.EmployeeId, p.EmployeeCode, name,
-                p.Timestamp, p.Direction, p.Source, p.DeviceId))
+                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags))
             .ToListAsync(ct);
     }
 
     public sealed record RecentPunchEntry(
         Guid Id, Guid EmployeeId, string EmployeeCode, string EmployeeName,
-        DateTimeOffset Timestamp, PunchDirection Direction, PunchSource Source, string? DeviceId);
+        DateTimeOffset Timestamp, PunchDirection Direction, PunchSource Source, string? DeviceId,
+        DateTimeOffset ReceivedAt, PunchFlags Flags);
 
     public async Task<IReadOnlyList<RecentPunchEntry>> GetRecentAsync(int take, CancellationToken ct)
     {
@@ -173,7 +227,7 @@ public sealed class PunchService(
             .Select(p => new RecentPunchEntry(
                 p.Id, p.EmployeeId, p.EmployeeCode,
                 visible.GetValueOrDefault(p.EmployeeId, p.EmployeeCode),
-                p.Timestamp, p.Direction, p.Source, p.DeviceId))
+                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags))
             .ToList();
     }
 

@@ -1,6 +1,6 @@
 # 008 — A day has a place: time zones from the punch to the payslip
 
-Status: in-progress        <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-review          <!-- draft → approved → in-progress → in-review → merged -->
 Approved: by the user 2026-09-24, all 5 portions — chosen so that 010 P2 is unblocked through 008 P4.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; a prerequisite for **002** (the Clocking aggregate)
 and a correction to **007 P1** (`PeopleModule.Today()`)
@@ -397,7 +397,7 @@ invisible to timesheets until the next start backfills it.
 
 ---
 
-### [ ] P5 — An offline punch carries its own offset
+### [x] P5 — An offline punch carries its own offset — PR [#97](https://github.com/00008550/WM/pull/97)
 **Touches:** `src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Services/PunchService.cs:36-37`,
 the punch request contract, `Domain/Punch.cs` (+ `ReceivedAt`), a TimeAttendance migration,
 `WM.Modules.TimeAttendance.Tests/`.
@@ -417,6 +417,13 @@ instants are both persisted and both surface on the punch DTO; a punch whose cli
 contradicts its home site's resolved zone by more than the DST maximum is flagged, not dropped.
 **Risk:** medium — it is a breaking contract change on a public endpoint. Ship the rejection behind
 the same review that documents it.
+**Follow-up (recorded at P5 review, 2026-09-25):** P5 applies only to `POST /api/punches`, the one
+endpoint that accepts a `timestamp`. The self-service `POST /api/me/punch` (`SelfPunchRequest`) takes
+**no timestamp**; the server always stamps it. So a Flutter employee punching for **themselves** cannot
+queue offline yet: a queued self-punch would be dated when it arrives. **Owner: the Flutter
+self-service plan** (not yet written). It adds an optional offset-required `timestamp` to
+`SelfPunchRequest` and routes it through the same `ClientTimestamp` parse, flags and `receivedAt`. P5
+did not add it because that would widen this portion's contract change to a second endpoint.
 
 ---
 
