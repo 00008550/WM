@@ -62,10 +62,17 @@ public sealed class DayTemplate : Entity
     /// <summary>
     /// Legacy <c>TreatAsMasterDailyModel</c>, <b>inverted</b> so the name says what it does:
     /// <c>true</c> ⇔ <c>TreatAsMasterDailyModel = 0</c> ⇔ an employee's active master template, if any,
-    /// supplies this day's allocation fields (<c>:775-778</c>). Defaults to <c>true</c> because the
-    /// legacy column defaults to <c>0</c> as a CLR bool. An import maps <c>!TreatAsMasterDailyModel</c>.
+    /// supplies this day's allocation fields (<c>:775-778</c>). An import maps
+    /// <c>!TreatAsMasterDailyModel</c>.
+    ///
+    /// <para>
+    /// Defaults to <c>false</c>, matching legacy: the column is <c>bit NOT NULL DEFAULT (1)</c>
+    /// (<c>Merge ER2 and TLW\43.V4.0.0.0.Pre_UpgradeEduregDb.sql:5046</c>) and the create screen forces
+    /// it on (<c>DailyModelController.cs:89</c>). Only background paths set it off
+    /// (<c>DailyModelService.cs:531</c>, <c>:590</c>, the HotSchedules importer).
+    /// </para>
     /// </summary>
-    public bool OverriddenByMasterTemplate { get; set; } = true;
+    public bool OverriddenByMasterTemplate { get; set; }
 
     /// <summary>Legacy <c>dbo.DailyModelShiftMatchingRules</c>. Read only when <see cref="Kind"/> is
     /// <see cref="TemplateKind.ShiftMatching"/>.</summary>

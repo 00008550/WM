@@ -103,6 +103,15 @@ public sealed class DayTemplateResolutionTests
         Assert.Equal(target, Assert.Single(effective.ShiftMatchingRules).TemplateToAssignId);
     }
 
+    [Fact]
+    public void A_new_template_is_not_overridden_by_a_master_by_default()
+    {
+        // Legacy TreatAsMasterDailyModel is DEFAULT (1) and forced on at create.
+        var t = new DayTemplate { Code = "X", Name = "X" };
+        Assert.False(t.OverriddenByMasterTemplate);
+        Assert.Null(EffectiveDayTemplate.Resolve(t, Master()).AppliedMasterTemplateId);
+    }
+
     // ---- A6 ----
 
     [Fact]

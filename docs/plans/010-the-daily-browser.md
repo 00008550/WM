@@ -196,7 +196,7 @@ behaviours found in `37.V3.6.1.0.sql` that the vault does *not* describe, and th
 |---|---|---|
 | A1 | Employee has a master template; the day's own template has `TreatAsMasterDailyModel = 0` | the **master's** `NightShiftEndTime` / `NightShiftStartTime` / `InterswipeInterval…` are used, not the day's (`:775-778`, `:788-791`, `:812-815`) |
 | A2 | Same, but the day's template has `TreatAsMasterDailyModel = 1` | the day's own template wins |
-| A3 | Master assignment `StartDate = EndDate =` the swipe date | **legacy: never applies** (window is tested against yesterday *and* tomorrow, `:768-769`). **WM: applies.** Test both the legacy behaviour and the inverted one, and record the divergence |
+| A3 | Master assignment `StartDate = EndDate =` the swipe date | **legacy: never applies** (window is tested against yesterday *and* tomorrow, `:768-769`). **WM: applies.** Test both the legacy behaviour and the inverted one, and record the divergence. **Recorded (P1):** WM's window is inclusive `StartDate <= date <= EndDate`, so every migrated assignment starts a day earlier and ends a day later than legacy applied it, and one-day assignments go live — also in `TLW-CLOCKING-MODEL.md` §2 for import planning |
 | A4 | Swipe at exactly `NightShiftEndTime` | stays on its own day — `<` is strict (`:784`) |
 | A5 | Swipe at exactly `NightShiftStartTime` | stays on its own day — `>` is strict (`:798`) |
 | A6 | `NightShiftStartTime` set but `ShiftToSunday = 0` | branch 2 does **not** fire (`:795`) |
@@ -293,8 +293,11 @@ wired into `WM.sln`
 renamed `ShiftToSunday`), `OffsetAfterTime` (`NightShiftStartTime`), `AllocateToPreviousDayWindow`
 (`InterswipeIntervalToMoveToYesterday`), a `TemplateKind` discriminator and
 `OverriddenByMasterTemplate` (`TreatAsMasterDailyModel`); shift-matching rules and dated master
-assignments are child rows; a contract resolves the **effective** template for (employee, date)
-applying the master override.
+assignments are child rows; a contract resolves the **effective** template applying the master
+override — `IDayTemplateDirectory.ResolveAsync(employeeId, date, dayTemplateId)`. *(Amended
+2026-09-24 from "(employee, date)": the day's own template lives on the day — legacy
+`Clockings.DailyModelID` — and the Clocking aggregate is 002's, so the caller supplies it; the master
+assignment is still looked up by (employee, date).)*
 **Tests:** A1, A2, A3 (both legacy and inverted, divergence recorded), A6. Effective-template
 resolution with and without a master assignment, and with an expired one.
 **Risk:** low — additive schema, no behaviour depends on it yet.
