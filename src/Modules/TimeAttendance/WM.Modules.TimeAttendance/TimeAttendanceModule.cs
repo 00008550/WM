@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WM.Modules.People.Contracts;
+using WM.Modules.TimeAttendance.Contracts;
 using WM.Modules.TimeAttendance.Data;
 using WM.Modules.TimeAttendance.Domain;
 using WM.Modules.TimeAttendance.Services;
@@ -36,6 +37,7 @@ public sealed class TimeAttendanceModule : IModule
 
         services.AddScoped<PunchService>();
         services.AddScoped<PunchSeeder>();
+        services.AddScoped<IDayTemplateDirectory, DayTemplateDirectory>();
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)

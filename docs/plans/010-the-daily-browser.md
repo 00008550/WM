@@ -9,6 +9,8 @@ Status: draft            <!-- draft → approved → in-progress → in-review �
 > (screen rights) and the scope model (**001/005**) — rescope and re-sequence them behind those.
 > **P1–P2 (the read-only render + the five daily-template columns) are unaffected and remain the
 > first step, deliverable before 002.**
+>
+> **P1 approved for build 2026-09-24 (user: "go next"); P2–P5 still await rescope/approval.**
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — the smallest useful slice of it, pulled forward
 Reference: [`TLW-WORK-RULES.md`](../TLW-WORK-RULES.md) — full measured anatomy, written by this survey
 
