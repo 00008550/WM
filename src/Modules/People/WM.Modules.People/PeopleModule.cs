@@ -33,15 +33,6 @@ public sealed class PeopleModule : IModule
     }
 
     /// <summary>
-    /// "Today" for an employment question asked without a date. UTC, as every other date in WM is
-    /// today — <c>Site.TimeZone</c> exists and nothing resolves against it yet, so an employee whose
-    /// last day is today is a leaver up to 12 hours early or late depending on the site. Recorded
-    /// rather than fixed here: it is the same decision for punches, timesheets and payroll periods,
-    /// and it belongs to whichever plan makes WM timezone-aware, not to one endpoint.
-    /// </summary>
-    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
-
-    /// <summary>
     /// Which reference a Postgres <c>23503</c> on <c>Employees</c> is about, read from the violated
     /// constraint's name (007 P4). Before P4 every 23503 was answered "leaving reason" — right while
     /// that was the only settable foreign key, and wrong half the time once DepartmentId got one. An
@@ -63,11 +54,16 @@ public sealed class PeopleModule : IModule
         // employedOn defaults to today and drives only the derived status column: the list still
         // shows everyone in scope, including leavers and pre-boarded starters. Asking as at another
         // date answers "who was a leaver in March?" without a second endpoint.
-        employees.MapGet("/", async (PeopleDbContext db, IDataScopeResolver scopes, ISiteTimeZones zones, string? search, Guid? siteId, DateOnly? employedOn, int page = 1, int pageSize = 25, CancellationToken ct = default) =>
+        //
+        // "Today" is each employee's OWN local today, in the zone their home site resolves to (008 P3)
+        // — not UTC, and not one date for the whole page. Two employees in the same response can
+        // therefore be asked about different calendar dates, and both are right: at 12:00 UTC it is
+        // already tomorrow in Auckland and still today in Honolulu. An explicit employedOn is a
+        // calendar date the caller chose and wins unchanged, for every row.
+        employees.MapGet("/", async (PeopleDbContext db, IDataScopeResolver scopes, ISiteTimeZones zones, IClock clock, string? search, Guid? siteId, DateOnly? employedOn, int page = 1, int pageSize = 25, CancellationToken ct = default) =>
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 200);
-            var asAt = employedOn ?? Today();
 
             var scope = await scopes.GetScopeAsync(ct);
             var query = db.Employees.AsNoTracking().WithinScope(scope);
@@ -92,32 +88,37 @@ public sealed class PeopleModule : IModule
                 .ToListAsync(ct);
             var zoneBySite = await zones.ForSitesAsync(rows.Select(e => e.SiteId).Distinct(), ct);
 
-            var items = rows.Select(e => new
+            var items = rows.Select(e =>
             {
-                // Phone rides the row for the same reason Version does below: the editor opens from
-                // this row and PUT is a full replace, so a field missing here is a field every edit
-                // blanks (003 P3).
-                e.Id, e.Code, e.FirstName, e.LastName, e.Email, e.Phone, e.JobTitle,
-                e.SiteId, e.DepartmentId,
-                e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
-                e.LeavingReasonId, e.LeaverComments,
-                // The concurrency token goes out with the row it belongs to (011 P5). The list IS
-                // the read the employee modal edits from — employees.component.ts opens its drawer
-                // straight off an EmployeeRow — so leaving it out here would mean the SPA had no
-                // token to echo and every edit would be refused.
-                e.Version,
-                Status = e.StatusOn(asAt),
-                // Composed here, not inside IsEmployedOn: the window and the suspension are two facts
-                // (Employment's remarks), and this column's question is the one that needs both —
-                // "could this person be at work on that day?". A caller asking who was on the payroll
-                // asks the window alone.
-                IsEmployed = !e.IsSuspended && e.IsEmployedOn(asAt),
-                AsAt = asAt,
-                // The zone this employee's day is measured in (008 P2), and which link of
-                // site → ancestor → installation supplied it, so a reader can tell "Ljubljana because
-                // the plant says so" from "Ljubljana because nobody set anything".
-                TimeZone = zoneBySite[e.SiteId].Zone.Id,
-                TimeZoneSource = zoneBySite[e.SiteId].Source.ToString(),
+                var zone = zoneBySite[e.SiteId];
+                var asAt = employedOn ?? clock.TodayIn(zone.Zone);
+                return new
+                {
+                    // Phone rides the row for the same reason Version does below: the editor opens from
+                    // this row and PUT is a full replace, so a field missing here is a field every edit
+                    // blanks (003 P3).
+                    e.Id, e.Code, e.FirstName, e.LastName, e.Email, e.Phone, e.JobTitle,
+                    e.SiteId, e.DepartmentId,
+                    e.EmployedFrom, e.EmployedUntil, e.IsSuspended,
+                    e.LeavingReasonId, e.LeaverComments,
+                    // The concurrency token goes out with the row it belongs to (011 P5). The list IS
+                    // the read the employee modal edits from — employees.component.ts opens its drawer
+                    // straight off an EmployeeRow — so leaving it out here would mean the SPA had no
+                    // token to echo and every edit would be refused.
+                    e.Version,
+                    Status = e.StatusOn(asAt),
+                    // Composed here, not inside IsEmployedOn: the window and the suspension are two facts
+                    // (Employment's remarks), and this column's question is the one that needs both —
+                    // "could this person be at work on that day?". A caller asking who was on the payroll
+                    // asks the window alone.
+                    IsEmployed = !e.IsSuspended && e.IsEmployedOn(asAt),
+                    AsAt = asAt,
+                    // The zone this employee's day is measured in (008 P2), and which link of
+                    // site → ancestor → installation supplied it, so a reader can tell "Ljubljana because
+                    // the plant says so" from "Ljubljana because nobody set anything".
+                    TimeZone = zone.Zone.Id,
+                    TimeZoneSource = zone.Source.ToString(),
+                };
             }).ToList();
 
             return Results.Ok(new PagedResult<object>(items, total, page, pageSize));
@@ -134,7 +135,8 @@ public sealed class PeopleModule : IModule
         }).RequireAuthorization(WmPermissions.EmployeesView);
 
         employees.MapPost("/", async (
-            EmployeeUpsertRequest request, PeopleDbContext db, IDataScopeResolver scopes, CancellationToken ct) =>
+            EmployeeUpsertRequest request, PeopleDbContext db, IDataScopeResolver scopes,
+            ISiteTimeZones zones, IClock clock, CancellationToken ct) =>
         {
             if (Validate(request) is { } invalid)
                 return Results.Problem(invalid, statusCode: StatusCodes.Status400BadRequest);
@@ -150,7 +152,11 @@ public sealed class PeopleModule : IModule
             // The window is validated against the date the record will actually carry, not against the
             // body: an omitted EmployedFrom means "today" here (below), so comparing the two request
             // fields would wave through a create whose stored window ends before it starts.
-            var employedFrom = request.EmployedFrom ?? Today();
+            // "Today" at the site the employee is being filed at (008 P3): a hire entered at 23:30 in
+            // Tashkent starts on Tashkent's date, not on whatever UTC says. An unknown site resolves to
+            // the installation default here and is refused a few lines below.
+            var employedFrom = request.EmployedFrom
+                ?? clock.TodayIn((await zones.ForSiteAsync(request.SiteId, ct)).Zone);
             if (WindowInverted(employedFrom, request.EmployedUntil) is { } backwards)
                 return Results.Problem(backwards, statusCode: StatusCodes.Status400BadRequest);
 

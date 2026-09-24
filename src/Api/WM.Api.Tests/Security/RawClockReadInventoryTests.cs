@@ -41,8 +41,8 @@ public sealed partial class RawClockReadInventoryTests
         ["src/Modules/Identity/WM.Modules.Identity/Services/UserManagementService.cs"] = 2,
         // day — demo EmployedFrom, a date taken from UTC.
         ["src/Modules/People/WM.Modules.People/Data/PeopleSeeder.cs"] = 1,
-        // day — Today() (008 P3); stamp — UpdatedAt.
-        ["src/Modules/People/WM.Modules.People/PeopleModule.cs"] = 2,
+        // stamp — UpdatedAt. (Today(), the day read, went in 008 P3.)
+        ["src/Modules/People/WM.Modules.People/PeopleModule.cs"] = 1,
         // day — demo punches laid on UTC days (008 P4).
         ["src/Modules/TimeAttendance/WM.Modules.TimeAttendance/Data/PunchSeeder.cs"] = 2,
         // stamp — punch default instant and future guard (008 P5); day — employed-on dates (008 P3/P4).
