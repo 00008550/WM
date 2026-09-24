@@ -1011,6 +1011,35 @@ not alternatives**, and the PR must say so: 007 P2's window suppresses double-cl
 client that cannot know it duplicated; P8's key answers a client that *knows* it is retrying. Neither
 subsumes the other.
 
+### [ ] P9 — Agents can sign in to a development host without a password
+*Added 2026-09-24 at the user's request.* An agent verifying UI work in the browser stops at the
+sign-in screen: it does not type passwords, and minting a refresh token straight into the database
+was (rightly) refused as a security bypass. Every portal portion since 003 P3 has shipped with its
+browser check marked unverified for that reason alone.
+**Touches:** `src/Modules/Identity/WM.Modules.Identity` (a dev-only endpoint + options),
+`src/Api/WM.Api/appsettings.Development.json`, `WM.Api.Tests` (the authorization inventory and a new
+guard test), `CLAUDE.md` (how an agent signs in).
+**Done when:**
+- `POST /api/dev/sign-in` with `{ "userName": "…" }` returns the same `AuthResponse` as
+  `/api/auth/login`, issuing tokens through the same code path (refresh token hashed and stored, so
+  refresh/rotation/logout behave identically). No password.
+- It is **mapped only when BOTH** the host environment is `Development` **and** `DevSignIn:Enabled`
+  is `true`. Either one alone → the route does not exist (404, not 401/403).
+- `DevSignIn:Enabled=true` in any non-Development environment **stops the host booting**, with a
+  message naming the setting (same fail-at-composition pattern as `DescribeSigningKeyFault`).
+- Unknown or inactive user → refused, with the same message for both (not an enumeration oracle).
+- Every use logs a warning naming the user. It is `AllowAnonymous` explicitly, and the
+  authorization inventory lists it as a named dev-only exemption, not a silent gap.
+- `appsettings.Development.json` enables it. The production `Dockerfile` (`ASPNETCORE_ENVIRONMENT=Production`) and
+  `appsettings.json` do not.
+- `CLAUDE.md` says how an agent uses it: call the endpoint, `localStorage.setItem('wm.refresh', …)`
+  in the portal tab, reload; the portal's existing session restore does the rest.
+**Tests:** returns working tokens in Development+flag (the access token authorizes a real endpoint);
+404 in Development without the flag; 404 in Production-without-flag; host boot throws in
+Production+flag; inactive and unknown users refused identically.
+**Risk:** medium, because this is a password bypass by design. Its whole safety is the double gate plus the boot
+guard, so the tests of those gates are the portion, and a mutation removing each gate must go red.
+
 ---
 
 ## Corrections made to WM's records

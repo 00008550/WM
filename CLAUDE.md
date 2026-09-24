@@ -60,6 +60,8 @@ cd frontend/portal && npm run test       # ng test
 
 For UI work, run the portal via preview_start (`.claude/launch.json` → `portal`, port 4200) and verify in the browser. Never ask the user to check manually.
 
+**Signing in as an agent (011 P9).** Do not type passwords and do not mint tokens into the database. A Development API (`appsettings.Development.json` sets `DevSignIn:Enabled`) exposes `POST /api/dev/sign-in` with `{ "userName": "admin" }` and no password; it returns the same body as `/api/auth/login`. In the portal tab, run `localStorage.setItem('wm.refresh', '<refreshToken from that response>')` and reload — the portal's session restore does the rest. The route exists only in Development with the flag on; the flag in any other environment stops the host booting.
+
 ## Plans — how work is queued
 
 `docs/plans/` holds numbered plan files: `NNN-<slug>.md`. Each plan is one coherent chunk of the roadmap, broken into **portions** — each portion small enough to build, test, and review on its own.

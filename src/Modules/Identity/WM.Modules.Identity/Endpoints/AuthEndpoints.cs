@@ -8,6 +8,7 @@ namespace WM.Modules.Identity.Endpoints;
 
 public sealed record LoginRequest(string UserName, string Password);
 public sealed record RefreshRequest(string RefreshToken);
+public sealed record DevSignInRequest(string UserName);
 public sealed record AuthResponse(
     string AccessToken,
     DateTimeOffset AccessTokenExpiresAt,
@@ -55,6 +56,22 @@ internal static class AuthEndpoints
             user.EmployeeId,
             Permissions = user.Permissions.Order().ToArray(),
         })).RequireAuthorization();
+    }
+
+    /// <summary>
+    /// <c>POST /api/dev/sign-in</c> (plan 011 P9). Called by <see cref="IdentityModule"/> only when
+    /// <see cref="DevSignInOptions.ShouldMap"/> says so — the gate is whether the route exists at
+    /// all, not a check inside the handler, so a host without it answers 404.
+    /// </summary>
+    public static void MapDevSignIn(IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapPost("/api/dev/sign-in", async (DevSignInRequest request, AuthService auth, CancellationToken ct) =>
+        {
+            var result = await auth.DevSignInAsync(request.UserName, ct);
+            return result.Succeeded
+                ? Results.Ok(ToResponse(result))
+                : Results.Problem(result.Error, statusCode: StatusCodes.Status401Unauthorized);
+        }).WithTags("Dev").AllowAnonymous().RequireRateLimiting(WmRateLimits.PublicAnonymous);
     }
 
     private static AuthResponse ToResponse(AuthResult result) => new(
