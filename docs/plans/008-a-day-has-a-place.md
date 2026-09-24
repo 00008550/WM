@@ -1,6 +1,6 @@
 # 008 — A day has a place: time zones from the punch to the payslip
 
-Status: in-review          <!-- draft → approved → in-progress → in-review → merged -->
+Status: merged             <!-- draft → approved → in-progress → in-review → merged -->
 Approved: by the user 2026-09-24, all 5 portions — chosen so that 010 P2 is unblocked through 008 P4.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; a prerequisite for **002** (the Clocking aggregate)
 and a correction to **007 P1** (`PeopleModule.Today()`)
