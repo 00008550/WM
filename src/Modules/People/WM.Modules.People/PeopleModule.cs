@@ -577,6 +577,12 @@ internal sealed class EmployeeDirectory(
             .Select(Summary)
             .FirstOrDefaultAsync(ct);
 
+    public async Task<EmployeeSummary?> FindSelfAsync(Guid ownEmployeeId, CancellationToken ct = default) =>
+        await db.Employees.AsNoTracking()
+            .Where(e => e.Id == ownEmployeeId)
+            .Select(Summary)
+            .FirstOrDefaultAsync(ct);
+
     public async Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnAsync(
         DateOnly on, CancellationToken ct = default) =>
         await Scoped(await scopes.GetScopeAsync(ct))

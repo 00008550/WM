@@ -14,6 +14,14 @@ public interface IEmployeeDirectory
     Task<EmployeeSummary?> FindByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// The caller's <b>own</b> record, ignoring data scope. Scope governs what a caller may see of
+    /// <i>other</i> people; a site-scoped manager filed at a site outside their scope is still
+    /// themselves (008 P4 review). Pass only the employee id from the caller's token — never an id
+    /// taken from the request.
+    /// </summary>
+    Task<EmployeeSummary?> FindSelfAsync(Guid ownEmployeeId, CancellationToken ct = default);
+
+    /// <summary>
     /// Employees the caller may see who were employed on <paramref name="on"/>. Replaces
     /// <c>ListActiveAsync</c>: employment is a window, so the question needs a date. Callers that
     /// mean "now" pass <see cref="DateOnly.FromDateTime"/> of today explicitly rather than letting

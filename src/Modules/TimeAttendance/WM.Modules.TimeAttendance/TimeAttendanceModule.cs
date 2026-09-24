@@ -98,7 +98,9 @@ public sealed class TimeAttendanceModule : IModule
             DateOnly end;
             if (to is { } explicitEnd)
                 end = explicitEnd;
-            else if (await employees.FindByIdAsync(employeeId, ct) is { } employee)
+            // Their own record, unscoped: a /me read must not depend on the caller's scope over
+            // other people — a site-scoped manager filed outside that site is still themselves.
+            else if (await employees.FindSelfAsync(employeeId, ct) is { } employee)
                 end = await service.LocalTodayAsync(employee, ct); // their local today (008 P4)
             else
                 return Results.Problem("Your employee record could not be found.", statusCode: StatusCodes.Status404NotFound);

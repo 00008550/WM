@@ -5,14 +5,19 @@ using WM.SharedKernel.Time;
 namespace WM.Modules.TimeAttendance.Tests;
 
 /// <summary>A directory holding at most one employee, who is always "employed" for list queries.</summary>
-internal sealed class StubDirectory(EmployeeSummary? employee) : IEmployeeDirectory
+/// <param name="outOfScope">The employee exists but lies outside the caller's data scope: every
+/// scoped lookup misses them, and only <see cref="FindSelfAsync"/> finds them.</param>
+internal sealed class StubDirectory(EmployeeSummary? employee, bool outOfScope = false) : IEmployeeDirectory
 {
     private IReadOnlyList<EmployeeSummary> All => employee is null ? [] : [employee];
+    private EmployeeSummary? Scoped => outOfScope ? null : employee;
 
     public Task<EmployeeSummary?> FindByCodeAsync(string code, CancellationToken ct = default) =>
-        Task.FromResult(employee);
+        Task.FromResult(Scoped);
     public Task<EmployeeSummary?> FindByIdAsync(Guid id, CancellationToken ct = default) =>
-        Task.FromResult(employee);
+        Task.FromResult(Scoped);
+    public Task<EmployeeSummary?> FindSelfAsync(Guid ownEmployeeId, CancellationToken ct = default) =>
+        Task.FromResult(employee?.Id == ownEmployeeId ? employee : null);
     public Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnAsync(DateOnly on, CancellationToken ct = default) =>
         Task.FromResult(All);
     public Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnUnscopedAsync(DateOnly on, CancellationToken ct = default) =>
