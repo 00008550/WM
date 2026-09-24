@@ -12,6 +12,7 @@ using WM.SharedKernel.Common;
 using WM.SharedKernel.Domain;
 using WM.SharedKernel.Modules;
 using WM.SharedKernel.Security;
+using WM.SharedKernel.Time;
 
 namespace WM.Modules.People;
 
@@ -26,6 +27,8 @@ public sealed class PeopleModule : IModule
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", "people")));
         services.AddScoped<IEmployeeDirectory, EmployeeDirectory>();
         services.AddScoped<ISiteHierarchy, Services.SiteHierarchy>();
+        // 008 P2. Depends on InstallationZone, which the host registers and validates at composition.
+        services.AddScoped<ISiteTimeZones, SiteZoneResolver>();
         services.AddScoped<PeopleSeeder>();
     }
 
@@ -60,7 +63,7 @@ public sealed class PeopleModule : IModule
         // employedOn defaults to today and drives only the derived status column: the list still
         // shows everyone in scope, including leavers and pre-boarded starters. Asking as at another
         // date answers "who was a leaver in March?" without a second endpoint.
-        employees.MapGet("/", async (PeopleDbContext db, IDataScopeResolver scopes, string? search, Guid? siteId, DateOnly? employedOn, int page = 1, int pageSize = 25, CancellationToken ct = default) =>
+        employees.MapGet("/", async (PeopleDbContext db, IDataScopeResolver scopes, ISiteTimeZones zones, string? search, Guid? siteId, DateOnly? employedOn, int page = 1, int pageSize = 25, CancellationToken ct = default) =>
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 200);
@@ -87,6 +90,7 @@ public sealed class PeopleModule : IModule
                 .OrderBy(e => e.LastName).ThenBy(e => e.FirstName)
                 .Skip((page - 1) * pageSize).Take(pageSize)
                 .ToListAsync(ct);
+            var zoneBySite = await zones.ForSitesAsync(rows.Select(e => e.SiteId).Distinct(), ct);
 
             var items = rows.Select(e => new
             {
@@ -109,6 +113,11 @@ public sealed class PeopleModule : IModule
                 // asks the window alone.
                 IsEmployed = !e.IsSuspended && e.IsEmployedOn(asAt),
                 AsAt = asAt,
+                // The zone this employee's day is measured in (008 P2), and which link of
+                // site → ancestor → installation supplied it, so a reader can tell "Ljubljana because
+                // the plant says so" from "Ljubljana because nobody set anything".
+                TimeZone = zoneBySite[e.SiteId].Zone.Id,
+                TimeZoneSource = zoneBySite[e.SiteId].Source.ToString(),
             }).ToList();
 
             return Results.Ok(new PagedResult<object>(items, total, page, pageSize));
@@ -430,6 +439,42 @@ public sealed class PeopleModule : IModule
             return Results.Ok(await db.SitesWithinScope(scope).AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct));
         }).RequireAuthorization(WmPermissions.EmployeesView);
 
+        // Settings: an administrator sets — or clears, to inherit — a site's zone (008 P2; user
+        // decision 2026-09-24). There was no site-edit endpoint to extend, so this is the narrowest
+        // one that does the job: one field, its own route, under the sites.manage permission that
+        // already existed for exactly this and guarded nothing. Scoped like the list: a site outside
+        // the caller's scope is a 404, not a 403. The zone must be an IANA id this host knows
+        // (ZoneId); a Windows id or a typo is a 400 naming why. A change affects new punches only
+        // (open question 4, freeze) — 008 P4 stores the resolved local date on each punch.
+        sites.MapPut("/{id:guid}/time-zone", async (
+            Guid id, SiteTimeZoneRequest request, PeopleDbContext db, IDataScopeResolver scopes,
+            ISiteTimeZones zones, CancellationToken ct) =>
+        {
+            var scope = await scopes.GetScopeAsync(ct);
+            var site = await db.SitesWithinScope(scope).FirstOrDefaultAsync(s => s.Id == id, ct);
+            if (site is null)
+                return Results.NotFound();
+
+            if (request.TimeZone is null)
+                site.TimeZone = null;
+            else if (ZoneId.TryParse(request.TimeZone, out var zone, out var fault))
+                site.TimeZone = zone.Id;
+            else
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(SiteTimeZoneRequest.TimeZone)] = [fault],
+                });
+
+            await db.SaveChangesAsync(ct);
+            var resolved = await zones.ForSiteAsync(site.Id, ct);
+            return Results.Ok(new
+            {
+                site.Id, site.Name, site.ParentId, site.TimeZone,
+                ResolvedTimeZone = resolved.Zone.Id,
+                ResolvedTimeZoneSource = resolved.Source.ToString(),
+            });
+        }).RequireAuthorization(WmPermissions.SitesManage);
+
         // The department picker's source, under the same rule. ?siteId narrows to one site, which is
         // how the employee editor offers only departments at the site selected — 007 P4 refuses any
         // other, so offering them would only offer a 400.
@@ -477,6 +522,12 @@ public sealed class PeopleModule : IModule
         }).RequireAuthorization(WmPermissions.SelfService).WithTags("Self-service");
     }
 }
+
+/// <summary>
+/// Sets a site's zone (008 P2). <c>null</c> clears it, meaning "inherit from the parent site, else
+/// the installation default"; there is no "UTC unless told otherwise" any more.
+/// </summary>
+public sealed record SiteTimeZoneRequest(string? TimeZone);
 
 /// <summary>
 /// A full-replace body. The three employment fields are nullable so that an omitted field means

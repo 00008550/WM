@@ -319,6 +319,9 @@ projection), a People migration (validate/normalise existing rows),
 - No cross-module read: TimeAttendance can obtain the zone without a project reference into
   People's internals.
 - `GET /api/employees` projects the resolved zone.
+- *(Q2 answered 2026-09-24: an admin sets zones in Settings.)* An authorized write sets or clears a
+  site's `TimeZone`, validated through `ZoneId` (IANA only), under an existing permission. Clearing
+  means "inherit". A portal field only if a site settings screen already exists.
 **Tests:** child site unset → inherits parent; whole chain unset → installation default and says so;
 a cycle in `ParentId` terminates rather than stack-overflowing; two sites in different zones resolve
 differently in one request; the migration is exercised up **and** down on a seeded database.
@@ -360,10 +363,14 @@ Inclusivity is preserved (last day counts) — the legacy rule at `76.V5.22.0.0.
 - Punches group by **local** date.
 - The grouping goes through one named seam — `IOwningDayResolver.Resolve(instant, zone)` or
   similar — whose body today is "the local calendar date" and whose XML doc names the five legacy
-  branches and says plan 002 owns them. **`Punch.Timestamp` stays `DateTimeOffset` and the punch
-  path is otherwise untouched.**
+  branches and says plan 002 owns them. **`Punch.Timestamp` stays `DateTimeOffset`.**
+- *(Q4 answered 2026-09-24: freeze.)* The punch stores its **resolved local date** (and the zone
+  it was resolved in) when it is recorded, from the employee's **home-site** zone (Q2 (a)); grouping
+  reads the stored date, not a re-derivation. This needs a TimeAttendance migration. How existing demo
+  punches get their date is P4's to state (see Out of scope); a later zone edit never moves them.
 - The default "today" for a timesheet is the employee's local today.
-**Tests:** 23:30 UTC at `Asia/Tashkent` (+05) → next local day; 00:30 UTC at
+**Tests:** a punch recorded, then its site's zone edited, still reports its original local date;
+23:30 UTC at `Asia/Tashkent` (+05) → next local day; 00:30 UTC at
 `America/Los_Angeles` (−08) → previous local day; a `Europe/Ljubljana` punch at 22:30 UTC in July →
 23 July local not 22 July (the seeded-demo defect, pinned); **DST fall-back** — two punches an hour
 apart both reading local 01:30 stay two punches on one local day, ordered correctly; **DST
@@ -390,7 +397,7 @@ the punch request contract, `Domain/Punch.cs` (+ `ReceivedAt`), a TimeAttendance
 **Tests:** a request with an offset-less timestamp is rejected; a queued punch 30 hours old is
 accepted and flagged; a punch 10 minutes in the future is rejected as today; client and server
 instants are both persisted and both surface on the punch DTO; a punch whose client offset
-contradicts its site's zone by more than the DST maximum is flagged, not dropped.
+contradicts its home site's resolved zone by more than the DST maximum is flagged, not dropped.
 **Risk:** medium — it is a breaking contract change on a public endpoint. Ship the rejection behind
 the same review that documents it.
 
@@ -423,6 +430,12 @@ local dates; (c) the employee's home site, with travel handled as an explicit ex
 for P4 and would name (c) as the seam. **This changes the Clocking aggregate's key**, so 002 needs
 the answer.
 
+> **Answered by the user, 2026-09-24 — (a), home site.** An administrator sets each site's time zone
+> in Settings. A punch's day is decided by the employee's **home site** zone (via P2's resolver:
+> site → nearest ancestor with a zone → installation default). The zone is **never** derived from
+> geolocation. Reason: employees rarely work across time zones. Travel (option c) stays a named
+> seam for later and is not built now.
+
 **3. Should a *user* have a display zone, distinct from the employee's day zone?**
 Legacy has none (`dbo.[User]`, 30 columns, no zone). But a payroll administrator in London reading a
 Tashkent site's timesheet needs to know which clock the times are in. My proposal: **no user zone**;
@@ -437,6 +450,13 @@ resolved local date on the punch so history is frozen and only new punches see t
 second is more storage and is the honest answer for payroll. **This one interacts with §7A's replay
 design** — a replay that re-derives the day will disagree with a frozen one — so it may deserve an
 ADR rather than a plan line.
+
+> **Answered by the user, 2026-09-24 — freeze.** A punch stores its resolved local date when it is
+> recorded; a later `Site.TimeZone` edit or tzdata change affects only new punches. History changes
+> only through an explicit, audited **recalculate** action — wanted ("we can recompute if we want"),
+> but not part of 008. Recorded as a follow-up for the plan that owns replay (§7A / **002**): a
+> recalculate re-derives stored local dates deliberately and audits it; replay reads the frozen one.
+> **008 P4 must implement the frozen local date on the punch** (see P4 below).
 
 **5. Proposed `ARCHITECTURE.md` change — propose-only, not applied** (§1–§12 are design sections).
 §3 lists `src/SharedKernel` as *"cross-cutting primitives only — not a dumping ground"*. P1 adds

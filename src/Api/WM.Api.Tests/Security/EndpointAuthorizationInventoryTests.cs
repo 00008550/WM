@@ -112,6 +112,9 @@ public sealed class EndpointAuthorizationInventoryTests
         ("POST /api/employees", "employees.manage"),
         ("PUT /api/employees/{id:guid}", "employees.manage"),
         ("GET /api/sites", "employees.view"),
+        // 008 P2: an administrator's Settings write. sites.manage, not employees.manage: HR editing
+        // people must not be able to move which calendar day every punch at a site lands on.
+        ("PUT /api/sites/{id:guid}/time-zone", "sites.manage"),
         // 003 P3: the department picker's source. Same permission as sites, and scoped the same way.
         ("GET /api/departments", "employees.view"),
         // The leaving-reason vocabulary reads with employees.view, not employees.manage: it is a
