@@ -59,11 +59,16 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
     /// default — is an account with no employee record linked, which is the honest default for a
     /// project that mostly tests the write paths.
     /// </param>
+    /// <param name="time">
+    /// The clock the handlers read "now" from (008 P3). Null is the real one; a test about which
+    /// calendar date it is somewhere pins the instant instead.
+    /// </param>
     public static async Task<PeopleEndpointHost> StartAsync(
         EffectiveDataScope scope,
         Action<PeopleDbContext>? seed = null,
         Guid? callerEmployeeId = null,
-        Action<DbContextOptionsBuilder>? configureDb = null)
+        Action<DbContextOptionsBuilder>? configureDb = null,
+        TimeProvider? time = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -89,6 +94,8 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
         // 008 P2: the zone resolver, over the installation default the host would have validated.
         builder.Services.AddSingleton(new InstallationZone(InstallationDefault));
         builder.Services.AddScoped<ISiteTimeZones, SiteZoneResolver>();
+        // 008 P3: "today" is read through IClock, registered the way WmClock registers it in the host.
+        builder.Services.AddSingleton<IClock>(new WM.SharedKernel.Time.SystemClock(time ?? TimeProvider.System));
         // Only /api/me/employee resolves this, and it resolves it before touching the database.
         builder.Services.AddScoped<ICurrentUser>(_ => new TestCurrentUser(callerEmployeeId));
 
