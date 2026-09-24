@@ -135,7 +135,7 @@ public sealed class PunchService(
     /// <summary>
     /// What is suspicious about an accepted punch (008 P5). <c>Late</c>: older than the configured
     /// threshold on arrival. <c>OffsetMismatch</c>: the client's offset differs from the home-site
-    /// zone's offset at that instant by more than the zone's largest DST shift — so a device that has
+    /// zone's offset at that instant by more than the zone's DST shift in force at that instant — so a device that has
     /// not yet switched to or from summer time is tolerated, and one set to another zone is not. A zone
     /// without DST tolerates nothing.
     /// </summary>
@@ -148,7 +148,12 @@ public sealed class PunchService(
         if (clientOffsetMinutes is { } offset)
         {
             var expected = zone.Info.GetUtcOffset(timestamp);
+            // The DST shift of the rule in force AT this instant — not the largest the zone ever had:
+            // tzdata carries history (Tashkent's pre-1991 DST, wartime double summer time in Berlin
+            // and London, both 2h), and a historical maximum would widen today's tolerance (008 P5 review).
+            var localDate = TimeZoneInfo.ConvertTime(timestamp, zone.Info).DateTime.Date;
             var tolerance = zone.Info.GetAdjustmentRules()
+                .Where(r => r.DateStart <= localDate && localDate <= r.DateEnd)
                 .Select(r => r.DaylightDelta.Duration())
                 .DefaultIfEmpty(TimeSpan.Zero)
                 .Max();

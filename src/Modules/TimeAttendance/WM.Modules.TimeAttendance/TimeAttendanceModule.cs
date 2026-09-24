@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -52,6 +54,22 @@ public sealed class TimeAttendanceModule : IModule
         services.AddScoped<IDayTemplateDirectory, DayTemplateDirectory>();
     }
 
+    /// <summary>Which clock WM trusts for a punch, for an API client to read (008 P5; see
+    /// <see cref="PunchTimingOptions"/>).</summary>
+    internal const string RecordPunchContract =
+        "`timestamp` is the instant the punch happened, ISO 8601 WITH a UTC offset — the device's local "
+        + "offset, e.g. `2026-09-25T08:00:00+05:00`. An offset is required: a timestamp without one "
+        + "(`2026-09-25T08:00:00`) is refused with 400, never guessed. Omit `timestamp` to have the "
+        + "server stamp the punch now. A timestamp more than 5 minutes ahead of the server's clock is "
+        + "refused with 400. The punch's own instant decides its local day. "
+        + "`receivedAt` is the server's clock when the punch arrived, stored beside `timestamp` and never "
+        + "substituted for it (equal to it when the server stamped the punch). "
+        + "A past punch is accepted — offline queues are expected — and `flags` records anomalies without "
+        + "dropping the punch: `Late` (1) when `timestamp` is older than `PunchTiming:LateAfter` "
+        + "(default 1 hour) on arrival; `OffsetMismatch` (2) when the timestamp's offset differs from "
+        + "the employee's home-site zone at that instant by more than that zone's DST shift in force "
+        + "then (none for a zone without DST — so `Z` from a device outside UTC is flagged).";
+
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var punches = endpoints.MapGroup("/api/punches").WithTags("Punches");
@@ -62,7 +80,9 @@ public sealed class TimeAttendanceModule : IModule
             return result.Match(
                 punch => Results.Created($"/api/punches/{punch.Id}", punch),
                 error => Results.Problem(error, statusCode: StatusCodes.Status400BadRequest));
-        }).RequireAuthorization(WmPermissions.PunchesRecord);
+        }).RequireAuthorization(WmPermissions.PunchesRecord)
+          .WithSummary("Record a punch — the contract an offline client's queue relies on (008 P5).")
+          .WithDescription(RecordPunchContract);
 
         punches.MapGet("/recent", async (PunchService service, int take = 50, CancellationToken ct = default) =>
             Results.Ok(await service.GetRecentAsync(take, ct)))
@@ -139,6 +159,10 @@ public sealed record RecordPunchRequest(
     PunchSource Source = PunchSource.Web,
     // ISO 8601 WITH an offset, or omitted for "now" (008 P5 — see PunchTimingOptions for the
     // contract). A string so an offset-less value can be refused rather than read as server-local.
+    [property: Description("ISO 8601 date-time WITH a UTC offset (Z or ±hh:mm), e.g. "
+        + "2026-09-25T08:00:00+05:00. Offset-less values are refused (400); more than 5 minutes ahead "
+        + "is refused (400); omitted means server time. See the operation description for flags.")]
+    [property: DataType(DataType.DateTime)]
     string? Timestamp = null,
     string? DeviceId = null,
     double? Latitude = null,

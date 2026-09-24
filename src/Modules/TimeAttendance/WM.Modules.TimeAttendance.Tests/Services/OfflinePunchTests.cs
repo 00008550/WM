@@ -181,6 +181,29 @@ public sealed class OfflinePunchTests
         Assert.Equal(new DateOnly(2026, 9, 23), day.Date);
     }
 
+    // ---- DST spring-forward: a wall clock that never existed ----
+
+    [Fact]
+    public async Task Spring_forward_a_queued_local_0230_with_its_offset_is_stored_as_that_instant_not_rejected()
+    {
+        // Decision (008 P5, the plan's spring-forward edge case: "rejected or normalised"): NORMALISED.
+        // Ljubljana skipped 02:00-03:00 on 29 Mar 2026, so local 02:30 never happened — but with the
+        // offset required, "02:30+01:00" is not a wall clock, it is one unambiguous instant (01:30Z,
+        // which Ljubljana called 03:30+02:00). It is stored as that instant, on local 29 March, and
+        // not flagged: +01:00 is Ljubljana's standard offset, within the DST shift in force that day
+        // (a phone that has not switched yet). Nothing is silently shifted — the client's instant is kept.
+        // LateAfter widened: "now" is September, and this test is about the offset, not queue age.
+        var (service, db) = Build(Ljubljana, lateAfter: TimeSpan.FromDays(365));
+
+        var result = await Record(service, "2026-03-29T02:30:00+01:00");
+
+        Assert.Null(result.Error);
+        var stored = await db.Punches.SingleAsync();
+        Assert.Equal(new DateTimeOffset(2026, 3, 29, 1, 30, 0, TimeSpan.Zero), stored.Timestamp);
+        Assert.Equal(new DateOnly(2026, 3, 29), stored.LocalDate);
+        Assert.Equal(PunchFlags.None, stored.Flags);
+    }
+
     // ---- the offset against the home site's zone ----
 
     [Fact]

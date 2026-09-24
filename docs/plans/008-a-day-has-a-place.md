@@ -417,6 +417,13 @@ instants are both persisted and both surface on the punch DTO; a punch whose cli
 contradicts its home site's resolved zone by more than the DST maximum is flagged, not dropped.
 **Risk:** medium — it is a breaking contract change on a public endpoint. Ship the rejection behind
 the same review that documents it.
+**Follow-up (recorded at P5 review, 2026-09-25):** P5 applies only to `POST /api/punches`, the one
+endpoint that accepts a `timestamp`. The self-service `POST /api/me/punch` (`SelfPunchRequest`) takes
+**no timestamp**; the server always stamps it. So a Flutter employee punching for **themselves** cannot
+queue offline yet: a queued self-punch would be dated when it arrives. **Owner: the Flutter
+self-service plan** (not yet written). It adds an optional offset-required `timestamp` to
+`SelfPunchRequest` and routes it through the same `ClientTimestamp` parse, flags and `receivedAt`. P5
+did not add it because that would widen this portion's contract change to a second endpoint.
 
 ---
 
