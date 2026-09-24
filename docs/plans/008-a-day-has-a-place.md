@@ -332,7 +332,7 @@ the migration is untested. Do not claim it.)*
 
 ---
 
-### [ ] P3 — Employment resolves at the employee's local today
+### [x] P3 — Employment resolves at the employee's local today
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs` (`Today()` → zone-aware),
 `src/Modules/People/WM.Modules.People.Tests/`.
 **Ordering:** **must land after 007 P1**, which introduces `Today()`, `EmployedFrom`/`EmployedUntil`
