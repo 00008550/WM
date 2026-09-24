@@ -17,6 +17,8 @@ export interface EmployeeRow {
   firstName: string;
   lastName: string;
   email: string | null;
+  /** On the row because the editor opens from it and `PUT` is a full replace (003 P3). */
+  phone: string | null;
   jobTitle: string | null;
   siteId: string;
   departmentId: string | null;
@@ -46,6 +48,13 @@ export interface Site {
   name: string;
   parentId: string | null;
   timeZone: string;
+}
+
+/** A department, from the caller-scoped `GET /api/departments` (003 P3). */
+export interface Department {
+  id: string;
+  name: string;
+  siteId: string;
 }
 
 export interface EmployeeUpsert {
@@ -123,7 +132,14 @@ export class WorkforceApi {
     return this.http.get<Site[]>(`${this.base}/api/sites`);
   }
 
-  leavingReasons(): Observable<LeavingReason[]> {
+  /** Only departments the caller's scope reaches; `siteId` narrows to one site. */
+  departments(siteId?: string): Observable<Department[]> {
+    let params = new HttpParams();
+    if (siteId) params = params.set('siteId', siteId);
+    return this.http.get<Department[]>(`${this.base}/api/departments`, { params });
+  }
+
+  leavingReasons():Observable<LeavingReason[]> {
     return this.http.get<LeavingReason[]>(`${this.base}/api/leaving-reasons`);
   }
 
