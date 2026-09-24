@@ -40,14 +40,14 @@ public sealed class LocalDayTests
             .UseInMemoryDatabase($"local-day-{Guid.NewGuid()}").Options);
         var zones = new FixedZones(zone);
         var service = new PunchService(db, new StubDirectory(employee ?? Employee()), new NoopEventStream(),
-            Options.Create(new PunchDeduplicationOptions()), zones, new LocalCalendarDayResolver(),
+            Options.Create(new PunchDeduplicationOptions()), Options.Create(new PunchTimingOptions()), zones, new LocalCalendarDayResolver(),
             new SystemClock(new FixedTime(now ?? Now)));
         return new Rig(service, db, zones);
     }
 
     private static async Task<Punch> Record(Rig rig, DateTimeOffset at, PunchDirection direction = PunchDirection.In)
     {
-        var result = await rig.Service.RecordAsync(new RecordPunchRequest(Code, direction, PunchSource.Web, at), null, default);
+        var result = await rig.Service.RecordAsync(new RecordPunchRequest(Code, direction, PunchSource.Web, at.ToString("O")), null, default);
         Assert.Null(result.Error);
         return result.Punch!;
     }
@@ -174,7 +174,7 @@ public sealed class LocalDayTests
     {
         var rig = Build(Tashkent, Employee(until: D(2026, 3, 10)));
         var result = await rig.Service.RecordAsync(new RecordPunchRequest(Code, PunchDirection.In, PunchSource.Web,
-            new DateTimeOffset(2026, 3, 10, 23, 30, 0, TimeSpan.Zero)), null, default);
+            new DateTimeOffset(2026, 3, 10, 23, 30, 0, TimeSpan.Zero).ToString("O")), null, default);
 
         Assert.Null(result.Punch);
     }

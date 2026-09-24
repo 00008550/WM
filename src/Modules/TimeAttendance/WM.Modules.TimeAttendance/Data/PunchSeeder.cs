@@ -97,5 +97,6 @@ public sealed class PunchSeeder(
         SiteId = employee.SiteId,
         LocalDate = owningDay.Resolve(timestamp, zone),
         LocalZone = zone.Id,
+        ReceivedAt = timestamp.ToUniversalTime(), // a terminal punch, stamped as it happened
     };
 }

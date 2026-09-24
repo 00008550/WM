@@ -34,14 +34,14 @@ public sealed class PunchBoundaryTests
             new DbContextOptionsBuilder<TimeAttendanceDbContext>()
                 .UseInMemoryDatabase($"punch-{Guid.NewGuid()}").Options);
         var options = Options.Create(new PunchDeduplicationOptions { Window = TimeSpan.FromSeconds(dedupeSeconds) });
-        var svc = new PunchService(db, new StubDirectory(employee), new NoopEventStream(), options,
+        var svc = new PunchService(db, new StubDirectory(employee), new NoopEventStream(), options, Options.Create(new PunchTimingOptions()),
             new FixedZones(ZoneId.Utc), new LocalCalendarDayResolver(),
             new SystemClock(new FixedTime(new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero))));
         return (svc, db);
     }
 
     private static RecordPunchRequest Punch(DateTimeOffset at, PunchDirection dir = PunchDirection.In) =>
-        new(Code, dir, PunchSource.Web, at);
+        new(Code, dir, PunchSource.Web, at.ToString("O"));
 
     // ---- the employment-window boundary (edge cases 7-10) ----
 

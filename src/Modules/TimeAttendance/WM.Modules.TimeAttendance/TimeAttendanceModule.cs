@@ -35,6 +35,14 @@ public sealed class TimeAttendanceModule : IModule
         if (PunchDeduplicationOptions.DescribeFault(dedupe) is { } dedupeFault)
             throw new InvalidOperationException(dedupeFault);
 
+        // 008 P5: when a client's punch clock earns a flag. Same composition-time check.
+        services.AddOptions<PunchTimingOptions>()
+            .Bind(configuration.GetSection(PunchTimingOptions.SectionName));
+        var timing = configuration.GetSection(PunchTimingOptions.SectionName).Get<PunchTimingOptions>()
+                     ?? new PunchTimingOptions();
+        if (PunchTimingOptions.DescribeFault(timing) is { } timingFault)
+            throw new InvalidOperationException(timingFault);
+
         services.AddScoped<PunchService>();
         services.AddScoped<PunchSeeder>();
         // 008 P4: the owning-day seam (plan 002 replaces its body) and the one-off fill of punches
@@ -129,7 +137,9 @@ public sealed record RecordPunchRequest(
     string EmployeeCode,
     PunchDirection Direction,
     PunchSource Source = PunchSource.Web,
-    DateTimeOffset? Timestamp = null,
+    // ISO 8601 WITH an offset, or omitted for "now" (008 P5 — see PunchTimingOptions for the
+    // contract). A string so an offset-less value can be refused rather than read as server-local.
+    string? Timestamp = null,
     string? DeviceId = null,
     double? Latitude = null,
     double? Longitude = null);
