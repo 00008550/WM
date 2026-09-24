@@ -284,7 +284,7 @@ selection persisted per user, defaulting to the 14.
 Ordered so the build stays green and the app runnable. **P1 is deliverable before 002 is approved**
 and is the only portion 002 is waiting on.
 
-### [ ] P1 — `DayTemplate`: the five columns allocation reads
+### [x] P1 — `DayTemplate`: the five columns allocation reads
 **Touches:** `src/Modules/TimeAttendance/…/Domain/DayTemplate.cs`,
 `…/Domain/ShiftMatchingRule.cs`, `…/Domain/MasterTemplateAssignment.cs`, one migration,
 `…/Contracts/IDayTemplateDirectory.cs`, new `src/Modules/TimeAttendance/WM.Modules.TimeAttendance.Tests/`
@@ -301,6 +301,7 @@ assignment is still looked up by (employee, date).)*
 **Tests:** A1, A2, A3 (both legacy and inverted, divergence recorded), A6. Effective-template
 resolution with and without a master assignment, and with an expired one.
 **Risk:** low — additive schema, no behaviour depends on it yet.
+**Review passed 2026-09-24 — [#92](https://github.com/00008550/WM/pull/92).**
 **Note:** this is the whole of 002 P3's Work Rules dependency. Nothing else in the 124 columns is
 needed.
 
