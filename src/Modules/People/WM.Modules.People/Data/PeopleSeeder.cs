@@ -24,8 +24,10 @@ public sealed class PeopleSeeder(PeopleDbContext db, ILogger<PeopleSeeder> logge
             return;
 
         var hq = new Site { Name = "Headquarters", TimeZone = "Europe/Ljubljana" };
-        var plant = new Site { Name = "Production Plant", ParentId = hq.Id, TimeZone = "Europe/Ljubljana" };
-        var warehouse = new Site { Name = "Warehouse North", ParentId = hq.Id, TimeZone = "Europe/Ljubljana" };
+        // The children set no zone and inherit Headquarters' (008 P2), so the demo exercises the
+        // chain rather than three copies of one value.
+        var plant = new Site { Name = "Production Plant", ParentId = hq.Id };
+        var warehouse = new Site { Name = "Warehouse North", ParentId = hq.Id };
         db.Sites.AddRange(hq, plant, warehouse);
 
         var departments = new[]

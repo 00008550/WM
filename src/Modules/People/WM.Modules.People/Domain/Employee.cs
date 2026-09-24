@@ -7,7 +7,16 @@ public sealed class Site : Entity
 {
     public required string Name { get; set; }
     public Guid? ParentId { get; set; }
-    public string TimeZone { get; set; } = "UTC";
+
+    /// <summary>
+    /// The IANA zone this site's days are measured in, or <c>null</c> for "inherit": the nearest
+    /// ancestor site that has one answers, and failing that the installation default (plan 008 P2 —
+    /// <see cref="Services.SiteZoneResolver"/>). It used to default to <c>"UTC"</c>, which read as a
+    /// decision nobody had made. Only ever written through <c>ZoneId</c> validation
+    /// (<c>PUT /api/sites/{id}/time-zone</c>); stored as the id string so the entity serialises as
+    /// the plain value the API has always returned.
+    /// </summary>
+    public string? TimeZone { get; set; }
 
     public List<Site> Children { get; set; } = [];
 }

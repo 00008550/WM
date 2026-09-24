@@ -47,7 +47,8 @@ export interface Site {
   id: string;
   name: string;
   parentId: string | null;
-  timeZone: string;
+  /** IANA id, or null: the site inherits its parent's zone, else the installation default (008 P2). */
+  timeZone: string | null;
 }
 
 /** A department, from the caller-scoped `GET /api/departments` (003 P3). */

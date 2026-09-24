@@ -11,8 +11,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WM.Modules.People.Contracts;
 using WM.Modules.People.Data;
+using WM.Modules.People.Services;
 using WM.SharedKernel.Security;
+using WM.SharedKernel.Time;
 
 namespace WM.Modules.People.Tests.Endpoints;
 
@@ -47,6 +50,10 @@ namespace WM.Modules.People.Tests.Endpoints;
 /// </summary>
 internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
 {
+    /// <summary>The installation zone every host here runs with. Deliberately not UTC, so a test
+    /// that sees this zone knows it came from the fallback.</summary>
+    public static readonly ZoneId InstallationDefault = ZoneId.Parse("Europe/Ljubljana");
+
     /// <param name="callerEmployeeId">
     /// The employee the signed-in caller <i>is</i>, for the self-service endpoints. Null — the
     /// default — is an account with no employee record linked, which is the honest default for a
@@ -79,6 +86,9 @@ internal sealed class PeopleEndpointHost(WebApplication app) : IAsyncDisposable
         });
 
         builder.Services.AddScoped<IDataScopeResolver>(_ => new FixedScope(scope));
+        // 008 P2: the zone resolver, over the installation default the host would have validated.
+        builder.Services.AddSingleton(new InstallationZone(InstallationDefault));
+        builder.Services.AddScoped<ISiteTimeZones, SiteZoneResolver>();
         // Only /api/me/employee resolves this, and it resolves it before touching the database.
         builder.Services.AddScoped<ICurrentUser>(_ => new TestCurrentUser(callerEmployeeId));
 
