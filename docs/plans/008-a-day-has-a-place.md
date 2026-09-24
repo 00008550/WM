@@ -304,7 +304,7 @@ added to a file not on the list, and fails when a list entry no longer exists (n
 
 ---
 
-### [ ] P2 — `Site.TimeZone` becomes real, behind a People contract
+### [x] P2 — `Site.TimeZone` becomes real, behind a People contract
 **Touches:** `src/Modules/People/WM.Modules.People/Domain/Employee.cs` (`Site.TimeZone` → `ZoneId`),
 `Services/` (resolver), `PeopleModule.cs` (contract registration + expose on the employee
 projection), a People migration (validate/normalise existing rows),
