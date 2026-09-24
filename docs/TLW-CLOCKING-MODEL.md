@@ -56,6 +56,12 @@ Three properties that WM's `Punch` model does not have:
 3. **A swipe's owning day is a calculation, not a fact.** Which clocking a swipe lands on depends
    on the *previous* and *next* day's daily template (night-shift end time, offset-to-next-day,
    allocate-to-previous/next-day). Change a template and swipes move between days.
+   **Import divergence (plan 010 P1, edge case A3):** legacy applies an employee's master template
+   (`dbo.EmployeeMasterDailyModels`) only when `StartDate <= yesterday AND EndDate >= tomorrow`
+   (`37.V3.6.1.0.sql:768-769`); WM uses the inclusive window `StartDate <= date <= EndDate`. Migrated
+   assignments therefore take effect one day earlier and end one day later in WM, and one-day
+   assignments — dead in legacy — become live. An importer must decide per customer whether to
+   carry the dates as-is or narrow them by a day at each end.
 
 ### 2.3a Where that calculation actually lives *(measured 2026-08-14)*
 
