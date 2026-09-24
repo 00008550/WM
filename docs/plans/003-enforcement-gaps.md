@@ -245,7 +245,7 @@ still succeeds; the pre-image check still 404s an invisible employee (not 403).
   (a single `CanEditOwnRecord` predicate, defaulting to `true`) rather than hard-coding the
   current behaviour, so the carve-out is a one-line change later.
 
-### [ ] P3 — Scoped site and department lists
+### [x] P3 — Scoped site and department lists — review passed 2026-09-24, [#90](https://github.com/00008550/WM/pull/90)
 **Touches:** `src/Modules/People/WM.Modules.People/PeopleModule.cs`,
 `frontend/portal/src/app/core/api/workforce.api.ts`,
 `frontend/portal/src/app/pages/employees/employees.component.ts`
