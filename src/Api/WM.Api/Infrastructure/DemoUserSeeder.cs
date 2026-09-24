@@ -27,8 +27,9 @@ public sealed class DemoUserSeeder(
         if (employeeRole is null || managerRole is null)
             return;
 
-        // Seeding runs at startup with no signed-in user, so it must bypass data scope.
-        var active = await employees.ListEmployedOnUnscopedAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        // Seeding runs at startup with no signed-in user, so it must bypass data scope. Employed as at
+        // each employee's own local today (008 P4), not UTC's date.
+        var active = await employees.ListEmployedAtLocalTodayUnscopedAsync(ct);
         if (active.Count < 3)
             return;
 

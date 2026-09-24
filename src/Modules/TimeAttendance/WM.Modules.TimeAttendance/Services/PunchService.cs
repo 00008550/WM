@@ -5,6 +5,7 @@ using WM.Modules.TimeAttendance.Contracts;
 using WM.Modules.TimeAttendance.Data;
 using WM.Modules.TimeAttendance.Domain;
 using WM.SharedKernel.Events;
+using WM.SharedKernel.Time;
 
 namespace WM.Modules.TimeAttendance.Services;
 
@@ -27,7 +28,10 @@ public sealed class PunchService(
     TimeAttendanceDbContext db,
     IEmployeeDirectory employees,
     IEventStreamProducer eventStream,
-    IOptions<PunchDeduplicationOptions> dedupeOptions)
+    IOptions<PunchDeduplicationOptions> dedupeOptions,
+    ISiteTimeZones zones,
+    IOwningDayResolver owningDay,
+    IClock clock)
 {
     // A caller must not be able to tell "this code exists but is not employed" from "this code does
     // not exist" — either answer would let them probe the roster. Both return this one message, so
@@ -41,8 +45,9 @@ public sealed class PunchService(
         if (employee is null)
             return NotPunchable(request.EmployeeCode);
 
-        var timestamp = request.Timestamp ?? DateTimeOffset.UtcNow;
-        if (timestamp > DateTimeOffset.UtcNow.AddMinutes(5))
+        var now = clock.UtcNow;
+        var timestamp = request.Timestamp ?? now;
+        if (timestamp > now.AddMinutes(5))
             return new PunchResult(null, "Punch timestamp cannot be in the future.");
 
         // Fail closed at the punch's OWN date, not today: only someone who may work on the day the
@@ -51,7 +56,12 @@ public sealed class PunchService(
         // refuse to display. A back-dated punch into an employed period is allowed; the same punch
         // after the leave date — or for a suspended employee — is refused, with the same message as
         // an unknown code. (007 P2, edge cases 7-10.)
-        var punchDate = DateOnly.FromDateTime(timestamp.UtcDateTime);
+        //
+        // "The punch's own date" is its LOCAL date (008 P4): the day it belongs to in the employee's
+        // home-site zone, through the one owning-day seam. It is resolved here, once, and frozen on
+        // the row below — so the employment check and the timesheet agree on which day it is.
+        var zone = (await zones.ForSiteAsync(employee.SiteId, ct)).Zone;
+        var punchDate = owningDay.Resolve(timestamp, zone);
         if (employee.IsSuspended || !employee.IsEmployedOn(punchDate))
             return NotPunchable(request.EmployeeCode);
 
@@ -87,6 +97,8 @@ public sealed class PunchService(
             Latitude = request.Latitude,
             Longitude = request.Longitude,
             RecordedByUserId = recordedBy,
+            LocalDate = punchDate,
+            LocalZone = zone.Id,
         };
 
         db.Punches.Add(punch);
@@ -136,15 +148,15 @@ public sealed class PunchService(
         // Restrict to employees the caller may see before touching punches — otherwise
         // the feed would leak the existence and movements of out-of-scope staff.
         //
-        // Employed *today* AND not suspended, which is what ListActiveAsync used to mean and is still
-        // what a live feed wants. The two halves are written out because the directory answers the
+        // Employed on *their own local today* (008 P4) AND not suspended, which is what ListActiveAsync
+        // used to mean and is still what a live feed wants. The two halves are written out because the directory answers the
         // window question only — suspension is a separate fact and a caller replaying who was on the
         // payroll must not have it applied behind its back (IEmployeeDirectory.ListEmployedOnAsync).
         //
         // 007 P2 closed the accept-then-hide gap: RecordAsync now refuses a punch dated outside the
         // employee's window (and refuses a suspended employee), so the accept decision and this
         // visibility set apply the same predicate — one at the punch's date, one at today's.
-        var visible = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
+        var visible = (await employees.ListEmployedAtLocalTodayAsync(ct))
             .Where(e => !e.IsSuspended)
             .ToDictionary(e => e.Id, e => e.FullName);
         if (visible.Count == 0)
@@ -168,16 +180,17 @@ public sealed class PunchService(
     /// <summary>Everyone whose latest punch today is an In (i.e. currently clocked in).</summary>
     public async Task<LivePresence> GetLivePresenceAsync(CancellationToken ct)
     {
-        var since = DateTimeOffset.UtcNow.AddHours(-18); // ignore stale forgotten punches
+        var since = clock.UtcNow.AddHours(-18); // ignore stale forgotten punches
         var latestPunches = await db.Punches.AsNoTracking()
             .Where(p => p.Timestamp >= since)
             .GroupBy(p => p.EmployeeId)
             .Select(g => g.OrderByDescending(p => p.Timestamp).First())
             .ToListAsync(ct);
 
-        // Who could be at work today, against whom presence is reported: employed today and not
-        // administratively suspended. Composed here rather than in the directory — see GetRecentAsync.
-        var active = (await employees.ListEmployedOnAsync(DateOnly.FromDateTime(DateTime.UtcNow), ct))
+        // Who could be at work today, against whom presence is reported: employed on their own local
+        // today (008 P4) and not administratively suspended. Composed here rather than in the
+        // directory — see GetRecentAsync.
+        var active = (await employees.ListEmployedAtLocalTodayAsync(ct))
             .Where(e => !e.IsSuspended)
             .ToList();
         var byId = active.ToDictionary(e => e.Id);
@@ -196,19 +209,29 @@ public sealed class PunchService(
         return new LivePresence(present.Count, active.Count, present);
     }
 
+    /// <summary>
+    /// The employee's local today — the default end of a timesheet range (008 P4): their home site's
+    /// zone, never UTC's date.
+    /// </summary>
+    public async Task<DateOnly> LocalTodayAsync(EmployeeSummary employee, CancellationToken ct) =>
+        clock.TodayIn((await zones.ForSiteAsync(employee.SiteId, ct)).Zone);
+
+    /// <summary>
+    /// Punches grouped by the local day <b>frozen on each punch</b> when it was recorded (008 P4) —
+    /// not by <c>Timestamp</c>'s UTC date, and not re-derived under today's zone rules. The range is a
+    /// range of those days, so a punch at 23:30 UTC in Tashkent is found under the next date, and a
+    /// 23- or 25-hour DST day holds exactly the punches that belong to it — no <c>+24h</c> window.
+    /// </summary>
     public async Task<IReadOnlyList<TimesheetDay>> GetTimesheetAsync(
         Guid employeeId, DateOnly from, DateOnly to, CancellationToken ct)
     {
-        var start = new DateTimeOffset(from, TimeOnly.MinValue, TimeSpan.Zero);
-        var end = new DateTimeOffset(to.AddDays(1), TimeOnly.MinValue, TimeSpan.Zero);
-
         var punches = await db.Punches.AsNoTracking()
-            .Where(p => p.EmployeeId == employeeId && p.Timestamp >= start && p.Timestamp < end)
-            .OrderBy(p => p.Timestamp)
+            .Where(p => p.EmployeeId == employeeId && p.LocalDate >= from && p.LocalDate <= to)
+            .OrderBy(p => p.LocalDate).ThenBy(p => p.Timestamp)
             .ToListAsync(ct);
 
         var days = new List<TimesheetDay>();
-        foreach (var group in punches.GroupBy(p => DateOnly.FromDateTime(p.Timestamp.UtcDateTime)))
+        foreach (var group in punches.GroupBy(p => p.LocalDate!.Value))
         {
             var intervals = new List<TimesheetInterval>();
             DateTimeOffset? openIn = null;

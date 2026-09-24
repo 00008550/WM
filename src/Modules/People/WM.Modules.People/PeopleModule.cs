@@ -560,7 +560,8 @@ public sealed record EmployeeUpsertRequest(
     // the check silently, which is the exact defect P5 exists to end.
     Guid? Version = null);
 
-internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver scopes) : IEmployeeDirectory
+internal sealed class EmployeeDirectory(
+    PeopleDbContext db, IDataScopeResolver scopes, ISiteTimeZones zones, IClock clock) : IEmployeeDirectory
 {
     // The same rule as the unique index (007 P3): a punch carrying 'e1030' is employee E1030, not an
     // "Unknown employee code".
@@ -589,6 +590,33 @@ internal sealed class EmployeeDirectory(PeopleDbContext db, IDataScopeResolver s
             .Where(Employee.EmployedOn(on))
             .Select(Summary)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<EmployeeSummary>> ListEmployedAtLocalTodayAsync(CancellationToken ct = default) =>
+        await AtLocalToday(Scoped(await scopes.GetScopeAsync(ct)), ct);
+
+    public Task<IReadOnlyList<EmployeeSummary>> ListEmployedAtLocalTodayUnscopedAsync(CancellationToken ct = default) =>
+        AtLocalToday(db.Employees.AsNoTracking(), ct);
+
+    /// <summary>
+    /// Every real zone's today is UTC's date, the day before, or the day after (offsets run −12 to
+    /// +14), so the database narrows to windows touching those three dates and the exact decision is
+    /// made per row, in the domain, against that row's own local today.
+    /// </summary>
+    private async Task<IReadOnlyList<EmployeeSummary>> AtLocalToday(IQueryable<Employee> query, CancellationToken ct)
+    {
+        var utcToday = ZoneId.Utc.DateAt(clock.UtcNow);
+        var earliest = utcToday.AddDays(-1);
+        var latest = utcToday.AddDays(1);
+        var candidates = await query
+            .Where(e => e.EmployedFrom <= latest && (e.EmployedUntil == null || e.EmployedUntil >= earliest))
+            .Select(Summary)
+            .ToListAsync(ct);
+
+        var zoneBySite = await zones.ForSitesAsync(candidates.Select(e => e.SiteId).Distinct(), ct);
+        return candidates
+            .Where(e => e.IsEmployedOn(clock.TodayIn(zoneBySite[e.SiteId].Zone)))
+            .ToList();
+    }
 
     private IQueryable<Employee> Scoped(EffectiveDataScope scope) =>
         db.Employees.AsNoTracking().WithinScope(scope);

@@ -100,6 +100,9 @@ using (var scope = app.Services.CreateScope())
     await services.GetRequiredService<IdentityDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<PeopleDbContext>().Database.MigrateAsync();
     await services.GetRequiredService<TimeAttendanceDbContext>().Database.MigrateAsync();
+    // 008 P4: punches from before the local day was frozen on the row get one, through People's zone
+    // contract — the migration cannot resolve zones without reading People's schema.
+    await services.GetRequiredService<PunchLocalDateBackfill>().RunAsync();
 
     if (app.Environment.IsDevelopment())
     {

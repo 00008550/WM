@@ -7,6 +7,7 @@ using WM.Modules.TimeAttendance.Data;
 using WM.Modules.TimeAttendance.Domain;
 using WM.Modules.TimeAttendance.Services;
 using WM.SharedKernel.Events;
+using WM.SharedKernel.Time;
 
 namespace WM.Modules.TimeAttendance.Tests.Services;
 
@@ -33,7 +34,9 @@ public sealed class PunchBoundaryTests
             new DbContextOptionsBuilder<TimeAttendanceDbContext>()
                 .UseInMemoryDatabase($"punch-{Guid.NewGuid()}").Options);
         var options = Options.Create(new PunchDeduplicationOptions { Window = TimeSpan.FromSeconds(dedupeSeconds) });
-        var svc = new PunchService(db, new StubDirectory(employee), new NoopEventStream(), options);
+        var svc = new PunchService(db, new StubDirectory(employee), new NoopEventStream(), options,
+            new FixedZones(ZoneId.Utc), new LocalCalendarDayResolver(),
+            new SystemClock(new FixedTime(new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero))));
         return (svc, db);
     }
 
@@ -154,23 +157,6 @@ public sealed class PunchBoundaryTests
         Assert.Equal(TimeSpan.FromSeconds(30), new PunchDeduplicationOptions().Window);
     }
 
-    // ---- stubs ----
-
-    private sealed class StubDirectory(EmployeeSummary? employee) : IEmployeeDirectory
-    {
-        public Task<EmployeeSummary?> FindByCodeAsync(string code, CancellationToken ct = default) =>
-            Task.FromResult(employee);
-        public Task<EmployeeSummary?> FindByIdAsync(Guid id, CancellationToken ct = default) =>
-            Task.FromResult(employee);
-        public Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnAsync(DateOnly on, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<EmployeeSummary>>(employee is null ? [] : [employee]);
-        public Task<IReadOnlyList<EmployeeSummary>> ListEmployedOnUnscopedAsync(DateOnly on, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<EmployeeSummary>>(employee is null ? [] : [employee]);
-    }
-
-    private sealed class NoopEventStream : IEventStreamProducer
-    {
-        public Task PublishAsync<TEvent>(string topic, string key, TEvent @event, CancellationToken ct = default)
-            where TEvent : class => Task.CompletedTask;
-    }
+    // Stubs: TestDoubles.cs. The zone is UTC here — these tests are about the window and the dedupe
+    // guard, and 008 P4's LocalDayTests pin what a real zone changes.
 }

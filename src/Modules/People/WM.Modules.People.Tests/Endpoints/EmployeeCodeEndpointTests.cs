@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using WM.Modules.People.Data;
 using WM.Modules.People.Domain;
+using WM.Modules.People.Services;
+using WM.SharedKernel.Time;
 using WM.SharedKernel.Security;
 using Xunit;
 
@@ -100,7 +102,7 @@ public sealed class EmployeeCodeEndpointTests
     {
         await using var host = await PeopleEndpointHost.StartAsync(EffectiveDataScope.All(), Seed);
 
-        var found = host.Read(db => new EmployeeDirectory(db, new AllScope()).FindByCodeAsync(asPunched).GetAwaiter().GetResult());
+        var found = host.Read(db => Directory(db).FindByCodeAsync(asPunched).GetAwaiter().GetResult());
 
         Assert.NotNull(found);
         Assert.Equal(Existing, found.Id);
@@ -120,12 +122,16 @@ public sealed class EmployeeCodeEndpointTests
         var response = await client.PostAsJsonAsync("/api/employees", New("0042"));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        var byPadded = host.Read(db => new EmployeeDirectory(db, new AllScope()).FindByCodeAsync("0042").GetAwaiter().GetResult());
-        var byBare = host.Read(db => new EmployeeDirectory(db, new AllScope()).FindByCodeAsync("42").GetAwaiter().GetResult());
+        var byPadded = host.Read(db => Directory(db).FindByCodeAsync("0042").GetAwaiter().GetResult());
+        var byBare = host.Read(db => Directory(db).FindByCodeAsync("42").GetAwaiter().GetResult());
         Assert.NotNull(byPadded);
         Assert.NotNull(byBare);
         Assert.NotEqual(byPadded.Id, byBare.Id);
     }
+
+    private static EmployeeDirectory Directory(PeopleDbContext db) => new(db, new AllScope(),
+        new SiteZoneResolver(db, new InstallationZone(PeopleEndpointHost.InstallationDefault)),
+        new SystemClock(TimeProvider.System));
 
     private static EmployeeUpsertRequest New(string code) =>
         new(code, "Grace", "Hopper", null, null, null, Site, null, Hired);
