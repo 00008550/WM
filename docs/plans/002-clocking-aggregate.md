@@ -1,6 +1,7 @@
 # 002 — The Clocking daily aggregate
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: approved           <!-- draft → approved → in-progress → in-review → merged -->
+Approved by the user 2026-09-25 (all 8 portions), directly in the coordinating session, with the Decisions below.
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — this is its missing prerequisite
 Reference: [`TLW-CLOCKING-MODEL.md`](../TLW-CLOCKING-MODEL.md) — full measured anatomy
 Refreshed: 2026-09-25 against `master` `d76c54a`, after 007 P1–P4, 008 (all), 010 P1–P2, 011 P9, 022 P1–P2
