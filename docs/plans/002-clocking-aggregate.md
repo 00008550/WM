@@ -31,7 +31,7 @@ Legacy sources surveyed (every one opened for this refresh):
 
 | # | Stale claim (old text) | Now | Evidence |
 |---|---|---|---|
-| C1 | *"The decision this plan is blocked on … needs your sign-off before any portion runs"* (normalise vs mirror) | **Split in two.** Store-vs-derive is **decided** (`ARCHITECTURE.md §0a` decision 2: stored). Row-shape-vs-20-columns is **not** decided by §0a's wording and stays open as Q1 — but it no longer blocks P1–P4, which carry no counters | §0a:30-36 |
+| C1 | *"The decision this plan is blocked on … needs your sign-off before any portion runs"* (normalise vs mirror) | **Split in two.** Store-vs-derive is **decided** (`ARCHITECTURE.md §0a` decision 2: stored). Row-shape-vs-20-columns is **not** decided by §0a's wording and was answered by the user 2026-09-25: **twenty fixed columns** (Decisions, 1) | §0a:30-36 |
 | C2 | *"002 is `draft` and blocked on 007 P1"* | 007 P1 merged (#61). `IEmployeeDirectory.ListEmployedOnUnscopedAsync` / `EmployeeSummary.IsEmployedOn` answer "who was employed on day D" | `EmployeeDirectory.cs:38-45`, `:91-100` |
 | C3 | Exceptions *"configured per daily model (`Enums.cs:1414-1434`)"* | That range is **`AuditTrailLogsBitColumns`** (enum at `:1397`) — the list of `DailyModels` bit columns the audit **triggers** log. The flags are real `DailyModels` columns, but the citation is an audit enum. The exception catalogue is `Enums.cs:86-155` (67 values, 43 real — plan 010) and severity `Informational | Blocking` is `:80-84` | opened both |
 | C4 | Authorised vs unauthorised evidenced by *"two report views (`HorioDB.designer.cs:5921`, `:5929`)"* | Those lines are `DataContext` table accessors for two **58-column report views**. The stores are `dbo.ScoresAbnormalities` (13 cols — raised) and `dbo.ScoresAbnormalitiesAuthorized` (8 cols — `UserId` **nullable**, `DateAuthorized`), both keyed by **`(EmployeeId, BadgeDate)`**, not by `ClockingId` | `:19596`, `:86218` |
@@ -39,7 +39,7 @@ Legacy sources surveyed (every one opened for this refresh):
 | C6 | P4 *"each punch retains raw device time, adjusted time, provenance … Rounding stays auditable"* scoped to "the punch model" as one low-risk slice | Re-cut: provenance of **punches** (P6) and of **stored calculated values** (P7) are separate portions; both are human-editable per §0a decision 1, so both need the audit journal (P4) first | §0a decisions 1-4 |
 | C7 | *"Reassignment works when an adjacent day's template changes"* (old P3) | **Inverted by the user's Q4 = freeze (008, 2026-09-24).** A template edit moves nothing; `Punch.LocalDate` is frozen at record time. Moving a punch is an explicit, **audited recalculate** — owned here as P8 | `Punch.cs:262-275`, `008-a-day-has-a-place.md:474-485` |
 | C8 | Open Q3 (finish 001 first?) and Q4 (`SoftwareMainOptions` as plan 003) | Obsolete. 001 P3 is superseded by 005 P4; `SoftwareMainOptions` became plan **012**. Removed | STATE.md |
-| C9 | P2 *"Touches: `src/Worker`"* | `src/Worker` references **no module** (`WM.Worker.csproj:10-11`: PluginSdk and Licensing only). A job that writes `time_attendance` tables from the Worker would need a cross-module DB path (invariant 1). Generation is a TimeAttendance service; its trigger is Q3 | opened csproj |
+| C9 | P2 *"Touches: `src/Worker`"* | `src/Worker` references **no module** (`WM.Worker.csproj:10-11`: PluginSdk and Licensing only). A job that writes `time_attendance` tables from the Worker would need a cross-module DB path (invariant 1). Generation is a TimeAttendance service; its trigger is an API-host background service (Decisions, 3) | opened csproj |
 | C10 | Legacy schema *"579 tables"* | 579 mappings, **578 distinct tables** (one duplicate). Column total 8,173 holds | measured |
 
 Corrections made to WM's other records in the same change: `TLW-CLOCKING-MODEL.md` §2.3a (wrong
@@ -134,13 +134,13 @@ Clockings, calendar generation and swipe→day allocation, and an inbound note o
 | `BadgeTimeGeneratedBy.Preset` | **Drop** | one-customer hack, per the source's own comment |
 | `DeviceBadgeTimeN` beside `BadgeTimeNAdjusted` | **Keep** (§0a decision 3) | `Punch.Timestamp` is the raw instant and is **never mutated**; the adjusted instant is a second nullable column |
 | Manual edit overwrites the slot in place | **Invert** | a correction is a new punch that **supersedes** the original, which stays readable — the raw evidence is never lost |
-| `CPTN01..20` stored on the row | **Keep stored** (§0a decision 2); **shape is Q1** | recommendation: stored **rows** keyed by counter, no ceiling |
+| `CPTN01..20` stored on the row | **Keep, as fixed columns** (§0a decision 2; **decision 1 below**, user 2026-09-25) | twenty columns as legacy; **Improve** only the provenance: calculated and manual halves side by side per counter |
 | Per-shift ×6 measures | **Improve, deferred** | shifts as rows, owned by 013 / 016 — 002 builds no shift |
 | `IsDTManualChanged` as a whole-day "don't touch" flag | **Improve** | provenance per **value**: a manual value keeps the calculated value beside it and names who/when/why |
 | Exceptions keyed by `(EmployeeId, BadgeDate)` | **Improve** | keyed by the Clocking; authorisation is state on the exception, not a copy in a second table |
 | Authorisation with a nullable `UserId` | **Invert** | an authorisation without an actor is not an authorisation |
 | `ClockingsLog` full-row trigger snapshot | **Improve** | 018's uniform sink; until 018 lands, an in-transaction journal shaped like 018's `AuditEvent` (P4) |
-| `GenerateClockingsQueue` as a SQL table polled by a job | **Improve** | RabbitMQ is WM's command/job transport (invariant 4); see Q3 |
+| `GenerateClockingsQueue` as a SQL table polled by a job | **Improve** | RabbitMQ is WM's command/job transport (invariant 4); for now an API-host background service; a RabbitMQ trigger later is a trigger change only (Decisions, 3) |
 | Allocation function | **Done** | 010 P2 |
 
 ## Edge cases
@@ -198,8 +198,8 @@ typo; the test sets the switch off on the 3rd, as 010 P2's `V06` already does (`
 | P1 | A manager corrects a swiped punch from 08:07 to 08:00 | the swiped punch keeps 08:07 and is marked superseded; a new `Manual` punch holds 08:00 and names the actor, time and reason; one audit record |
 | P2 | The correction is reverted | the manual punch is voided and the original is live again; nothing was ever deleted |
 | P3 | Calculation writes counter 3 = 7.5 h; a manager overrides to 8.0 h; calculation runs again | the stored value stays **8.0 (manual)**, the recalculated **7.5** is kept beside it, and the day says it is overridden. Inverts the whole-day `IsDTManualChanged` |
-| P4 | A 21st counter | stored like the first (if Q1 = rows) — no schema change |
-| P5 | Counter written for a counter id no definition knows | refused, not silently stored (fail closed) |
+| P4 | A 21st counter | **not possible without a migration** (decision 1) — adding `cptn21_calculated`/`cptn21_manual`, the `ClockingCounter` enum member, and the export mappings. Legacy needs the same plus a code change (`BaseCountersHolder.cs:67-129`) |
+| P5 | Counter written for a number outside 1..20 | refused with an error. Legacy's `switch` has no `default` (`BaseCountersHolder.cs:67-129`), so counter 21 is **silently dropped** — **Invert**: fail closed |
 | P6 | An edit on a day outside the caller's data scope | 404 (not 403 — no existence oracle), nothing written, nothing audited |
 | P7 | A no-op edit (value unchanged) | nothing written, nothing audited |
 | P8 | The audit write fails | the business write rolls back with it — one transaction |
@@ -226,8 +226,9 @@ time_attendance.clockings            (id, employee_id, date, day_template_id NUL
                                       exceptions_muted, created_at, version)   UNIQUE (employee_id, date)
 time_attendance.day_exceptions       (id, clocking_id, kind, severity, raised_at, detail,
                                       authorised_by NULL, authorised_at NULL, reason NULL)
-time_attendance.clocking_values      (clocking_id, key, calculated NULL, manual NULL,
-                                      manual_by, manual_at, manual_reason, calculated_at)  -- Q1
+clockings  + cptn01_calculated..cptn20_calculated, cptn01_manual..cptn20_manual  numeric(12,5) NULL,
+             cptt01_calculated, cptt01_manual numeric(10,8) NULL, calculated_at NULL   -- P7, decision 1
+time_attendance.clocking_counter_overrides (clocking_id, counter, set_by, set_at, reason)  -- who/why per manual value
 time_attendance.clocking_journal     (id, clocking_id, employee_id, at, actor, operation,
                                       changes jsonb, reason)                    -- P4, until 018
 punches  + origin, adjusted_timestamp NULL, superseded_by NULL, voided_at NULL, voided_by NULL
@@ -247,7 +248,7 @@ punches  + origin, adjusted_timestamp NULL, superseded_by NULL, voided_at NULL, 
   replaces the permission with screen read+edit rights without changing the routes):
   `PUT /api/timeattendance/clockings/{employeeId}/{date}/template`,
   `POST …/{employeeId}/{date}/punches` (manual), `POST /api/timeattendance/punches/{id}/supersede`,
-  `POST /api/timeattendance/punches/{id}/void`, `PUT …/{employeeId}/{date}/values/{key}`,
+  `POST /api/timeattendance/punches/{id}/void`, `PUT …/{employeeId}/{date}/counters/{n}`,
   `POST /api/timeattendance/exceptions/{id}/authorise`, `PUT …/{employeeId}/{date}/mute`,
   `POST /api/timeattendance/recalculate` (range, employees). Read endpoints are 010 P3's.
 - **Audit (018 not landed).** Every **human** write and every recalculate move appends one
@@ -296,7 +297,7 @@ project, as `ApiTestHost.cs:278-296` already does); a day with no punches is a v
 
 ### [ ] P2 — The calendar
 **Touches:** `Services/ClockingCalendar.cs`, `Contracts/IPlannedDayTemplates.cs` (+ interim
-`NoPlannedTemplates`), the trigger per Q3, tests.
+`NoPlannedTemplates`), `Services/ClockingCalendarService.cs` (a `BackgroundService` in the API host, nightly plus on hire — Decisions 3), `Calendar:HorizonDays` installation setting (default **60** — Decisions 4), tests.
 **Done when:** `GenerateAsync(from, to)` creates every missing day for every employee employed on
 it, from `max(EmployedFrom, from)` to `min(EmployedUntil, to)`, with the planned template (interim:
 `null`); horizon = each employee's home-site today (`ISiteTimeZones` + `IClock.TodayIn`) +
@@ -329,7 +330,7 @@ behind `timesheets.edit` + data scope; the endpoint refuses a template id that d
 write side fails closed; the read side's dangling id is P5's).
 **Tests:** P6, P7, P8; journal carries actor, before/after template id, reason; an out-of-scope
 employee → 404 and no journal row; the inventory test names the new route.
-**Risk:** medium — the journal's shape is the one 018 must absorb (Q2).
+**Risk:** medium — the journal's shape is the one 018 must absorb (Decisions, 2).
 
 ### [ ] P5 — Day exceptions: the store, three raisers, mute and authorise
 **Touches:** `Domain/DayException.cs`, migration, `Services/DayAllocationService.cs:128-132`
@@ -356,17 +357,45 @@ set: not voided, not superseded.
 swiped one; each human write journals exactly once; existing punches migrate as `Swiped`.
 **Risk:** medium — every punch read changes its filter.
 
-### [ ] P7 — Stored calculated values, with provenance
-**Touches:** `Domain/ClockingValue.cs`, migration, `Contracts/IClockingResults.cs`, one endpoint
-(manual override / clear override), tests. **Blocked on Q1.**
-**Done when:** a calculator (a test double here; 013 in production) writes values per day through
-`IClockingResults`; a manual override stores beside the calculated value, never over it;
-recalculation updates `calculated` and leaves `manual` alone; clearing an override is journalled.
-The value keys are the 20 legacy pay categories plus the `calc_*` day measures named in
-`TLW-CLOCKING-MODEL.md` §3d — the set, not the arithmetic.
-**Tests:** P3, P4, P5, P7; calculator writes are not journalled (system provenance: `calculated_at`),
-overrides are.
-**Risk:** medium — this is the shape 013 P5, 015 and 016 write into; get Q1 answered first.
+### [ ] P7 — Stored calculated values: twenty fixed counter columns, with provenance
+**Decision 1 (user, 2026-09-25): fixed columns, as legacy.** Legacy's shape, cited:
+`Clockings.CPTN01..CPTN20` are `decimal(12, 5)`, nullable, `UpdateCheck.Never`
+(`HorioDB.designer.cs:22226` for `CPTN01` … `:22606` for `CPTN20`), plus the single total
+`CPTT01 decimal(10, 8)` (`:22626`). The engine **adds** into them by number — `AddToCounter(counterId, value)`
+is a `switch` from `case 1: CPTN01 = CPTN01.Add(value)` to `case 20:` with **no `default`**
+(`BaseCountersHolder.cs:60-129`), so a 21st id is silently dropped.
+**Touches:** `Domain/Clocking.cs` (counter columns), `Domain/ClockingCounter.cs` (enum `Cptn01 = 1 … Cptn20 = 20`),
+`Domain/CounterOverride.cs`, one migration, `Contracts/IClockingResults.cs`, one endpoint
+(`PUT …/clockings/{employeeId}/{date}/counters/{n}` — set or clear an override), tests.
+**Shape:** on `time_attendance.clockings`, per counter N in 01..20, two columns —
+`cptn{N}_calculated numeric(12,5) NULL` and `cptn{N}_manual numeric(12,5) NULL` — and
+`cptt01_calculated` / `cptt01_manual numeric(10,8) NULL`, plus `calculated_at timestamptz NULL`.
+The **effective** value is `manual ?? calculated`, as `DeviceBadgeTimeN` sits beside
+`BadgeTimeNAdjusted` (§0a decision 3). Who/when/why of each manual value lives in
+`clocking_counter_overrides (clocking_id, counter, set_by, set_at, reason)`, one row per live
+override, and every set/clear is journalled (P4). Precision is legacy's so an import is lossless.
+**`IClockingResults`:**
+```csharp
+public interface IClockingResults
+{
+    /// Replaces the day's calculated counters in one write. Absent keys are written NULL (not
+    /// "unchanged") — a recalculation is the whole answer. Never touches a manual value.
+    Task WriteCalculatedAsync(Guid employeeId, DateOnly date,
+        IReadOnlyDictionary<ClockingCounter, decimal> counters, decimal? total, CancellationToken ct);
+}
+```
+Keyed by the **enum**, not an `int`, so a number outside 1..20 cannot be expressed; the
+endpoint's `{n}` is validated to 1..20 and refused otherwise (**Invert** of the missing `default`).
+Accumulation (`Add`) is the calculator's concern (013): it hands over totals.
+**What a 21st counter costs:** one migration (`cptn21_calculated`, `cptn21_manual`), one enum
+member, the export mappings in 014, and the counter-name setting. No data migration. This is the
+ceiling the user accepted; it is recorded here so the cost is known when it is hit.
+**Out of this portion:** the `calc_*` day measures (`TLW-CLOCKING-MODEL.md` §3d) — they are
+calculator outputs 013 adds as columns in the same calculated/manual pattern; the ×6 shift measures (013/016).
+**Tests:** P3, P4, P5, P7; override survives recalculation and keeps the recalculated value beside
+it; clearing an override makes the calculated value effective again and journals once; calculator
+writes are not journalled (system provenance: `calculated_at`); an out-of-scope day → 404.
+**Risk:** medium — 013 P5, 015 and 016 write into this shape.
 
 ### [ ] P8 — Recalculate: the audited move
 **Touches:** `Services/ClockingRecalculation.cs`, `POST /api/timeattendance/recalculate`, tests.
@@ -377,35 +406,22 @@ the operation reports moved/refused counts. Nothing else re-derives a frozen dat
 **Tests:** R1–R5; a zone edit alone (008) and a template edit alone (P4) move nothing until this runs.
 **Risk:** **high** — it rewrites payroll history on purpose. It is the only portion that does.
 
-## Open questions for the user
+## Decisions (answered by the user, 2026-09-25)
 
-1. **Counter storage shape — rows or twenty columns?** §0a decision 2 settles that calculated state is
-   **stored**; its wording ("`CPTN01..20` … WM stores them the same way") does not say whether
-   *stored* means *twenty columns*. Options: **(a)** rows keyed by counter id — no ceiling, a 21st
-   pay category is data; **(b)** twenty nullable columns plus the day measures as columns — a
-   one-to-one import, and the ceiling survives. `dbo.Counters` is exactly 20 seeded rows with no
-   Create endpoint (`27.V2.1.12.sql:390-501`, `CountersController.cs`), so no customer has overflow
-   to migrate; (a) costs nothing at import. **Recommendation: (a).** Blocks P7 only.
-2. **Audit before 018.** 018 P1 waits on 011 P7 (outbox) and ADR 0001. Options: **(a)** 002 writes a
-   module-local, in-transaction journal shaped as 018's `AuditEvent`, which 018 later drains or takes
-   over (P4 as written); **(b)** P4–P8 wait for 018 P1, and 002 ships P1–P3 only; **(c)** build 018 P1
-   now as part of 002. **Recommendation: (a)** — the human writes are the reason §0a decision 4 made
-   audit load-bearing, and (b) parks the editable half of the plan behind two other plans.
-3. **Where does the calendar run?** The Worker references no module, so it cannot write
-   `time_attendance` without breaking invariant 1. Options: **(a)** a TimeAttendance
-   `BackgroundService` in the API host, nightly plus on hire (safe on several instances because
-   generation is idempotent by key); **(b)** a RabbitMQ command the Worker schedules and the API
-   consumes — invariant 4's shape, but no command consumer exists in the API today;
-   **(c)** give the Worker a reference to the TimeAttendance module. **Recommendation: (a) now, with
-   the generation itself behind a service so (b) is a trigger change later.** (c) is not recommended.
-4. **Horizon default.** Legacy `NumberOfDaysInAdvancedCalendar` is per install. Planning and
-   absence (015) read days in the future, so the horizon is a product setting, not a constant.
-   What default? Recommendation: 60 days, installation setting, until plan 012 gives settings a home.
-5. **Proposed `ARCHITECTURE.md` change (propose-only, §8).** §8 lists TimeAttendance as ✅ with
-   "clocking pairing, corrections, anomaly/exception detection". After this plan it owns the
-   Clocking aggregate, its calendar and its exceptions. Diff:
-   ```diff
-   - 2. **TimeAttendance** ✅ — punch ingestion (Kafka), clocking pairing, **corrections**, …
-   + 2. **TimeAttendance** ◐ — punch ingestion (Kafka), **the Clocking daily aggregate and its
-   +    calendar (plan 002)**, swipe→day allocation (010 P2), clocking pairing, **corrections**, …
-   ```
+1. **Counter storage — twenty fixed columns, like legacy.** Not the surveyor's recommendation
+   (rows); the user's call. `CPTN01..CPTN20 decimal(12,5)` and `CPTT01 decimal(10,8)` are kept as
+   columns; §0a's per-value provenance is met by a calculated and a manual column per counter.
+   A 21st counter costs a migration (P7). Implemented by **P7**.
+2. **Audit before 018 — (a).** A module-local journal, written in the same transaction as the
+   change and shaped like 018's `AuditEvent` (entity, id, actor, at, operation, field changes,
+   reason) so 018 can adopt or drain it. Human writes and recalculate moves are journalled; system
+   writes carry provenance instead. Implemented by **P4**, used by P5–P8.
+3. **Calendar job — (a).** A TimeAttendance `BackgroundService` in the API host, nightly and on hire.
+   Generation is idempotent by the `(employee_id, date)` key, so several instances are safe and a
+   later move to a RabbitMQ command is a trigger change only. The Worker gets no module reference.
+   Implemented by **P2**.
+4. **Calendar horizon — 60 days by default, an installation setting** (`Calendar:HorizonDays`;
+   legacy `Calculations.NumberOfDaysInAdvancedCalendar`). Moves into plan 012's settings store when
+   that exists. Implemented by **P2**.
+5. **`ARCHITECTURE.md` §8 change — approved and applied.** TimeAttendance is `◐` and owns the
+   Clocking daily aggregate and its calendar; the approval date is noted inline in §8.
