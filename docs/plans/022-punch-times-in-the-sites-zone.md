@@ -107,9 +107,12 @@ All within **TimeAttendance** (§ ARCHITECTURE.md module boundaries: zone lookup
   so existing consumers are unaffected.
 - POST responses already carry both; unchanged.
 
-**Portal:** one standalone pure pipe, `punchTime` — `value | punchTime:zone:format` — built on
-`Intl.DateTimeFormat` with an explicit `timeZone`, appending a zone label when `zone` differs
-from the viewer's resolved zone or when the caller passes `label: 'always'` (mixed lists).
+**Portal:** a standalone pure pipe, `punchTime` — `value | punchTime:zone:format` — plus a
+`<wm-punch-time>` component. Both are built on the same pure functions (`formatInZone`, `zoneLabel`,
+`needsZoneLabel`) over `Intl.DateTimeFormat` with an explicit `timeZone`. Each appends a zone label
+when `zone` differs from the viewer's resolved zone or when the caller passes `label: 'always'`
+(mixed lists). The component exists because a pipe returns text and cannot set the `title` tooltip
+(amended at P2 review, 2026-09-25).
 
 **Zone label (decision 2):** `zoneLabel(id)` is a pure function exported beside the pipe.
 - **Rule:** take the **last** `/`-separated segment of the IANA id and replace every `_` with a
@@ -186,6 +189,15 @@ site's zone to `Europe/Ljubljana`, punch an employee there, override the tab's z
 `Asia/Tashkent` (DevTools *Sensors* → location / CDP `Emulation.setTimezoneOverride`), and confirm
 dashboard feed, "Currently clocked in" and /me show the Ljubljana clock with a zone label.
 **Risk:** low
+
+### [ ] P3 — "Punches today" counts the punch's own day *(follow-up; owner wm-surveyor; not yet specified or approved)*
+
+Found at P2 review (2026-09-25). The dashboard's "Punches today" KPI (`dashboard.component.ts`,
+`reload()`: `new Date(p.timestamp).toDateString() === today`) decides "today" from the instant in
+the **browser's** zone. That is the same class of wrong-day bug P2 fixed for displayed times. Open
+question for the surveyor: whose "today" applies when the list spans sites in several zones? Options
+include comparing each punch's `localDate` with today in that punch's zone, or a server-side count.
+The realtime increment in `onLivePunch` needs the same rule. Deliberately not fixed in P2.
 
 ## Decisions (relayed 2026-09-25)
 

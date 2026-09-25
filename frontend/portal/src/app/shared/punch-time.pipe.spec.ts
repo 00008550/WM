@@ -72,6 +72,8 @@ describe('punchDay', () => {
   it('takes the day from localDate, not from the instant', () => {
     // 2026-09-18T00:30Z is the 18th in UTC and later; the API filed it under the 17th.
     expect(punchDay('2026-09-17', '2026-09-18T00:30:00Z', 'Asia/Tashkent')).toBe('17 Sep');
+    // And the opposite direction, so no single runner zone can agree with both.
+    expect(punchDay('2026-09-18', '2026-09-17T23:30:00Z', 'Asia/Tashkent')).toBe('18 Sep');
   });
 
   it('with no localDate, derives the day in the punch zone — never the browser\'s', () => {

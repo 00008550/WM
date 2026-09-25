@@ -61,12 +61,18 @@ describe('SelfServiceComponent — punch times on the site clock', () => {
     expect(text(render([punch()]))).toContain('since 21:44 Ljubljana');
   });
 
-  it('takes the recent list\'s day from localDate even when the UTC date is the 18th', () => {
-    // 22:30Z on the 17th in Ljubljana is 00:30 on the 18th there, and the 18th in UTC; the API
-    // filed it under the 17th (a night shift), and the list must say so.
-    const el = render([punch({ timestamp: '2026-09-18T00:30:00Z', localDate: '2026-09-17' })]);
-    const recent = el.querySelectorAll('section')[2];
-    expect(text(recent)).toContain('17 Sep 02:30 Ljubljana');
-    expect(text(recent)).not.toContain('18 Sep');
+  it('takes the recent list\'s day from localDate in both directions, whatever the runner\'s zone', () => {
+    // Two rows whose localDate disagrees with the instant's date in opposite directions. Deriving
+    // the day from the instant in any single zone (UTC-12 to UTC+14) gets at least one wrong.
+    // Row 1: 00:30Z on the 18th, filed under the 17th (a night shift).
+    // Row 2: 23:30Z on the 17th, filed under the 18th.
+    const el = render([
+      punch({ id: 'p1', timestamp: '2026-09-18T00:30:00Z', localDate: '2026-09-17' }),
+      punch({ id: 'p2', timestamp: '2026-09-17T23:30:00Z', localDate: '2026-09-18' }),
+    ]);
+    const rows = [...el.querySelectorAll('section')[2].querySelectorAll('span.num')].map(text);
+    expect(rows.length).toBe(2);
+    expect(rows[0]).toContain('17 Sep 02:30 Ljubljana');
+    expect(rows[1]).toContain('18 Sep 01:30 Ljubljana');
   });
 });
