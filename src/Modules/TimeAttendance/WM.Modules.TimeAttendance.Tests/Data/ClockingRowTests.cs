@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using WM.Modules.TimeAttendance.Data;
 using WM.Modules.TimeAttendance.Domain;
@@ -36,6 +37,17 @@ public sealed class ClockingRowTests : IDisposable
 
     private ClockingBackfill Backfill(TimeAttendanceDbContext db) =>
         new(db, new SystemClock(new FixedTime(Now)), NullLogger<ClockingBackfill>.Instance);
+
+    /// <summary>
+    /// Every backfill run in this class is bounded. The backfill's loop ends only when its read finds
+    /// nothing missing; a defect that makes the read and the insert disagree would otherwise hang the
+    /// suite instead of failing it. <c>Task.Run</c> because SQLite completes synchronously — a spinning
+    /// loop on the test thread would never yield to the timeout.
+    /// </summary>
+    private Task<ClockingBackfill.Result> RunBounded(TimeAttendanceDbContext db, ILogger<ClockingBackfill>? log = null) =>
+        Task.Run(() => new ClockingBackfill(db, new SystemClock(new FixedTime(Now)),
+                log ?? NullLogger<ClockingBackfill>.Instance).RunAsync())
+            .WaitAsync(TimeSpan.FromSeconds(20));
 
     private static DateOnly Day(int month, int day) => new(2026, month, day);
 
@@ -100,7 +112,7 @@ public sealed class ClockingRowTests : IDisposable
             PunchOn(Bob, new(2026, 9, 1, 4, 0, 0, TimeSpan.Zero), Day(9, 1)));
 
         await using var db = NewDb();
-        var result = await Backfill(db).RunAsync();
+        var result = await RunBounded(db);
 
         Assert.Equal(new ClockingBackfill.Result(3, 0, 0), result);
         var rows = await Rows();
@@ -121,7 +133,7 @@ public sealed class ClockingRowTests : IDisposable
         await Seed(PunchOn(Ada, new(2026, 3, 9, 20, 0, 0, TimeSpan.Zero), Day(3, 10)));
 
         await using var db = NewDb();
-        await Backfill(db).RunAsync();
+        await RunBounded(db);
 
         var row = Assert.Single(await Rows());
         Assert.Equal(Day(3, 10), row.Date);
@@ -135,11 +147,11 @@ public sealed class ClockingRowTests : IDisposable
             PunchOn(Bob, new(2026, 9, 3, 4, 0, 0, TimeSpan.Zero), Day(9, 3)));
 
         await using (var db = NewDb())
-            Assert.Equal(2, (await Backfill(db).RunAsync()).Created);
+            Assert.Equal(2, (await RunBounded(db)).Created);
         var first = await Rows();
 
         await using (var db = NewDb())
-            Assert.Equal(new ClockingBackfill.Result(0, 0, 0), await Backfill(db).RunAsync());
+            Assert.Equal(new ClockingBackfill.Result(0, 0, 0), await RunBounded(db));
         var second = await Rows();
 
         Assert.Equal(first.Select(r => (r.Id, r.EmployeeId, r.Date, r.Version)), second.Select(r => (r.Id, r.EmployeeId, r.Date, r.Version)));
@@ -163,7 +175,7 @@ public sealed class ClockingRowTests : IDisposable
             PunchOn(Ada, new(2026, 9, 2, 4, 0, 0, TimeSpan.Zero), Day(9, 2)));
 
         await using (var db = NewDb())
-            Assert.Equal(1, (await Backfill(db).RunAsync()).Created);
+            Assert.Equal(1, (await RunBounded(db)).Created);
 
         var rows = await Rows();
         Assert.Equal(2, rows.Count);
@@ -193,7 +205,7 @@ public sealed class ClockingRowTests : IDisposable
         await Seed(PunchOn(Ada, new(2026, 9, 1, 4, 0, 0, TimeSpan.Zero), Day(9, 1)), undated);
 
         await using (var db = NewDb())
-            Assert.Equal(new ClockingBackfill.Result(1, 0, 1), await Backfill(db).RunAsync());
+            Assert.Equal(new ClockingBackfill.Result(1, 0, 1), await RunBounded(db));
 
         Assert.Equal([Ada], (await Rows()).Select(r => r.EmployeeId));
         await using var check = NewDb();
@@ -211,7 +223,42 @@ public sealed class ClockingRowTests : IDisposable
             .ToArray());
 
         await using (var db = NewDb())
-            Assert.Equal(1200, (await Backfill(db).RunAsync()).Created);
+            Assert.Equal(1200, (await RunBounded(db)).Created);
         Assert.Equal(1200, (await Rows()).Count);
+    }
+
+    [Fact(Timeout = 15_000)]
+    public async Task When_the_insert_and_the_read_disagree_the_backfill_stops_and_says_so_instead_of_spinning()
+    {
+        // Force the disagreement the stall guard exists for: every insert is silently discarded, so the
+        // read keeps returning the same missing days. Before the guard this looped forever (host boot
+        // hung); now it must return promptly, report them, log an error, and leave the punches alone.
+        await Seed(
+            PunchOn(Ada, new(2026, 9, 1, 4, 0, 0, TimeSpan.Zero), Day(9, 1)),
+            PunchOn(Bob, new(2026, 9, 2, 4, 0, 0, TimeSpan.Zero), Day(9, 2)));
+        await using (var db = NewDb())
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER swallow_clockings BEFORE INSERT ON \"Clockings\" BEGIN SELECT RAISE(IGNORE); END;");
+
+        var log = new ListLogger();
+        await using var run = NewDb();
+        var result = await RunBounded(run, log);
+
+        Assert.Equal(new ClockingBackfill.Result(0, 0, 0, 2), result);
+        Assert.Empty(await Rows());
+        var error = Assert.Single(log.Entries, e => e.Level == LogLevel.Error);
+        Assert.Contains($"{Ada}/2026-09-01", error.Message);
+        Assert.Contains($"{Bob}/2026-09-02", error.Message);
+        await using var check = NewDb();
+        Assert.Equal(2, await check.Punches.CountAsync());
+    }
+
+    private sealed class ListLogger : ILogger<ClockingBackfill>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
     }
 }

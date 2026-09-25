@@ -36,6 +36,16 @@ namespace WM.Modules.TimeAttendance.Data;
 /// and logged as a warning — never dropped, never guessed from UTC — and the next start that dates it
 /// also gives it its day.
 /// </para>
+///
+/// <para>
+/// <b>It stops rather than spins, and it does not fail the boot.</b> If a batch inserts nothing and the
+/// next read returns the same days, the read and the insert disagree about the key — a defect. The run
+/// logs an error naming a sample of those days, reports them as <see cref="Result.Unresolved"/>, and
+/// returns. Not a throw: no punch is lost or changed either way (the punch is the record; the Clocking
+/// row is derived from it and every later start retries), and in P1 nothing reads the row yet, whereas
+/// a throw here would stop every instance from serving punches at all over a derived table. The error
+/// log is the signal.
+/// </para>
 /// </summary>
 public sealed class ClockingBackfill(
     TimeAttendanceDbContext db,
@@ -44,28 +54,56 @@ public sealed class ClockingBackfill(
 {
     private const int BatchSize = 500;
 
-    public sealed record Result(int Created, int AlreadyPresent, int UndatedPunches);
+    private const int SampleSize = 10;
+
+    /// <param name="Unresolved">Days the backfill read as missing but could not create — the stall
+    /// guard's count. Zero on every healthy run.</param>
+    public sealed record Result(int Created, int AlreadyPresent, int UndatedPunches, int Unresolved = 0);
 
     public async Task<Result> RunAsync(CancellationToken ct = default)
     {
         var created = 0;
         var absorbed = 0;
+        var unresolved = 0;
+        List<(Guid EmployeeId, DateOnly Date)>? previous = null;
+        var previousInserted = -1;
         while (true)
         {
-            var missing = await db.Punches
+            var missing = (await db.Punches
                 .Where(p => p.LocalDate != null
                             && !db.Clockings.Any(c => c.EmployeeId == p.EmployeeId && c.Date == p.LocalDate))
                 .Select(p => new { p.EmployeeId, Date = p.LocalDate!.Value })
                 .Distinct()
                 .OrderBy(x => x.EmployeeId).ThenBy(x => x.Date)
                 .Take(BatchSize)
-                .ToListAsync(ct);
+                .ToListAsync(ct))
+                .Select(x => (x.EmployeeId, x.Date)).ToList();
             if (missing.Count == 0)
                 break;
 
-            var inserted = await InsertIfAbsentAsync(missing.Select(x => (x.EmployeeId, x.Date)).ToList(), ct);
+            // No-progress guard (002 P1 review). The loop ends only when the read finds nothing missing,
+            // so it relies on the read and the insert agreeing on what "this day exists" means. If they
+            // ever disagree — an insert that writes a different key than the read looks for, a filter
+            // that stops matching the unique index — the same batch comes back forever and the host
+            // never finishes booting, silently. A batch that inserted nothing and is read back unchanged
+            // is exactly that disagreement: report it and stop.
+            if (previousInserted == 0 && previous is not null && previous.SequenceEqual(missing))
+            {
+                // The previous pass counted these as absorbed by another instance; they were not.
+                absorbed -= missing.Count;
+                unresolved = missing.Count;
+                logger.LogError(
+                    "Clocking backfill stopped without progress: {Count} day(s) read as missing could not be created, and re-reading returned the same ones. The read and the insert disagree about the (EmployeeId, Date) key; this is a defect, not data. First {SampleSize}: {Sample}",
+                    missing.Count, Math.Min(SampleSize, missing.Count),
+                    string.Join(", ", missing.Take(SampleSize).Select(d => $"{d.EmployeeId}/{d.Date:yyyy-MM-dd}")));
+                break;
+            }
+
+            var inserted = await InsertIfAbsentAsync(missing, ct);
             created += inserted;
             absorbed += missing.Count - inserted;
+            previous = missing;
+            previousInserted = inserted;
         }
 
         var undated = await db.Punches.CountAsync(p => p.LocalDate == null, ct);
@@ -78,7 +116,7 @@ public sealed class ClockingBackfill(
             logger.LogWarning(
                 "Clocking backfill: {Undated} punch(es) have no local date and were given no day. They are kept unchanged and will get one on the start that dates them",
                 undated);
-        return new Result(created, absorbed, undated);
+        return new Result(created, absorbed, undated, unresolved);
     }
 
     /// <summary>
