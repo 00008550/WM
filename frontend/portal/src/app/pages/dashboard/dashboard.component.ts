@@ -1,24 +1,27 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnDestroy, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Subject, auditTime } from 'rxjs';
 import { WorkforceApi, LivePresence, PunchRow } from '../../core/api/workforce.api';
 import { RealtimeService, PunchEvent } from '../../core/realtime/realtime.service';
 import { IconComponent } from '../../core/ui/icon.component';
+import { PunchTimeComponent, ZoneLabelMode, mixesZones } from '../../shared/punch-time.pipe';
 
 interface FeedEntry {
   key: string;
   name: string;
   code: string;
   time: string;
+  /** The clock `time` is shown on — the punch's own zone, not the viewer's (022 P2). */
+  zone: string | null;
   direction: 'In' | 'Out';
   fresh: boolean;
 }
 
 @Component({
   selector: 'wm-dashboard',
-  imports: [DatePipe, FormsModule, IconComponent],
+  imports: [DatePipe, FormsModule, IconComponent, PunchTimeComponent],
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-6xl">
@@ -98,7 +101,7 @@ interface FeedEntry {
                     <div class="text-sm truncate">{{ person.employeeName }}</div>
                     <div class="text-xs text-muted truncate">{{ person.jobTitle ?? '—' }}</div>
                   </div>
-                  <div class="num text-[11px] text-muted">in {{ person.since | date: 'HH:mm' }}</div>
+                  <div class="num text-[11px] text-muted">in <wm-punch-time [value]="person.since" [zone]="person.sinceLocalZone" [label]="presenceLabels()" /></div>
                 </div>
               } @empty {
                 <div class="py-12 text-center">
@@ -155,7 +158,7 @@ interface FeedEntry {
               } @else {
                 @for (entry of feed(); track entry.key) {
                   <div class="py-2 flex items-center gap-2.5 text-sm" [class.animate-ticker-in]="entry.fresh">
-                    <span class="num text-[10px] text-muted w-12 shrink-0">{{ entry.time | date: 'HH:mm:ss' }}</span>
+                    <span class="num text-[10px] text-muted min-w-12 shrink-0 whitespace-nowrap"><wm-punch-time [value]="entry.time" [zone]="entry.zone" format="HH:mm:ss" [label]="feedLabels()" /></span>
                     <span class="font-mono text-[9px] px-1.5 py-0.5 rounded-sm border shrink-0"
                           [class]="entry.direction === 'In'
                             ? 'text-pulse border-pulse/40 bg-pulse/10'
@@ -191,6 +194,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   // count-up display values so KPIs animate to their target
   readonly shownPresent = signal(0);
   readonly shownPunches = signal(0);
+
+  /** A list that mixes zones labels every row, so no row reads as the viewer's clock by omission. */
+  readonly feedLabels = computed<ZoneLabelMode>(() => mixesZones(this.feed().map(e => e.zone)) ? 'always' : 'auto');
+  readonly presenceLabels = computed<ZoneLabelMode>(() =>
+    mixesZones((this.presence()?.present ?? []).map(p => p.sinceLocalZone)) ? 'always' : 'auto');
 
   punchCode = '';
   readonly punchBusy = signal(false);
@@ -323,6 +331,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         name: event.employeeName,
         code: event.employeeCode,
         time: event.timestamp,
+        zone: event.localZone ?? null,
         direction: event.direction,
         fresh: true,
       },
@@ -350,6 +359,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       name: punch.employeeName,
       code: punch.employeeCode,
       time: punch.timestamp,
+      zone: punch.localZone,
       direction: punch.direction === 0 ? 'In' : 'Out',
       fresh: false,
     };

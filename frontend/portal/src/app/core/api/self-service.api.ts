@@ -8,6 +8,9 @@ export interface TimesheetInterval {
   in: string;
   out: string | null;
   hours: number | null;
+  /** Each end carries its own clock (022 P1), so an interval across a zone change reads right. */
+  inZone: string;
+  outZone: string | null;
 }
 
 export interface TimesheetDay {
