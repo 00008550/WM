@@ -1,7 +1,7 @@
 # 002 — The Clocking daily aggregate
 
 Status: approved           <!-- draft → approved → in-progress → in-review → merged -->
-Approved by the user 2026-09-25 (all 8 portions), directly in the coordinating session, with the Decisions below.
+Approved by the user 2026-09-25, directly in the coordinating session, with the Decisions below. Approved as 8 portions; P7 was later split into P7a/P7b when decision 7 added the calc_* columns (same scope, 9 portions).
 Later the same day the user's decision 7 split P7 into **P7a / P7b** (now 9 portions); decisions 6–7 and binding requirements B1–B3 added.
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — this is its missing prerequisite
 Reference: [`TLW-CLOCKING-MODEL.md`](../TLW-CLOCKING-MODEL.md) — full measured anatomy
