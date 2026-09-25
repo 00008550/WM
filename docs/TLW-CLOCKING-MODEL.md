@@ -170,7 +170,14 @@ how a day's hours get split across cost centres.
 ### 3d. Calculated results (`calc_` prefix)
 `grossAttendance`, `netAttendance`, `difference`, `correction`, `presenceCorrected`, `actualWork`,
 `dayHours`, `nightHours`, `panDay`, `panNight`, `absencesBreaks`, `balance`, `breaksDuration`,
-`latenessTimes`, `latenessMinutes` — all `decimal(18,8)`.
+`latenessTimes`, `latenessMinutes`.
+
+> **Corrected 2026-09-25 (plan 002 refresh, measured in `HorioDB.dbml`, `dbo.Clockings`):** not
+> "all `decimal(18,8)`". **75** `calc_*` columns in all: **15 daily** — eleven `decimal(18,8)`,
+> `calc_panDay`/`calc_panNight` `bit`, `calc_latenessTimes`/`calc_latenessMinutes` `Int` — and
+> **60 per-shift** (`Shift1..6` × ten measures, §3c): nine `decimal(18,8)` and
+> `calc_breaksDurationShift1..6` `decimal(10,4)`. Only the engine writes them
+> (`Logic/HoursCalculation/*`, 122 assignments); no screen does. Plan 002 P7b creates all 75.
 
 These are **stored, not derived on read**. That is exactly the design that forced legacy's
 whole-estate nightly recalculation and its separate `Reprocessor` project, and it is the pain
