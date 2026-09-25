@@ -267,7 +267,16 @@ zero night, all day.
 > survives (recalculation never destroys an override) but the mechanism is 002 P7: the calculator
 > writes `calculated` through `IClockingResults`, a human override is stored beside it as `manual`
 > with actor, time and reason, and recalculation touches only `calculated`. Re-cut this portion
-> against 002 P7 before approval.
+> against 002 P7a/P7b before approval.
+>
+> **Updated 2026-09-25 (002 decisions 6–7, user).** 013 no longer adds `calc_*` columns: **002 P7b
+> creates all 75** (15 daily + 60 per-shift, legacy names and types, calculated-only) and 013
+> **fills** them, with the counters, in one `IClockingResults.WriteCalculatedAsync(employeeId, date,
+> ClockingCalculation, ct)` call. Two requirements are **binding on 013** (002 → *Binding
+> requirements*): **B1, owned by 013 P1** — a template edit rewrites the window snapshot on
+> today/future days only (home-site today), freezes the past, queues nothing; **B2, owned by 013 P5**
+> — a per-day edit queues recalculation from that day to today, past days only, triggered by
+> `ClockingChanged`.
 **Touches:** `Calculation/DayAdjustment.cs` + migration, `Services/DayCalculationService.cs`,
 `Contracts/DayCalculated.cs`, endpoint + policy in `TimeAttendanceModule.cs`, tests.
 **Done when:** calculating a day never destroys a human adjustment. An adjustment is a stored
