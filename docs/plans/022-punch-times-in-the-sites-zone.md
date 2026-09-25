@@ -84,7 +84,7 @@ both edit `PunchService.cs` — so **P1 builds after #98 merges** and rebases on
 - **A site's zone changed after the punch:** the punch keeps its frozen zone. Old punches render in
   the old zone; that is the point of freezing, and a test pins it.
 - **Mixed zones in one list** (live feed, "currently clocked in" across sites): every row whose zone
-  differs from the viewer's shows a short label (e.g. `21:44 CEST`); when all rows share the viewer's
+  differs from the viewer's shows a city label (e.g. `21:44 Ljubljana`); when all rows share the viewer's
   zone, no label.
 - **Interval crossing DST or spanning a zone change:** `In` and `Out` each carry their own zone.
 - **Night shift across midnight** (010 P2 can file a 02:00 punch under yesterday): the time shown is
@@ -106,8 +106,21 @@ All within **TimeAttendance** (§ ARCHITECTURE.md module boundaries: zone lookup
 - POST responses already carry both; unchanged.
 
 **Portal:** one standalone pure pipe, `punchTime` — `value | punchTime:zone:format` — built on
-`Intl.DateTimeFormat` with an explicit `timeZone`, appending a short zone label when `zone` differs
-from the viewer's resolved zone or when the caller passes `label: 'always'` (mixed lists). Day text
+`Intl.DateTimeFormat` with an explicit `timeZone`, appending a zone label when `zone` differs
+from the viewer's resolved zone or when the caller passes `label: 'always'` (mixed lists).
+
+**Zone label (decision 2):** `zoneLabel(id)` is a pure function exported beside the pipe.
+- **Rule:** take the **last** `/`-separated segment of the IANA id and replace every `_` with a
+  space. `Europe/Ljubljana` → `Ljubljana`, `Asia/Tashkent` → `Tashkent`, `America/Los_Angeles` →
+  `Los Angeles`.
+- **Nested ids use the same rule:** `America/Argentina/Buenos_Aires` → `Buenos Aires`. The last
+  segment is the city, and the middle segments are dropped.
+- **Ids with no city:** an id whose first segment is `Etc`, or which has no `/` (`UTC`, `GMT`),
+  renders as `UTC` when it is a UTC alias (`Etc/UTC`, `Etc/GMT`, `UTC`, `GMT`, `Etc/Universal`,
+  `Etc/Zulu`). Otherwise it renders as the raw id (`Etc/GMT-5`). No offset is invented, because
+  `Etc/GMT-5` means UTC+5 and a derived "GMT-5" would be wrong.
+- **Tooltip and fallback:** the tooltip is always the full id. A null zone is shown as `UTC`
+  (the portal's defensive fallback), with tooltip `UTC (zone missing)`. Day text
 comes from `localDate`/`day.date` via plain string handling, never through a `Date` in the browser's
 zone.
 
@@ -160,7 +173,10 @@ under the rules in *Edge cases*.
 pipe ignored it):** pipe — `2026-09-17T19:44:00Z` in `Europe/Ljubljana` → `21:44`, in `Asia/Tashkent`
 → `00:44`, the two in one spec so the result cannot come from the runner's own zone; label shown when
 zone ≠ viewer zone (viewer zone injected, not read from the runner), hidden when equal; null zone →
-UTC with label. Component — the /me timesheet renders the observed punch as `21:44` under the `17 Sep`
+UTC with label. `zoneLabel`: `Europe/Ljubljana` → `Ljubljana`; `America/Los_Angeles` → `Los Angeles`;
+`America/Argentina/Buenos_Aires` → `Buenos Aires`; `Etc/UTC` → `UTC`; `UTC` → `UTC`; `Etc/GMT-5` →
+`Etc/GMT-5`; the rendered element's `title` equals the full IANA id; no output ever contains an
+abbreviation or offset (assert `21:44 Ljubljana`, not `CEST`/`+02`). Component — the /me timesheet renders the observed punch as `21:44` under the `17 Sep`
 heading; the recent list shows `17 Sep` from `localDate` for a punch whose UTC date is the 18th.
 **Browser verification:** start the API (Development) and `portal` preview; `POST /api/dev/sign-in`
 `{ "userName": "admin" }`, put the `refreshToken` in `localStorage['wm.refresh']`, reload. Set a
@@ -169,10 +185,14 @@ site's zone to `Europe/Ljubljana`, punch an employee there, override the tab's z
 dashboard feed, "Currently clocked in" and /me show the Ljubljana clock with a zone label.
 **Risk:** low
 
-## Open questions for the user
+## Decisions (relayed 2026-09-25)
 
-1. **Whose clock by default?** This plan shows the *punch's* clock, labelled when it differs from the
-   viewer's. A toggle to "my zone" is additive and deliberately not in P2. Confirm the default.
-2. **Label style** — short abbreviation (`CEST`, from `Intl`) or IANA city (`Ljubljana`)? The
-   abbreviation is ambiguous for some zones (e.g. `+05` for Tashkent); the plan assumes the
-   abbreviation with the IANA id as the `title` tooltip.
+Relayed by the coordinator as the user's decisions on 2026-09-25. **Status stays `draft`.** The
+surveyor never marks a plan approved, and an agent's message is not the user's approval. The user
+flips `Status:` to `approved` directly. The relayed approval covers both portions, and P1 still
+builds only after #98 merges.
+
+1. **Default clock:** a punch shows on its own site clock (its frozen `LocalZone`), labelled when
+   that differs from the viewer's zone. **No "show in my zone" toggle.**
+2. **Label style:** a city name derived from the IANA id, with the full IANA id as the `title`
+   tooltip. No abbreviations and no offsets. The derivation is in *Target design → Zone label*.
