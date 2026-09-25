@@ -1,6 +1,7 @@
 # 022 — Punch times in the site's zone, not the browser's
 
-Status: draft            <!-- draft → approved → in-progress → in-review → merged -->
+Status: approved           <!-- draft → approved → in-progress → in-review → merged -->
+Approved by the user 2026-09-25 (both portions), directly in the coordinating session. P1 builds only after #98 merges.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; the display half of plan **008** (a day has a place)
 Legacy sources surveyed: **none, deliberately.** This is a defect in WM's own portal, found by
 running it (2026-09-24). Everything below was measured against WM's tree at `master` `35a4258`, and
