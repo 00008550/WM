@@ -17,12 +17,15 @@ public sealed record PunchResult(Punch? Punch, string? Error)
 
 public sealed record LivePresenceEntry(
     Guid EmployeeId, string EmployeeCode, string EmployeeName, string? JobTitle,
-    Guid SiteId, DateTimeOffset Since);
+    Guid SiteId, DateTimeOffset Since, string SinceLocalZone, DateOnly? SinceLocalDate);
 
 public sealed record LivePresence(int PresentCount, int ActiveEmployees, IReadOnlyList<LivePresenceEntry> Present);
 
 public sealed record TimesheetDay(DateOnly Date, IReadOnlyList<TimesheetInterval> Intervals, double TotalHours);
-public sealed record TimesheetInterval(DateTimeOffset In, DateTimeOffset? Out, double? Hours);
+/// <summary><c>InZone</c>/<c>OutZone</c> (022 P1): the clock each punch was recorded on. Each end
+/// carries its own, so an interval that spans a site's zone change is still read correctly.</summary>
+public sealed record TimesheetInterval(
+    DateTimeOffset In, DateTimeOffset? Out, double? Hours, string InZone, string? OutZone);
 
 public sealed class PunchService(
     TimeAttendanceDbContext db,
@@ -135,7 +138,8 @@ public sealed class PunchService(
 
         await eventStream.PublishAsync(EventTopics.Punches, employee.Code, new PunchRecorded(
             punch.Id, employee.Id, employee.Code, employee.FullName, employee.SiteId, employee.DepartmentId,
-            punch.Timestamp, punch.Direction.ToString(), punch.Source.ToString()), ct);
+            punch.Timestamp, punch.Direction.ToString(), punch.Source.ToString(),
+            punch.LocalDate, punch.LocalZone), ct);
 
         return new PunchResult(punch, null);
     }
@@ -190,20 +194,41 @@ public sealed class PunchService(
     {
         var employee = await employees.FindByIdAsync(employeeId, ct);
         var name = employee?.FullName ?? "";
-        return await db.Punches.AsNoTracking()
+        var punches = await db.Punches.AsNoTracking()
             .Where(p => p.EmployeeId == employeeId)
             .OrderByDescending(p => p.Timestamp)
             .Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(ct);
+        var zoneOf = await ZonesForAsync(punches, ct);
+        return punches
             .Select(p => new RecentPunchEntry(
                 p.Id, p.EmployeeId, p.EmployeeCode, name,
-                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags))
-            .ToListAsync(ct);
+                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags,
+                p.LocalDate, zoneOf(p)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Which clock a recorded punch is read on (022 P1): its frozen <see cref="Punch.LocalZone"/>,
+    /// never today's zone for its site, because editing a site's zone must not move old punches. Only
+    /// a row the startup backfill has not reached (no frozen zone) falls back to its site's current
+    /// zone, resolved the way <c>PunchLocalDateBackfill</c> resolves it. Every response therefore
+    /// carries a non-null zone, and no client re-implements the fallback.
+    /// </summary>
+    private async Task<Func<Punch, string>> ZonesForAsync(IReadOnlyCollection<Punch> punches, CancellationToken ct)
+    {
+        var unfrozen = punches.Where(p => p.LocalZone is null).Select(p => p.SiteId).Distinct().ToList();
+        var bySite = unfrozen.Count == 0
+            ? new Dictionary<Guid, ResolvedZone>()
+            : await zones.ForSitesAsync(unfrozen, ct);
+        return p => p.LocalZone ?? bySite[p.SiteId].Zone.Id;
     }
 
     public sealed record RecentPunchEntry(
         Guid Id, Guid EmployeeId, string EmployeeCode, string EmployeeName,
         DateTimeOffset Timestamp, PunchDirection Direction, PunchSource Source, string? DeviceId,
-        DateTimeOffset ReceivedAt, PunchFlags Flags);
+        DateTimeOffset ReceivedAt, PunchFlags Flags,
+        DateOnly? LocalDate, string LocalZone);
 
     public async Task<IReadOnlyList<RecentPunchEntry>> GetRecentAsync(int take, CancellationToken ct)
     {
@@ -231,11 +256,13 @@ public sealed class PunchService(
             .Take(Math.Clamp(take, 1, 200))
             .ToListAsync(ct);
 
+        var zoneOf = await ZonesForAsync(punches, ct);
         return punches
             .Select(p => new RecentPunchEntry(
                 p.Id, p.EmployeeId, p.EmployeeCode,
                 visible.GetValueOrDefault(p.EmployeeId, p.EmployeeCode),
-                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags))
+                p.Timestamp, p.Direction, p.Source, p.DeviceId, p.ReceivedAt, p.Flags,
+                p.LocalDate, zoneOf(p)))
             .ToList();
     }
 
@@ -257,13 +284,16 @@ public sealed class PunchService(
             .ToList();
         var byId = active.ToDictionary(e => e.Id);
 
-        var present = latestPunches
+        var presentPunches = latestPunches
             .Where(p => p.Direction == PunchDirection.In && byId.ContainsKey(p.EmployeeId))
+            .ToList();
+        var zoneOf = await ZonesForAsync(presentPunches, ct);
+        var present = presentPunches
             .Select(p =>
             {
                 var employee = byId[p.EmployeeId];
                 return new LivePresenceEntry(employee.Id, employee.Code, employee.FullName,
-                    employee.JobTitle, employee.SiteId, p.Timestamp);
+                    employee.JobTitle, employee.SiteId, p.Timestamp, zoneOf(p), p.LocalDate);
             })
             .OrderByDescending(e => e.Since)
             .ToList();
@@ -291,29 +321,31 @@ public sealed class PunchService(
             .Where(p => p.EmployeeId == employeeId && p.LocalDate >= from && p.LocalDate <= to)
             .OrderBy(p => p.LocalDate).ThenBy(p => p.Timestamp)
             .ToListAsync(ct);
+        var zoneOf = await ZonesForAsync(punches, ct);
 
         var days = new List<TimesheetDay>();
         foreach (var group in punches.GroupBy(p => p.LocalDate!.Value))
         {
             var intervals = new List<TimesheetInterval>();
-            DateTimeOffset? openIn = null;
+            Punch? openIn = null;
             foreach (var punch in group)
             {
                 if (punch.Direction == PunchDirection.In)
                 {
-                    if (openIn.HasValue)
-                        intervals.Add(new TimesheetInterval(openIn.Value, null, null)); // missing Out anomaly
-                    openIn = punch.Timestamp;
+                    if (openIn is not null)
+                        intervals.Add(new TimesheetInterval(openIn.Timestamp, null, null, zoneOf(openIn), null)); // missing Out anomaly
+                    openIn = punch;
                 }
-                else if (openIn.HasValue)
+                else if (openIn is not null)
                 {
-                    var hours = (punch.Timestamp - openIn.Value).TotalHours;
-                    intervals.Add(new TimesheetInterval(openIn.Value, punch.Timestamp, Math.Round(hours, 2)));
+                    var hours = (punch.Timestamp - openIn.Timestamp).TotalHours;
+                    intervals.Add(new TimesheetInterval(openIn.Timestamp, punch.Timestamp, Math.Round(hours, 2),
+                        zoneOf(openIn), zoneOf(punch)));
                     openIn = null;
                 }
             }
-            if (openIn.HasValue)
-                intervals.Add(new TimesheetInterval(openIn.Value, null, null));
+            if (openIn is not null)
+                intervals.Add(new TimesheetInterval(openIn.Timestamp, null, null, zoneOf(openIn), null));
 
             days.Add(new TimesheetDay(group.Key, intervals,
                 Math.Round(intervals.Where(i => i.Hours.HasValue).Sum(i => i.Hours!.Value), 2)));
