@@ -25,6 +25,39 @@ public sealed class PunchContractOpenApiTests
     [Fact]
     public async Task The_punch_post_documents_its_clock_contract_in_openapi()
     {
+        var doc = await DocumentAsync();
+        var post = doc.GetProperty("paths").GetProperty("/api/punches").GetProperty("post");
+        var description = post.GetProperty("description").GetString()!;
+        Assert.Contains("offset is required", description);
+        Assert.Contains("`Late`", description);
+        Assert.Contains("`OffsetMismatch`", description);
+        Assert.Contains("`receivedAt`", description);
+        Assert.Contains("more than 5 minutes ahead", description);
+
+        var timestamp = doc.GetProperty("components").GetProperty("schemas")
+            .GetProperty("RecordPunchRequest").GetProperty("properties").GetProperty("timestamp");
+        Assert.Equal("date-time", timestamp.GetProperty("format").GetString());
+        Assert.Contains("UTC offset", timestamp.GetProperty("description").GetString());
+    }
+
+    /// <summary>
+    /// 022 P1: every punch read says which clock and which day. A Flutter client learns the fields
+    /// from the document, so the response schemas must be published and must carry them.
+    /// </summary>
+    [Theory]
+    [InlineData("RecentPunchEntry", "localDate", "localZone")]
+    [InlineData("LivePresenceEntry", "sinceLocalDate", "sinceLocalZone")]
+    [InlineData("TimesheetInterval", "inZone", "outZone")]
+    public async Task Punch_reads_document_their_zone_and_day_in_openapi(string schema, string day, string zone)
+    {
+        var properties = (await DocumentAsync()).GetProperty("components").GetProperty("schemas")
+            .GetProperty(schema).GetProperty("properties");
+        Assert.True(properties.TryGetProperty(day, out _), $"{schema}.{day} is not documented");
+        Assert.True(properties.TryGetProperty(zone, out _), $"{schema}.{zone} is not documented");
+    }
+
+    private static async Task<JsonElement> DocumentAsync()
+    {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             EnvironmentName = Environments.Development,
@@ -51,18 +84,6 @@ public sealed class PunchContractOpenApiTests
         new TimeAttendanceModule().MapEndpoints(app);
         await app.StartAsync();
 
-        var doc = await app.GetTestClient().GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
-        var post = doc.GetProperty("paths").GetProperty("/api/punches").GetProperty("post");
-        var description = post.GetProperty("description").GetString()!;
-        Assert.Contains("offset is required", description);
-        Assert.Contains("`Late`", description);
-        Assert.Contains("`OffsetMismatch`", description);
-        Assert.Contains("`receivedAt`", description);
-        Assert.Contains("more than 5 minutes ahead", description);
-
-        var timestamp = doc.GetProperty("components").GetProperty("schemas")
-            .GetProperty("RecordPunchRequest").GetProperty("properties").GetProperty("timestamp");
-        Assert.Equal("date-time", timestamp.GetProperty("format").GetString());
-        Assert.Contains("UTC offset", timestamp.GetProperty("description").GetString());
+        return await app.GetTestClient().GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
     }
 }
