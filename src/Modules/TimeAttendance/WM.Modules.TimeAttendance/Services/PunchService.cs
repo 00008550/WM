@@ -32,6 +32,7 @@ public sealed class PunchService(
     IOptions<PunchTimingOptions> timingOptions,
     ISiteTimeZones zones,
     IOwningDayResolver owningDay,
+    IClockingDays clockingDays,
     IClock clock)
 {
     // A caller must not be able to tell "this code exists but is not employed" from "this code does
@@ -79,7 +80,10 @@ public sealed class PunchService(
         // home-site zone, through the one owning-day seam. It is resolved here, once, and frozen on
         // the row below — so the employment check and the timesheet agree on which day it is.
         var zone = (await zones.ForSiteAsync(employee.SiteId, ct)).Zone;
-        var punchDate = owningDay.Resolve(timestamp, zone);
+        //
+        // Since 010 P2 the seam allocates: a night-shift punch after midnight can belong to yesterday,
+        // an armed early punch to tomorrow. That resolved day is what is frozen and checked.
+        var punchDate = (await owningDay.ResolveAsync(employee.Id, timestamp, zone, ct)).Date;
         if (employee.IsSuspended || !employee.IsEmployedOn(punchDate))
             return NotPunchable(request.EmployeeCode);
 
@@ -102,6 +106,10 @@ public sealed class PunchService(
             if (duplicate is not null)
                 return new PunchResult(duplicate, null);
         }
+
+        // A10, inverted (010 P2): legacy discarded a swipe whose day had no Clocking
+        // (73.V5.19.0.0.sql:233-256). WM makes sure the day exists; the punch is always kept.
+        await clockingDays.EnsureAsync(employee.Id, punchDate, ct);
 
         var punch = new Punch
         {

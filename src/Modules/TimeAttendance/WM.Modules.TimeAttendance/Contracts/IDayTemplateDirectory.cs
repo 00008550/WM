@@ -22,6 +22,14 @@ public interface IDayTemplateDirectory
     /// <c>DailyBrowserDetailsViewModel.cs:61</c>).
     /// </summary>
     Task<EffectiveDayTemplate?> ResolveAsync(Guid employeeId, DateOnly date, Guid dayTemplateId, CancellationToken ct);
+
+    /// <summary>
+    /// The templates' <b>own</b> <c>NightShiftEndTime</c>, no master override — what shift matching
+    /// tests a matched rule's target against (<c>37.V3.6.1.0.sql:851-860</c> reads
+    /// <c>DailyModels.NightShiftEndTime</c> of <c>ModelToAssignId</c> directly; plan 010 P2, A7).
+    /// An id that does not exist is absent from the result, so it can never match.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, TimeOnly?>> NightShiftEndTimesAsync(IReadOnlyCollection<Guid> templateIds, CancellationToken ct);
 }
 
 public sealed record ShiftMatchingRuleView(

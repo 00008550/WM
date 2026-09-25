@@ -11,6 +11,7 @@ Status: draft            <!-- draft → approved → in-progress → in-review �
 > first step, deliverable before 002.**
 >
 > **P1 approved for build 2026-09-24 (user: "go next"); P2–P5 still await rescope/approval.**
+> **P2 approved for build 2026-09-25 (user: "continue"); P3–P5 still await rescope/approval.**
 Roadmap: ARCHITECTURE.md §14 Phase 2 (Rules engine) — the smallest useful slice of it, pulled forward
 Reference: [`TLW-WORK-RULES.md`](../TLW-WORK-RULES.md) — full measured anatomy, written by this survey
 
@@ -203,7 +204,7 @@ behaviours found in `37.V3.6.1.0.sql` that the vault does *not* describe, and th
 | A7 | Yesterday is `ModelType = 7` (shift matching), swipe would complete a rule whose target template has `NightShiftEndTime > @time` | → yesterday (`:839-864`). `MatchType = 1` matches on end only; `MatchType = 2` on start **and** end |
 | A8 | Yesterday's badge slots are out of time order | legacy anchors branch 3 on the first **non-null slot** (`:823-825`), not the earliest time. WM orders by time; assert the two differ and WM is right |
 | A9 | All five branches miss | → the swipe's own date (`:867`) |
-| A10 | No clocking row exists for the resolved date | **legacy discards the swipe** (`73.V5.19.0.0.sql:233-256`, `'Clock Record not found'`). WM creates the day and raises an exception. Assert no punch is ever lost |
+| A10 | No clocking row exists for the resolved date | **legacy discards the swipe** (`73.V5.19.0.0.sql:233-256`, `'Clock Record not found'` — it is logged to `ProcessQuerySaveUnsuccessfulEmployeeSwipe`, never attached to a day). WM creates the day and raises an exception. Assert no punch is ever lost. *(Amended 2026-09-25, P2 review: P2 creates the day; the exception is **002's** — `IClockingDays.EnsureAsync` returns `true` for a created day and WM has no exception model before Phase 2.)* |
 
 ### Rendering
 
@@ -305,7 +306,7 @@ resolution with and without a master assignment, and with an expired one.
 **Note:** this is the whole of 002 P3's Work Rules dependency. Nothing else in the 124 columns is
 needed.
 
-### [ ] P2 — The allocation function
+### [x] P2 — The allocation function
 **Touches:** `…/Services/DayAllocationService.cs`, consumed by `PunchService`
 **Done when:** given a punch instant, a zone (008 P4's seam) and the neighbouring days' effective
 templates, the five branches resolve an owning date in legacy's order, with the documented fallback.
@@ -316,6 +317,46 @@ each so 002 inherits the list.
 **Risk:** **high** — a swipe on the wrong day is a payroll error. Also the portion with the most
 inverted behaviour (A3, A8, A10).
 **Depends on:** P1; 008 P4 for the local-date seam.
+**Built 2026-09-25 (awaiting review) — decisions recorded:**
+- **Ported from** the latest definition of `dbo.ProcessQueryGetClockingForSwipe`, the `ALTER` at
+  `37.V3.6.1.0.sql:748-868` (no later script redefines it; `73.V5.19.0.0.sql:232` only calls it).
+  Branch order kept: 1 night-shift end → yesterday; 2 armed offset → tomorrow; 3 window from
+  yesterday's first punch, only if today has none → yesterday; (4 = master override, folded into P1's
+  `EffectiveDayTemplate`); 5 shift matching → yesterday; fallback the punch's own date. The seam is
+  still `IOwningDayResolver` — now async and taking the employee — implemented by `DayAllocationService`.
+- **Wall clock:** every `time` comparison is on the wall clock of the home-site zone (008 Q2).
+- **Inversions:** A3 (P1, master window against the punch's own date; one master per punch, as
+  legacy); **A8** earliest punch, not first non-null slot — branches 3 and 5; **A10** a missing day
+  is created (`IClockingDays.EnsureAsync`), never a discarded punch; **branch 3 measures elapsed time**
+  (first-punch instant + window vs the punch instant) — legacy's wall-clock `datetime` arithmetic
+  (`:830`) made the window an hour longer/shorter across DST; **the instant survives** — legacy
+  re-composed the swipe as its time-of-day on the allocated date (`73.V5.19.0.0.sql:259-260`), WM moves
+  only `LocalDate`.
+- **Kept from legacy:** a neighbour with no Clocking, no template, or a dangling template id offers
+  nothing (legacy's inner joins); a shift-matching target is tested on its **own** `NightShiftEndTime`,
+  no master override (`:851-860`) — new `IDayTemplateDirectory.NightShiftEndTimesAsync`.
+- **Freeze:** already-frozen punches are **not** re-dated. `PunchLocalDateBackfill` keeps the plain
+  calendar date for the rows it fills (it no longer goes through the seam); moving a frozen punch is
+  recalculate.
+- **Spec drift:** the Clocking store is a port, `IClockingDays`; until 002 its production body
+  (`PunchBackedClockingDays`) has days without templates, so **no production answer changes** before
+  002 assigns templates. "Raise an exception" for a created day is reduced to `EnsureAsync` returning
+  `true` — WM has no exception model before Phase 2; 002 raises it. The eleven vault examples run
+  against a double (`V01`–`V11`) and are listed as `[Fact(Skip)]` placeholders in
+  `VaultAllocationExamplesFor002` for 002 P3.
+**Review passed 2026-09-25** (`feat/010-p2`, `6fa05c2`). Recorded by the review:
+- **Legacy source confirmed.** A BOM-aware scan of every `Database\Versioning` script finds
+  `CREATE`/`ALTER FUNCTION dbo.ProcessQueryGetClockingForSwipe` in `30`, `32`, `33` and `37` only;
+  `37.V3.6.1.0.sql:748` is the last. `67` and `73` only call it.
+- **A consequence of "the instant survives", not listed above:** branch 3 anchors on the real
+  instant of yesterday's earliest punch. Legacy's badge time on yesterday's row was re-composed onto
+  yesterday's date (`73.V5.19.0.0.sql:259-260`), so where that punch was itself moved in from
+  another calendar date (branch 1 or 2), legacy measured the window from a moment that never
+  happened, up to 24 h away from the real one. WM measures from the real one. Migrated data can
+  therefore allocate differently in that case; import (002) must not re-derive frozen days from it.
+- **A dangling template id is skipped silently** (legacy's inner join) until P3 surfaces it as a
+  defect marker. Accepted for P2: production days carry no template id before 002, so it cannot
+  happen yet. It becomes reachable when 002 assigns templates, and P3's marker is then owed.
 
 ### [ ] P3 — Daily Browser read model + endpoint
 **Touches:** `…/Queries/DailyBrowserRow.cs`, `…/Services/DailyBrowserQuery.cs`,

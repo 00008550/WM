@@ -52,7 +52,7 @@ public sealed class PunchSeeder(
                 if (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) continue;
                 var clockIn = At(day, new TimeOnly(7, 0).AddMinutes(rng.Next(0, 75)), zone);
                 var clockOut = clockIn.AddHours(7.5 + rng.NextDouble() * 2);
-                AddPair(employee, zone, clockIn, clockOut, now, rng);
+                await AddPairAsync(employee, zone, clockIn, clockOut, now, rng, ct);
             }
 
             // Today: ~75% are in; a third of those already left. Nobody is clocked in from the future.
@@ -61,7 +61,7 @@ public sealed class PunchSeeder(
                 var clockIn = At(today, new TimeOnly(7, 0).AddMinutes(rng.Next(0, 90)), zone);
                 if (clockIn > now) continue;
                 DateTimeOffset? clockOut = rng.NextDouble() < 0.3 ? clockIn.AddHours(6 + rng.NextDouble() * 3) : null;
-                AddPair(employee, zone, clockIn, clockOut, now, rng);
+                await AddPairAsync(employee, zone, clockIn, clockOut, now, rng, ct);
             }
         }
 
@@ -76,17 +76,18 @@ public sealed class PunchSeeder(
         return new DateTimeOffset(local, zone.Info.GetUtcOffset(local));
     }
 
-    private void AddPair(
+    private async Task AddPairAsync(
         EmployeeSummary employee, ZoneId zone, DateTimeOffset clockIn, DateTimeOffset? clockOut,
-        DateTimeOffset now, Random rng)
+        DateTimeOffset now, Random rng, CancellationToken ct)
     {
-        db.Punches.Add(NewPunch(employee, zone, clockIn, PunchDirection.In, rng));
+        db.Punches.Add(await NewPunchAsync(employee, zone, clockIn, PunchDirection.In, rng, ct));
         if (clockOut.HasValue && clockOut.Value < now)
-            db.Punches.Add(NewPunch(employee, zone, clockOut.Value, PunchDirection.Out, rng));
+            db.Punches.Add(await NewPunchAsync(employee, zone, clockOut.Value, PunchDirection.Out, rng, ct));
     }
 
-    private Punch NewPunch(
-        EmployeeSummary employee, ZoneId zone, DateTimeOffset timestamp, PunchDirection direction, Random rng) => new()
+    private async Task<Punch> NewPunchAsync(
+        EmployeeSummary employee, ZoneId zone, DateTimeOffset timestamp, PunchDirection direction, Random rng,
+        CancellationToken ct) => new()
     {
         EmployeeId = employee.Id,
         EmployeeCode = employee.Code,
@@ -95,7 +96,7 @@ public sealed class PunchSeeder(
         Source = PunchSource.Terminal,
         DeviceId = $"TERM-{rng.Next(1, 4):00}",
         SiteId = employee.SiteId,
-        LocalDate = owningDay.Resolve(timestamp, zone),
+        LocalDate = (await owningDay.ResolveAsync(employee.Id, timestamp, zone, ct)).Date,
         LocalZone = zone.Id,
         ReceivedAt = timestamp.ToUniversalTime(), // a terminal punch, stamped as it happened
     };

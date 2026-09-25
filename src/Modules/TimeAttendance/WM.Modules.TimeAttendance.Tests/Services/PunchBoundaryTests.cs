@@ -35,7 +35,7 @@ public sealed class PunchBoundaryTests
                 .UseInMemoryDatabase($"punch-{Guid.NewGuid()}").Options);
         var options = Options.Create(new PunchDeduplicationOptions { Window = TimeSpan.FromSeconds(dedupeSeconds) });
         var svc = new PunchService(db, new StubDirectory(employee), new NoopEventStream(), options, Options.Create(new PunchTimingOptions()),
-            new FixedZones(ZoneId.Utc), new LocalCalendarDayResolver(),
+            new FixedZones(ZoneId.Utc), new LocalCalendarDayResolver(), new PunchBackedClockingDays(db),
             new SystemClock(new FixedTime(new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero))));
         return (svc, db);
     }

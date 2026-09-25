@@ -47,9 +47,11 @@ public sealed class TimeAttendanceModule : IModule
 
         services.AddScoped<PunchService>();
         services.AddScoped<PunchSeeder>();
-        // 008 P4: the owning-day seam (plan 002 replaces its body) and the one-off fill of punches
-        // recorded before the local day was frozen on the row.
-        services.AddSingleton<IOwningDayResolver, LocalCalendarDayResolver>();
+        // 008 P4: the owning-day seam — since 010 P2, legacy's swipe→day allocation — and the one-off
+        // fill of punches recorded before the local day was frozen on the row. IClockingDays is the
+        // Clocking store as allocation sees it; plan 002 replaces the punch-backed interim.
+        services.AddScoped<IOwningDayResolver, DayAllocationService>();
+        services.AddScoped<IClockingDays, PunchBackedClockingDays>();
         services.AddScoped<PunchLocalDateBackfill>();
         services.AddScoped<IDayTemplateDirectory, DayTemplateDirectory>();
     }

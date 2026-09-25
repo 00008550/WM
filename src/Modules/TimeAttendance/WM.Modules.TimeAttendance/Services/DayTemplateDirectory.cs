@@ -27,4 +27,13 @@ public sealed class DayTemplateDirectory(TimeAttendanceDbContext db) : IDayTempl
 
         return EffectiveDayTemplate.Resolve(day, master);
     }
+
+    public async Task<IReadOnlyDictionary<Guid, TimeOnly?>> NightShiftEndTimesAsync(
+        IReadOnlyCollection<Guid> templateIds, CancellationToken ct)
+    {
+        if (templateIds.Count == 0) return new Dictionary<Guid, TimeOnly?>();
+        return await db.DayTemplates.AsNoTracking()
+            .Where(t => templateIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.NightShiftEndTime, ct);
+    }
 }
