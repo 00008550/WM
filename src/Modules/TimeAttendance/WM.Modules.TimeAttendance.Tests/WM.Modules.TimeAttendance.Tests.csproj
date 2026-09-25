@@ -13,6 +13,12 @@
          not SQL, and there is no Postgres harness in this repository (docs/plans/STATE.md). Same
          choice, and the same version, as the other module test projects. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
+    <!-- 002 P1: SQLite, not InMemory, for the Clocking tests — InMemory ignores unique indexes, and the
+         (employee, date) key is what those tests are about. Same package and version as WM.Api.Tests. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <!-- The same NU1903 pin as WM.Api.Tests: EF 10.0.10 pulls bundle_e_sqlite3 2.1.11
+         (GHSA-2m69-gcr7-jv3q); 2.1.12 is the fix. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <!-- 008 P4 review: the /api/me/timesheet endpoint, mapped into an in-memory host. -->
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

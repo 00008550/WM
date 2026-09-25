@@ -103,6 +103,9 @@ using (var scope = app.Services.CreateScope())
     // 008 P4: punches from before the local day was frozen on the row get one, through People's zone
     // contract — the migration cannot resolve zones without reading People's schema.
     await services.GetRequiredService<PunchLocalDateBackfill>().RunAsync();
+    // 002 P1: after the punches have their day, each such day gets its Clocking row. Idempotent and
+    // safe with several instances starting at once (insert-if-absent on the unique key).
+    await services.GetRequiredService<ClockingBackfill>().RunAsync();
 
     if (app.Environment.IsDevelopment())
     {

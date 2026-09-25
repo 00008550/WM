@@ -53,6 +53,8 @@ public sealed class TimeAttendanceModule : IModule
         services.AddScoped<IOwningDayResolver, DayAllocationService>();
         services.AddScoped<IClockingDays, PunchBackedClockingDays>();
         services.AddScoped<PunchLocalDateBackfill>();
+        // 002 P1: every day that already has punches gets its Clocking row on start.
+        services.AddScoped<ClockingBackfill>();
         services.AddScoped<IDayTemplateDirectory, DayTemplateDirectory>();
     }
 

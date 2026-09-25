@@ -6,6 +6,7 @@ namespace WM.Modules.TimeAttendance.Data;
 public sealed class TimeAttendanceDbContext(DbContextOptions<TimeAttendanceDbContext> options) : DbContext(options)
 {
     public DbSet<Punch> Punches => Set<Punch>();
+    public DbSet<Clocking> Clockings => Set<Clocking>();
     public DbSet<DayTemplate> DayTemplates => Set<DayTemplate>();
     public DbSet<ShiftMatchingRule> ShiftMatchingRules => Set<ShiftMatchingRule>();
     public DbSet<MasterTemplateAssignment> MasterTemplateAssignments => Set<MasterTemplateAssignment>();
@@ -23,6 +24,13 @@ public sealed class TimeAttendanceDbContext(DbContextOptions<TimeAttendanceDbCon
             // 008 P4: the timesheet reads by frozen local day.
             e.Property(x => x.LocalZone).HasMaxLength(64);
             e.HasIndex(x => new { x.EmployeeId, x.LocalDate });
+        });
+
+        // Plan 002 P1 — the day. The unique key is what makes every creation path (backfill, calendar,
+        // EnsureAsync) idempotent: each inserts if absent and lets the key absorb a concurrent twin.
+        b.Entity<Clocking>(e =>
+        {
+            e.HasIndex(x => new { x.EmployeeId, x.Date }).IsUnique();
         });
 
         // Plan 010 P1 — the allocation subset of legacy dbo.DailyModels and its two child tables.
