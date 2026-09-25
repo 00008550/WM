@@ -1,6 +1,6 @@
 # 022 — Punch times in the site's zone, not the browser's
 
-Status: approved           <!-- draft → approved → in-progress → in-review → merged -->
+Status: in-progress        <!-- draft → approved → in-progress → in-review → merged -->
 Approved by the user 2026-09-25 (both portions), directly in the coordinating session. P1 builds only after #98 merges.
 Roadmap: ARCHITECTURE.md §14 — cross-cutting; the display half of plan **008** (a day has a place)
 Legacy sources surveyed: **none, deliberately.** This is a defect in WM's own portal, found by
@@ -71,7 +71,7 @@ both edit `PunchService.cs` — so **P1 builds after #98 merges** and rebases on
 |---|---|---|
 | Frozen `LocalDate` / `LocalZone` on the punch (008 P4) | **Keep** | It is the truth of which day and which clock a punch belongs to; displays must read it, not recompute it. |
 | Portal formats instants in the browser zone | **Invert** | A manager in Tashkent reading a Ljubljana site sees the wrong clock and, near midnight, the wrong day. The viewer's zone is irrelevant to when someone worked. |
-| Zone fallback computed by each client | **Improve** | Server resolves it once (punch's `LocalZone`, else the employee's home-site zone via `ISiteTimeZones`) and always emits a non-null zone, so Flutter does not re-implement the fallback. |
+| Zone fallback computed by each client | **Improve** | Server resolves it once (punch's `LocalZone`, else the current zone of the punch's recorded `SiteId` via `ISiteTimeZones`) and always emits a non-null zone, so Flutter does not re-implement the fallback. |
 | Day derived from the instant in any client | **Drop** | Every response that shows a day carries `localDate`. |
 
 ## Edge cases
@@ -80,7 +80,8 @@ both edit `PunchService.cs` — so **P1 builds after #98 merges** and rebases on
   `Europe/Ljubljana` site, frozen `LocalDate = 2026-09-17`. Must render **21:44**, day **17 Sep**, in
   any browser zone — including `Asia/Tashkent`, where the browser alone would say 00:44 on the 18th.
 - **Punch without a frozen zone** (`LocalZone` null — pre-008 rows the backfill could not reach):
-  server falls back to the employee's home-site zone. The portal's own fallback (site zone, then UTC,
+  server falls back to the current zone of the punch's **recorded** site (`Punch.SiteId`, the
+  employee's home site at record time — ruled at P1 review, see below). The portal's own fallback (site zone, then UTC,
   labelled) exists only as a defence and must never be reached on a current API.
 - **A site's zone changed after the punch:** the punch keeps its frozen zone. Old punches render in
   the old zone; that is the point of freezing, and a test pins it.
@@ -138,7 +139,7 @@ zone.
 frontend files plus two new specs and a browser check. Together they exceed ~8 files and cross the
 backend/frontend line; each half is independently green and releasable (P1 is additive JSON).
 
-### [ ] P1 — Every punch payload says which clock and which day
+### [x] P1 — Every punch payload says which clock and which day
 
 **Touches:** `Services/PunchService.cs` (the four records at `:18-25`, `:203-206` and their
 builders at `:197`, `:235`, `:265`, `:299-316`; zone fallback through the injected `ISiteTimeZones`),
@@ -197,3 +198,17 @@ builds only after #98 merges.
    that differs from the viewer's zone. **No "show in my zone" toggle.**
 2. **Label style:** a city name derived from the IANA id, with the full IANA id as the `title`
    tooltip. No abbreviations and no offsets. The derivation is in *Target design → Zone label*.
+
+## Review rulings (P1, 2026-09-25)
+
+- **Fallback site.** When `LocalZone` is null the server resolves the zone of the punch's stored
+  `SiteId`, not the employee's *current* home site. Under 008 Q2 (a) the zone is the home-site zone,
+  and under Q4 (freeze) it is the one in force **when the punch was recorded**. `Punch.SiteId` is that
+  home site as of record time, and `PunchLocalDateBackfill` resolves unfrozen rows the same way. So the
+  fallback reproduces what freezing would have stored. The employee's current site would move an old
+  punch whenever the employee transferred. The text above now reads "recorded site".
+- **`localDate` is nullable** because `Punch.LocalDate` is nullable (pre-008 rows the backfill has not
+  reached). The zone is never null. P2 treats a null `localDate` as "derive the day from the instant
+  in `localZone`", never from the browser's zone.
+- **`.Produces<T>()`** on the five GETs is OpenAPI metadata only (no runtime change). It is accepted
+  because the *Done when* requires that the document shows the fields.
