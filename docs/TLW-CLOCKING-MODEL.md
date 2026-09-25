@@ -65,6 +65,13 @@ Three properties that WM's `Punch` model does not have:
 
 ### 2.3a Where that calculation actually lives *(measured 2026-08-14)*
 
+> **Corrected 2026-09-25 (plan 002 refresh).** The claim below that `30.V3.0.0` holds the *only*
+> definition is wrong. The function is re-created at `32.V3.1.5.0.sql:370` and `33.V3.3.0.0.sql:1082`
+> and last **altered** at `37.V3.6.1.0.sql:748-868` — the live definition, which plan 010 P2 ported
+> (`DayAllocationService.cs`). Its line numbers (`:775-867`) are the ones to cite; the table below
+> keeps the `30.V3.0.0` numbering only as history. The allocation is **built** in WM (010 P2); plan
+> 002 P3 puts the real Clocking store behind it.
+
 It is a **T-SQL scalar function**, not C#: `dbo.ProcessQueryGetClockingForSwipe(@employeeid int,
 @swipeTime datetime)`, defined at `Database\Versioning\30.V3.0.0.ProcessQuery module.sql:429-528`.
 That is the **only** definition in the whole `Database` tree; later scripts only call it
@@ -169,6 +176,12 @@ These are **stored, not derived on read**. That is exactly the design that force
 whole-estate nightly recalculation and its separate `Reprocessor` project, and it is the pain
 `ARCHITECTURE.md` §7A's Kafka-replay design is meant to solve.
 
+> **Superseded 2026-09-03 by `ARCHITECTURE.md §0a` decision 2 (user):** WM **stores** calculated
+> state on the Clocking too, because the aggregate is human-editable; provenance is per value
+> (decision 3). Plan 002 P7 stores each value's calculated and manual halves side by side. The
+> whole-estate nightly recalculation is still not inherited: a recalculation is explicit and
+> scoped (002 P8). §6 point 4 below is superseded the same way.
+
 ### 3e. Absence, correction and exception state on the row
 `MorningAbsenceID`, `AfternoonAbsenceID` (half-day absences live **on the clocking**),
 `CorrectionId`, `CorrectionDuration`, `CorrectionCostCentreId`, `IsDTManualChanged`,
@@ -217,7 +230,7 @@ other days for the same employee**. A per-row expression evaluator is not suffic
 | `CPTN01..20` pay categories | **nothing** |
 | 6 shifts with per-shift cost centres and measures | **nothing** |
 | Stored `calc_*` results | timesheet computed on read |
-| `DailyModels` — 124 cols | **nothing** |
+| `DailyModels` — 124 cols | `DayTemplate` — the five allocation columns + master override (010 P1, 2026-09-24) |
 | `Employees` — 153 cols | `Employee` — 12 |
 | `SoftwareMainOptions` — 227 cols | **nothing** — and 47 of those columns govern how hours and punches are calculated ([`TLW-GLOBAL-OPTIONS.md`](./TLW-GLOBAL-OPTIONS.md)) |
 

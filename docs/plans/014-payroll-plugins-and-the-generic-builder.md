@@ -120,6 +120,13 @@ controllers beyond `Generic`/`Other`. Cost-centre / midnight / notification calc
 plans 013 / 012 / Notifications — this plan consumes their output, it does not re-implement it. EPOS
 and device comms (invariant 3).
 
+> **Inbound from plan 002 (refresh 2026-09-25).** The **flat legacy projection** of the Clocking —
+> `BadgeTime1..12` and `CPTN01..20` in the legacy column layout — moved here from 002, because this
+> plan's generic export builder is its only consumer. It must carry the **day-carry** explicitly (a
+> slot's calendar date, not `Date + time`; `TLW-CLOCKING-MODEL.md` §3a) and must handle more than 12
+> punches or more than 20 counters **explicitly**, never by silent truncation. Prerequisites: 002 P6
+> (punch provenance) and P7 (stored values).
+
 ## Portions
 
 ### [ ] P1 — `IPayrollExportPlugin` contract + manifest in `src/PluginSdk`
