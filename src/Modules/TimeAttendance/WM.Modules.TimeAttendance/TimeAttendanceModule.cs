@@ -88,12 +88,14 @@ public sealed class TimeAttendanceModule : IModule
 
         punches.MapGet("/recent", async (PunchService service, int take = 50, CancellationToken ct = default) =>
             Results.Ok(await service.GetRecentAsync(take, ct)))
+            .Produces<IReadOnlyList<PunchService.RecentPunchEntry>>()
             .RequireAuthorization(WmPermissions.AttendanceView);
 
         var attendance = endpoints.MapGroup("/api/attendance").WithTags("Attendance");
 
         attendance.MapGet("/live", async (PunchService service, CancellationToken ct) =>
             Results.Ok(await service.GetLivePresenceAsync(ct)))
+            .Produces<LivePresence>()
             .RequireAuthorization(WmPermissions.AttendanceView);
 
         attendance.MapGet("/timesheet/{employeeId:guid}", async (
@@ -109,7 +111,8 @@ public sealed class TimeAttendanceModule : IModule
             var end = to ?? await service.LocalTodayAsync(employee, ct);
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
-        }).RequireAuthorization(WmPermissions.AttendanceView);
+        }).Produces<IReadOnlyList<TimesheetDay>>()
+          .RequireAuthorization(WmPermissions.AttendanceView);
 
         // Self-service: everything below is scoped to the caller's OWN linked employee.
         var me = endpoints.MapGroup("/api/me").WithTags("Self-service")
@@ -118,7 +121,8 @@ public sealed class TimeAttendanceModule : IModule
         me.MapGet("/punches", async (ICurrentUser user, PunchService service, int take = 20, CancellationToken ct = default) =>
             user.EmployeeId is { } employeeId
                 ? Results.Ok(await service.GetRecentForEmployeeAsync(employeeId, take, ct))
-                : NotLinked());
+                : NotLinked())
+            .Produces<IReadOnlyList<PunchService.RecentPunchEntry>>();
 
         me.MapGet("/timesheet", async (
             ICurrentUser user, DateOnly? from, DateOnly? to,
@@ -136,7 +140,7 @@ public sealed class TimeAttendanceModule : IModule
                 return Results.Problem("Your employee record could not be found.", statusCode: StatusCodes.Status404NotFound);
             var start = from ?? end.AddDays(-6);
             return Results.Ok(await service.GetTimesheetAsync(employeeId, start, end, ct));
-        });
+        }).Produces<IReadOnlyList<TimesheetDay>>();
 
         me.MapPost("/punch", async (SelfPunchRequest request, ICurrentUser user, PunchService service, CancellationToken ct) =>
         {
