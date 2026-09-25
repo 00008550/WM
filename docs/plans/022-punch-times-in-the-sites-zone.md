@@ -162,7 +162,9 @@ published by `RecordAsync` carries both fields (assert on the fake `IEventStream
 of the frozen one — the zone-changed test must fail by name.
 **Risk:** low
 
-### [ ] P2 — The portal reads the clock it is given
+### [x] P2 — The portal reads the clock it is given
+
+*Review passed 2026-09-25 (round 2), [#101](https://github.com/00008550/WM/pull/101). Status stays `in-progress` while P3 is open.*
 
 **Touches:** `frontend/portal/src/app/shared/punch-time.pipe.ts` + `.spec.ts` (new),
 `core/api/workforce.api.ts` (`PunchRow`, `LivePresenceEntry`), `core/api/self-service.api.ts`
