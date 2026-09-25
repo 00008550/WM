@@ -99,6 +99,10 @@ export interface LivePresenceEntry {
   jobTitle: string | null;
   siteId: string;
   since: string;
+  /** The clock `since` is read on: the punch's frozen zone (022 P1). Never null from a current API. */
+  sinceLocalZone: string;
+  /** The day that punch belongs to; null only for pre-008 rows the backfill has not reached. */
+  sinceLocalDate: string | null;
 }
 
 export interface LivePresence {
@@ -116,6 +120,10 @@ export interface PunchRow {
   direction: number; // 0 In, 1 Out
   source: number;
   deviceId: string | null;
+  /** The day the punch belongs to (008 P4). Null only for unbackfilled pre-008 rows. */
+  localDate: string | null;
+  /** IANA zone the punch is read on (022 P1). Never null from a current API. */
+  localZone: string;
 }
 
 @Injectable({ providedIn: 'root' })

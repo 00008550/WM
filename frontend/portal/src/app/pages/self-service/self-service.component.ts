@@ -4,10 +4,11 @@ import { SelfServiceApi, TimesheetDay } from '../../core/api/self-service.api';
 import { EmployeeRow, PunchRow } from '../../core/api/workforce.api';
 import { AuthService } from '../../core/auth/auth.service';
 import { IconComponent } from '../../core/ui/icon.component';
+import { PunchTimeComponent, mixesZones, punchDay } from '../../shared/punch-time.pipe';
 
 @Component({
   selector: 'wm-self-service',
-  imports: [DatePipe, DecimalPipe, IconComponent],
+  imports: [DatePipe, DecimalPipe, IconComponent, PunchTimeComponent],
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="p-8 max-w-4xl">
@@ -32,8 +33,8 @@ import { IconComponent } from '../../core/ui/icon.component';
                     [class.bg-pulse]="clockedIn()" [class.bg-muted]="!clockedIn()"
                     [class.animate-pulse-ring]="clockedIn()"></span>
               <span class="font-display text-xl font-bold">{{ clockedIn() ? 'Clocked in' : 'Clocked out' }}</span>
-              @if (lastPunchTime()) {
-                <span class="num text-xs text-muted">since {{ lastPunchTime() | date: 'HH:mm' }}</span>
+              @if (punches()[0]; as last) {
+                <span class="num text-xs text-muted">since <wm-punch-time [value]="last.timestamp" [zone]="last.localZone" /></span>
               }
             </div>
           </div>
@@ -82,7 +83,9 @@ import { IconComponent } from '../../core/ui/icon.component';
                     </div>
                     @if (day.intervals.length) {
                       <div class="num text-[10px] text-muted">
-                        {{ day.intervals[0].in | date: 'HH:mm' }}–{{ day.intervals[day.intervals.length-1].out | date: 'HH:mm' }}
+                        @let first = day.intervals[0];
+                        @let last = day.intervals[day.intervals.length - 1];
+                        <wm-punch-time [value]="first.in" [zone]="first.inZone" />–@if (last.out) {<wm-punch-time [value]="last.out" [zone]="last.outZone" />}
                       </div>
                     }
                   </div>
@@ -105,7 +108,7 @@ import { IconComponent } from '../../core/ui/icon.component';
             } @else {
               @for (p of punches(); track p.id) {
                 <div class="py-2.5 flex items-center gap-3 text-sm">
-                  <span class="num text-[11px] text-muted w-24">{{ p.timestamp | date: 'd MMM HH:mm' }}</span>
+                  <span class="num text-[11px] text-muted min-w-24 whitespace-nowrap">{{ day(p) }} <wm-punch-time [value]="p.timestamp" [zone]="p.localZone" [label]="punchLabels()" /></span>
                   <span class="font-mono text-[9px] px-1.5 py-0.5 rounded-sm border"
                         [class]="p.direction === 0 ? 'text-pulse border-pulse/40 bg-pulse/10' : 'text-coral border-coral/40 bg-coral/10'">
                     {{ p.direction === 0 ? 'IN' : 'OUT' }}
@@ -135,7 +138,7 @@ export class SelfServiceComponent implements OnInit {
 
   // Clocked in if the most recent punch is an In.
   readonly clockedIn = computed(() => this.punches()[0]?.direction === 0);
-  readonly lastPunchTime = computed(() => this.punches()[0]?.timestamp ?? null);
+  readonly punchLabels = computed(() => mixesZones(this.punches().map(p => p.localZone)) ? 'always' as const : 'auto' as const);
   readonly weekTotal = computed(() => this.timesheet().reduce((sum, d) => sum + d.totalHours, 0));
 
   ngOnInit(): void {
@@ -151,6 +154,11 @@ export class SelfServiceComponent implements OnInit {
       next: () => { this.busy.set(false); this.reload(); },
       error: err => { this.busy.set(false); this.error.set(err?.error?.detail ?? 'Could not record your punch.'); },
     });
+  }
+
+  /** The list's day comes from the API's `localDate`, never from the instant in the browser's zone. */
+  day(p: PunchRow): string {
+    return punchDay(p.localDate, p.timestamp, p.localZone);
   }
 
   private reload(): void {

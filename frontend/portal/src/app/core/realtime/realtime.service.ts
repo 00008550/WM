@@ -13,6 +13,9 @@ export interface PunchEvent {
   timestamp: string;
   direction: 'In' | 'Out';
   source: string;
+  /** The day and clock frozen on the punch (022 P1). Nullable on the contract; the portal falls back to UTC, labelled. */
+  localDate?: string | null;
+  localZone?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
