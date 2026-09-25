@@ -89,6 +89,10 @@ what changed you diff consecutive `ClockingsLog` rows yourself.
   duplicated into its log. WM's replay (plan 002) removes the need to *store* the log of a
   recalculated value at all: the audit records the **inputs and the human overrides**, and the
   `calc_*` outputs are derived.
+  > **Superseded 2026-09-25 (plan 002 refresh).** `ARCHITECTURE.md §0a` decision 2 (2026-09-03)
+  > made calculated state **stored**, not derived. The audit conclusion holds for a different
+  > reason: 002 journals **human** writes and recalculate moves, while calculator writes carry
+  > system provenance (`calculated_at`) rather than an audit row (plan 002, Target design).
 - `Clockings` is `249/249 UpdateCheck.Never` (recorded in `STATE.md`, 2026-08-29): legacy
   deliberately exempts the wholesale-recalculated aggregate from optimistic concurrency, and mirrors
   every write into `ClockingsLog` instead. That is the provenance question plan 002 asks — answered:

@@ -261,6 +261,13 @@ zero night, all day.
 **Risk:** medium — the third branch is the one legacy needed a comment to explain.
 
 ### [ ] P5 — The result is a projection, and an override is an input
+
+> **Inbound from plan 002 (refresh 2026-09-25): this title predates `ARCHITECTURE.md §0a`
+> decision 2 (2026-09-03), which made calculated state *stored* on the Clocking.** The intent
+> survives (recalculation never destroys an override) but the mechanism is 002 P7: the calculator
+> writes `calculated` through `IClockingResults`, a human override is stored beside it as `manual`
+> with actor, time and reason, and recalculation touches only `calculated`. Re-cut this portion
+> against 002 P7 before approval.
 **Touches:** `Calculation/DayAdjustment.cs` + migration, `Services/DayCalculationService.cs`,
 `Contracts/DayCalculated.cs`, endpoint + policy in `TimeAttendanceModule.cs`, tests.
 **Done when:** calculating a day never destroys a human adjustment. An adjustment is a stored
